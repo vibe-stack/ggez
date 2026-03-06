@@ -6,6 +6,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@web-hammer/geometry-kernel": "workspace:*",
     "@web-hammer/shared": "workspace:*",
     "three": "^0.181.1",
     "three-mesh-bvh": "^0.9.2"

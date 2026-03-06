@@ -4,6 +4,8 @@ export type MaterialID = string;
 export type AssetID = string;
 export type LayerID = string;
 export type FaceID = string;
+export type VertexID = string;
+export type HalfEdgeID = string;
 
 export type Vec3 = {
   x: number;
@@ -25,7 +27,7 @@ export type Plane = {
 export type Face = {
   id: FaceID;
   plane: Plane;
-  vertexIds: string[];
+  vertexIds: VertexID[];
   materialId?: MaterialID;
 };
 
@@ -35,10 +37,28 @@ export type Brush = {
   previewSize: Vec3;
 };
 
+export type EditableMeshVertex = {
+  id: VertexID;
+  position: Vec3;
+};
+
+export type EditableMeshHalfEdge = {
+  id: HalfEdgeID;
+  vertex: VertexID;
+  twin?: HalfEdgeID;
+  next?: HalfEdgeID;
+  face?: FaceID;
+};
+
+export type EditableMeshFace = {
+  id: FaceID;
+  halfEdge: HalfEdgeID;
+};
+
 export type EditableMesh = {
-  vertices: Array<{ id: string; position: Vec3 }>;
-  halfEdges: Array<{ id: string; vertex: string; twin?: string; next?: string; face?: string }>;
-  faces: Array<{ id: FaceID; halfEdge: string }>;
+  vertices: EditableMeshVertex[];
+  halfEdges: EditableMeshHalfEdge[];
+  faces: EditableMeshFace[];
 };
 
 export type ModelReference = {

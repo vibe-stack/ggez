@@ -6,6 +6,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@web-hammer/geometry-kernel": "workspace:*",
     "@web-hammer/shared": "workspace:*"
   }
 }

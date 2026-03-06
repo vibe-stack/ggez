@@ -1,9 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { OrbitControls } from "@react-three/drei";
 import { Canvas, useThree } from "@react-three/fiber";
 import type { DerivedRenderMesh, DerivedRenderScene, ViewportState } from "@web-hammer/render-pipeline";
 import { toTuple } from "@web-hammer/shared";
-import type { PerspectiveCamera } from "three";
+import { BufferGeometry, DoubleSide, Float32BufferAttribute, type PerspectiveCamera } from "three";
 
 type ViewportCanvasProps = {
   renderScene: DerivedRenderScene;
@@ -62,11 +62,31 @@ function ConstructionGrid({ viewport }: Pick<ViewportCanvasProps, "viewport">) {
 }
 
 function RenderPrimitive({ mesh }: { mesh: DerivedRenderMesh }) {
+  const geometry = useMemo(() => {
+    if (!mesh.surface) {
+      return undefined;
+    }
+
+    const bufferGeometry = new BufferGeometry();
+    bufferGeometry.setAttribute("position", new Float32BufferAttribute(mesh.surface.positions, 3));
+    bufferGeometry.setIndex(mesh.surface.indices);
+    bufferGeometry.computeVertexNormals();
+
+    return bufferGeometry;
+  }, [mesh.surface]);
+
+  useEffect(() => {
+    return () => {
+      geometry?.dispose();
+    };
+  }, [geometry]);
+
   const materialProps = {
     color: mesh.material.color,
     wireframe: mesh.material.wireframe,
     metalness: mesh.material.wireframe ? 0.05 : 0.15,
-    roughness: mesh.material.wireframe ? 0.45 : 0.72
+    roughness: mesh.material.wireframe ? 0.45 : 0.72,
+    side: DoubleSide
   };
 
   return (
@@ -77,11 +97,12 @@ function RenderPrimitive({ mesh }: { mesh: DerivedRenderMesh }) {
       rotation={toTuple(mesh.rotation)}
       scale={toTuple(mesh.scale)}
     >
-      {mesh.primitive.kind === "box" ? <boxGeometry args={toTuple(mesh.primitive.size)} /> : null}
-      {mesh.primitive.kind === "icosahedron" ? (
+      {geometry ? <primitive attach="geometry" object={geometry} /> : null}
+      {mesh.primitive?.kind === "box" ? <boxGeometry args={toTuple(mesh.primitive.size)} /> : null}
+      {mesh.primitive?.kind === "icosahedron" ? (
         <icosahedronGeometry args={[mesh.primitive.radius, mesh.primitive.detail]} />
       ) : null}
-      {mesh.primitive.kind === "cylinder" ? (
+      {mesh.primitive?.kind === "cylinder" ? (
         <cylinderGeometry
           args={[
             mesh.primitive.radiusTop,

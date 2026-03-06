@@ -1,3 +1,4 @@
+import { reconstructBrushFaces, triangulateEditableMesh } from "@web-hammer/geometry-kernel";
 import type { GeometryNode, NodeID, Vec3 } from "@web-hammer/shared";
 import { isBrushNode, isMeshNode, isModelNode } from "@web-hammer/shared";
 
@@ -24,6 +25,11 @@ export type RenderMaterial = {
   wireframe: boolean;
 };
 
+export type DerivedSurfaceGeometry = {
+  positions: number[];
+  indices: number[];
+};
+
 export type DerivedRenderMesh = {
   nodeId: NodeID;
   sourceKind: GeometryNode["kind"];
@@ -33,12 +39,18 @@ export type DerivedRenderMesh = {
   position: Vec3;
   rotation: Vec3;
   scale: Vec3;
-  primitive: RenderPrimitive;
+  primitive?: RenderPrimitive;
+  surface?: DerivedSurfaceGeometry;
   material: RenderMaterial;
 };
 
 export function createDerivedRenderMesh(node: GeometryNode): DerivedRenderMesh {
   const appearance = getRenderAppearance(node);
+  const surface = isBrushNode(node)
+    ? createBrushSurface(node.data)
+    : isMeshNode(node)
+      ? createEditableMeshSurface(node.data)
+      : undefined;
 
   return {
     nodeId: node.id,
@@ -49,24 +61,16 @@ export function createDerivedRenderMesh(node: GeometryNode): DerivedRenderMesh {
     position: node.transform.position,
     rotation: node.transform.rotation,
     scale: node.transform.scale,
-    primitive: isBrushNode(node)
+    primitive: isModelNode(node)
       ? {
-          kind: "box",
-          size: node.data.previewSize
-        }
-      : isMeshNode(node)
-        ? {
-            kind: "icosahedron",
-            radius: 1.25,
-            detail: 0
-          }
-        : {
             kind: "cylinder",
             radiusTop: 0.65,
             radiusBottom: 0.65,
             height: 2.2,
             radialSegments: 12
-          },
+          }
+      : undefined,
+    surface,
     material: {
       color: appearance.color,
       wireframe: appearance.wireframe
@@ -107,5 +111,35 @@ function getRenderAppearance(node: GeometryNode): {
     color: "#ffffff",
     wireframe: false,
     primitiveLabel: "mesh"
+  };
+}
+
+function createBrushSurface(node: Extract<GeometryNode, { kind: "brush" }>["data"]): DerivedSurfaceGeometry | undefined {
+  const rebuilt = reconstructBrushFaces(node);
+
+  if (!rebuilt.valid || rebuilt.vertices.length === 0) {
+    return undefined;
+  }
+
+  const vertexIndexById = new Map(rebuilt.vertices.map((vertex, index) => [vertex.id, index]));
+
+  return {
+    positions: rebuilt.vertices.flatMap((vertex) => [vertex.position.x, vertex.position.y, vertex.position.z]),
+    indices: rebuilt.faces.flatMap((face) =>
+      face.triangleIndices.map((localIndex) => vertexIndexById.get(face.vertexIds[localIndex]) ?? 0)
+    )
+  };
+}
+
+function createEditableMeshSurface(node: Extract<GeometryNode, { kind: "mesh" }>["data"]): DerivedSurfaceGeometry | undefined {
+  const triangulated = triangulateEditableMesh(node);
+
+  if (!triangulated.valid) {
+    return undefined;
+  }
+
+  return {
+    positions: triangulated.positions,
+    indices: triangulated.indices
   };
 }

@@ -1,3 +1,4 @@
+import { createEditableMeshFromPolygons } from "@web-hammer/geometry-kernel";
 import type {
   Asset,
   AssetID,
@@ -134,11 +135,33 @@ export function createSeedSceneDocument(): SceneDocument {
     kind: "mesh",
     name: "Placeholder Detail",
     transform: makeTransform(vec3(-5, 1.25, -2)),
-    data: {
-      vertices: [],
-      halfEdges: [],
-      faces: []
-    }
+    data: createEditableMeshFromPolygons([
+      {
+        id: "face:mesh:base",
+        positions: [
+          vec3(-1.4, 0, -1.4),
+          vec3(1.4, 0, -1.4),
+          vec3(1.4, 0, 1.4),
+          vec3(-1.4, 0, 1.4)
+        ]
+      },
+      {
+        id: "face:mesh:front",
+        positions: [vec3(-1.4, 0, -1.4), vec3(1.4, 0, -1.4), vec3(0, 2.4, 0)]
+      },
+      {
+        id: "face:mesh:right",
+        positions: [vec3(1.4, 0, -1.4), vec3(1.4, 0, 1.4), vec3(0, 2.4, 0)]
+      },
+      {
+        id: "face:mesh:back",
+        positions: [vec3(1.4, 0, 1.4), vec3(-1.4, 0, 1.4), vec3(0, 2.4, 0)]
+      },
+      {
+        id: "face:mesh:left",
+        positions: [vec3(-1.4, 0, 1.4), vec3(-1.4, 0, -1.4), vec3(0, 2.4, 0)]
+      }
+    ])
   };
 
   const sampleModel: ModelNode = {
