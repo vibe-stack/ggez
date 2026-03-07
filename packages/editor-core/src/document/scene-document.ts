@@ -1,4 +1,3 @@
-import { createEditableMeshFromPolygons } from "@web-hammer/geometry-kernel";
 import type {
   Asset,
   AssetID,
@@ -10,8 +9,6 @@ import type {
   LayerID,
   Material,
   MaterialID,
-  MeshNode,
-  ModelNode,
   NodeID
 } from "@web-hammer/shared";
 import { makeTransform, vec3 } from "@web-hammer/shared";
@@ -174,64 +171,7 @@ export function createSeedSceneDocument(): SceneDocument {
     }
   };
 
-  const detailMesh: MeshNode = {
-    id: "node:mesh:placeholder-detail",
-    kind: "mesh",
-    name: "Placeholder Detail",
-    transform: makeTransform(vec3(-5, 1.25, -2)),
-    data: createEditableMeshFromPolygons([
-      {
-        id: "face:mesh:base",
-        positions: [
-          vec3(-1.4, 0, -1.4),
-          vec3(1.4, 0, -1.4),
-          vec3(1.4, 0, 1.4),
-          vec3(-1.4, 0, 1.4)
-        ]
-      },
-      {
-        id: "face:mesh:front",
-        positions: [vec3(-1.4, 0, -1.4), vec3(1.4, 0, -1.4), vec3(0, 2.4, 0)]
-      },
-      {
-        id: "face:mesh:right",
-        positions: [vec3(1.4, 0, -1.4), vec3(1.4, 0, 1.4), vec3(0, 2.4, 0)]
-      },
-      {
-        id: "face:mesh:back",
-        positions: [vec3(1.4, 0, 1.4), vec3(-1.4, 0, 1.4), vec3(0, 2.4, 0)]
-      },
-      {
-        id: "face:mesh:left",
-        positions: [vec3(-1.4, 0, 1.4), vec3(-1.4, 0, -1.4), vec3(0, 2.4, 0)]
-      }
-    ])
-  };
-
-  const sampleModel: ModelNode = {
-    id: "node:model:crate",
-    kind: "model",
-    name: "Crate Prop",
-    transform: makeTransform(vec3(4, 1.1, 2)),
-    data: {
-      assetId: "asset:model:crate",
-      path: "/assets/models/crate.glb"
-    }
-  };
-
   document.nodes.set(blockoutBrush.id, blockoutBrush);
-  document.nodes.set(detailMesh.id, detailMesh);
-  document.nodes.set(sampleModel.id, sampleModel);
-
-  document.entities.set("entity:player-start", {
-    id: "entity:player-start",
-    type: "spawn",
-    transform: makeTransform(vec3(0, 1, 0)),
-    properties: {
-      team: "player",
-      enabled: true
-    }
-  });
 
   document.layers.set("layer:default", {
     id: "layer:default",

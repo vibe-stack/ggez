@@ -2,7 +2,7 @@ import { reconstructBrushFaces, type ReconstructedBrushFace } from "@web-hammer/
 import { vec3, type GeometryNode } from "@web-hammer/shared";
 import { useEffect, useMemo, useState } from "react";
 import { Vector3 } from "three";
-import { buildClipPreview } from "@/viewport/editing";
+import { buildBrushClipPreview, buildClipPreview } from "@/viewport/editing";
 import { NodeTransformGroup } from "@/viewport/components/NodeTransformGroup";
 import { FaceHitArea, PreviewLine } from "@/viewport/components/SelectionVisuals";
 import type { ViewportCanvasProps } from "@/viewport/types";
@@ -38,9 +38,14 @@ export function BrushClipOverlay({
       return;
     }
 
+    const segments = buildBrushClipPreview(rebuilt.faces, line.axis, line.coordinate);
+
     setPreview({
       faceId: face.id,
-      line
+      line: {
+        ...line,
+        segments
+      }
     });
   };
 
@@ -65,7 +70,18 @@ export function BrushClipOverlay({
         />
       ))}
 
-      {preview?.line ? <PreviewLine color="#7dd3fc" end={preview.line.end} start={preview.line.start} /> : null}
+      {preview?.line
+        ? preview.line.segments.map((segment, index) => (
+            <PreviewLine
+              color="#22d3ee"
+              end={segment.end}
+              key={`${preview.faceId}:${index}`}
+              opacity={0.98}
+              radius={0.07}
+              start={segment.start}
+            />
+          ))
+        : null}
     </NodeTransformGroup>
   );
 }

@@ -63,10 +63,12 @@ export function FaceHitArea({
       renderOrder={8}
     >
       <meshBasicMaterial
-        color="#7dd3fc"
+        color="#22d3ee"
+        depthTest={false}
         depthWrite={false}
-        opacity={hovered ? 0.12 : 0.015}
+        opacity={hovered ? 0.18 : 0.002}
         side={DoubleSide}
+        toneMapped={false}
         transparent
       />
     </mesh>
@@ -446,18 +448,43 @@ export function ClosedPolyline({
 export function PreviewLine({
   color,
   end,
+  opacity = 1,
+  radius = 0.025,
   start
 }: {
   color: string;
   end: Vec3;
+  opacity?: number;
+  radius?: number;
   start: Vec3;
 }) {
-  const geometry = useMemo(() => createIndexedGeometry([start.x, start.y, start.z, end.x, end.y, end.z]), [end, start]);
+  const midpoint = useMemo(
+    () => vec3((start.x + end.x) * 0.5, (start.y + end.y) * 0.5, (start.z + end.z) * 0.5),
+    [end, start]
+  );
+  const quaternion = useMemo(() => {
+    const direction = new Vector3(end.x - start.x, end.y - start.y, end.z - start.z);
+
+    if (direction.lengthSq() <= 0.000001) {
+      return new Quaternion();
+    }
+
+    return new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), direction.normalize());
+  }, [end, start]);
+  const length = useMemo(
+    () => new Vector3(end.x - start.x, end.y - start.y, end.z - start.z).length(),
+    [end, start]
+  );
+
+  if (length <= 0.0001) {
+    return null;
+  }
 
   return (
-    <lineSegments geometry={geometry} renderOrder={10}>
-      <lineBasicMaterial color={color} depthWrite={false} linewidth={2} toneMapped={false} />
-    </lineSegments>
+    <mesh position={toTuple(midpoint)} quaternion={quaternion} renderOrder={10}>
+      <cylinderGeometry args={[radius, radius, length, 10]} />
+      <meshBasicMaterial color={color} depthTest={false} depthWrite={false} opacity={opacity} toneMapped={false} transparent />
+    </mesh>
   );
 }
 

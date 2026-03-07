@@ -1336,7 +1336,9 @@ export function ViewportCanvas({
         cameraRef.current,
         raycasterRef.current,
         meshObjectsRef.current,
-        viewport.grid.elevation
+        viewport.grid.elevation,
+        viewport.grid.enabled,
+        snapSize
       );
 
       if (!hit) {

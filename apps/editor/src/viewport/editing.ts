@@ -18,6 +18,7 @@ export type ClipPreview = {
   axis: BrushAxis;
   coordinate: number;
   end: Vec3;
+  segments: Array<{ end: Vec3; start: Vec3 }>;
   start: Vec3;
 };
 
@@ -92,12 +93,30 @@ export function buildClipPreview(
     return undefined;
   }
 
+  const segment = buildClipPreviewSegment(face, axis, coordinate, epsilon);
+
+  if (!segment) {
+    return undefined;
+  }
+
   return {
     axis,
     coordinate,
-    start: vec3ForAxis(face.center, axis, coordinate, lineAxis, bounds[lineAxis].min),
-    end: vec3ForAxis(face.center, axis, coordinate, lineAxis, bounds[lineAxis].max)
+    end: segment.end,
+    segments: [segment],
+    start: segment.start
   };
+}
+
+export function buildBrushClipPreview(
+  faces: ReconstructedBrushFace[],
+  axis: BrushAxis,
+  coordinate: number,
+  epsilon = 0.0001
+) {
+  return faces
+    .map((face) => buildClipPreviewSegment(face, axis, coordinate, epsilon))
+    .filter((segment): segment is { end: Vec3; start: Vec3 } => Boolean(segment));
 }
 
 export function createMeshEditHandles(mesh: EditableMesh, mode: MeshEditMode): MeshEditHandle[] {
@@ -736,6 +755,90 @@ function vec3ForAxis(
     coordinateAxis === "y" ? coordinateValue : lineAxis === "y" ? lineValue : seed.y,
     coordinateAxis === "z" ? coordinateValue : lineAxis === "z" ? lineValue : seed.z
   );
+}
+
+function buildClipPreviewSegment(
+  face: ReconstructedBrushFace,
+  axis: BrushAxis,
+  coordinate: number,
+  epsilon: number
+) {
+  const intersections: Vec3[] = [];
+  const vertices = face.vertices.map((vertex) => vertex.position);
+
+  for (let index = 0; index < vertices.length; index += 1) {
+    const current = vertices[index];
+    const next = vertices[(index + 1) % vertices.length];
+    const currentDistance = current[axis] - coordinate;
+    const nextDistance = next[axis] - coordinate;
+
+    if (Math.abs(currentDistance) <= epsilon) {
+      pushUniqueVec3(intersections, current, epsilon);
+    }
+
+    if (Math.abs(nextDistance) <= epsilon) {
+      pushUniqueVec3(intersections, next, epsilon);
+    }
+
+    if ((currentDistance < -epsilon && nextDistance > epsilon) || (currentDistance > epsilon && nextDistance < -epsilon)) {
+      const interpolation = currentDistance / (currentDistance - nextDistance);
+      pushUniqueVec3(
+        intersections,
+        vec3(
+          current.x + (next.x - current.x) * interpolation,
+          current.y + (next.y - current.y) * interpolation,
+          current.z + (next.z - current.z) * interpolation
+        ),
+        epsilon
+      );
+    }
+  }
+
+  if (intersections.length < 2) {
+    return undefined;
+  }
+
+  const [start, end] = pickFarthestPair(intersections);
+
+  if (!start || !end) {
+    return undefined;
+  }
+
+  return { start, end };
+}
+
+function pickFarthestPair(points: Vec3[]) {
+  let bestDistanceSquared = Number.NEGATIVE_INFINITY;
+  let bestPair: [Vec3, Vec3] | undefined;
+
+  for (let outerIndex = 0; outerIndex < points.length - 1; outerIndex += 1) {
+    for (let innerIndex = outerIndex + 1; innerIndex < points.length; innerIndex += 1) {
+      const start = points[outerIndex];
+      const end = points[innerIndex];
+      const delta = subVec3(end, start);
+      const distanceSquared = dotVec3(delta, delta);
+
+      if (distanceSquared > bestDistanceSquared) {
+        bestDistanceSquared = distanceSquared;
+        bestPair = [start, end];
+      }
+    }
+  }
+
+  return bestPair ?? [];
+}
+
+function pushUniqueVec3(points: Vec3[], point: Vec3, epsilon: number) {
+  const exists = points.some(
+    (candidate) =>
+      Math.abs(candidate.x - point.x) <= epsilon &&
+      Math.abs(candidate.y - point.y) <= epsilon &&
+      Math.abs(candidate.z - point.z) <= epsilon
+  );
+
+  if (!exists) {
+    points.push(point);
+  }
 }
 
 function buildBrushTopology(rebuilt: ReturnType<typeof reconstructBrushFaces>) {

@@ -31,7 +31,9 @@ export function resolveBrushCreateSurfaceHit(
   camera: PerspectiveCamera,
   raycaster: Raycaster,
   meshObjects: Map<string, Mesh>,
-  gridElevation: number
+  gridElevation: number,
+  snapToGrid: boolean,
+  snapSize: number
 ): { normal: Vec3; point: Vec3 } | undefined {
   const ndc = new Vector2(
     ((clientX - viewportBounds.left) / viewportBounds.width) * 2 - 1,
@@ -58,9 +60,13 @@ export function resolveBrushCreateSurfaceHit(
     return undefined;
   }
 
+  const anchorPoint = snapToGrid
+    ? vec3(snapValue(point.x, snapSize), point.y, snapValue(point.z, snapSize))
+    : vec3(point.x, point.y, point.z);
+
   return {
     normal: vec3(0, 1, 0),
-    point: vec3(point.x, point.y, point.z)
+    point: anchorPoint
   };
 }
 
