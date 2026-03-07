@@ -2,13 +2,17 @@ import type { ToolId } from "@web-hammer/tool-system";
 import { FloatingPanel } from "@/components/editor-shell/FloatingPanel";
 import { toolIconFor } from "@/components/editor-shell/icons";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 export function PrimaryToolBar({
   activeToolId,
   onSetToolId,
-  tools
+  tools,
 }: {
   activeToolId: ToolId;
   onSetToolId: (toolId: ToolId) => void;
@@ -27,7 +31,8 @@ export function PrimaryToolBar({
                 <Button
                   className={cn(
                     "size-7 rounded-xl text-foreground/58 transition-colors hover:text-foreground",
-                    active && "bg-emerald-500/18 text-emerald-300 shadow-[inset_0_0_0_1px_rgba(52,211,153,0.18)]"
+                    active &&
+                      "bg-emerald-500/18 text-emerald-300 shadow-[inset_0_0_0_1px_rgba(52,211,153,0.18)]",
                   )}
                   onClick={() => onSetToolId(tool.id)}
                   size="icon-sm"
@@ -38,7 +43,10 @@ export function PrimaryToolBar({
               <Icon className="size-4" />
             </TooltipTrigger>
             <TooltipContent>
-              <ToolbarTooltip label={tool.label} shortcut={shortcutForPrimaryTool(tool.id)} />
+              <ToolbarTooltip
+                label={tool.label}
+                shortcut={shortcutForPrimaryTool(tool.id)}
+              />
             </TooltipContent>
           </Tooltip>
         );
@@ -53,13 +61,13 @@ function shortcutForPrimaryTool(toolId: ToolId) {
       return "1";
     case "transform":
       return "2";
-    case "brush":
-      return "3 / B";
     case "clip":
-      return "4";
+      return "3";
     case "extrude":
-      return "5";
+      return "4";
     case "mesh-edit":
+      return "5";
+    case "brush":
       return "6";
     case "asset-place":
       return "7";
@@ -68,7 +76,13 @@ function shortcutForPrimaryTool(toolId: ToolId) {
   }
 }
 
-function ToolbarTooltip({ label, shortcut }: { label: string; shortcut?: string }) {
+function ToolbarTooltip({
+  label,
+  shortcut,
+}: {
+  label: string;
+  shortcut?: string;
+}) {
   return (
     <div className="flex min-w-0 items-center gap-2 text-[11px]">
       <span className="font-medium text-foreground">{label}</span>

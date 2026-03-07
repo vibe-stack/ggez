@@ -84,22 +84,22 @@ export function useAppHotkeys({
       }
 
       if (event.key === "3") {
-        setActiveToolId("brush");
-        return;
-      }
-
-      if (event.key === "4") {
         setActiveToolId("clip");
         return;
       }
 
-      if (event.key === "5") {
+      if (event.key === "4") {
         setActiveToolId("extrude");
         return;
       }
 
-      if (event.key === "6") {
+      if (event.key === "5") {
         setActiveToolId("mesh-edit");
+        return;
+      }
+
+      if (event.key === "6") {
+        setActiveToolId("brush");
         return;
       }
 
@@ -108,7 +108,7 @@ export function useAppHotkeys({
         return;
       }
 
-      if (event.key.toLowerCase() === "b" && activeToolId !== "mesh-edit") {
+      if (event.key.toLowerCase() === "+" && activeToolId !== "mesh-edit") {
         setActiveToolId("brush");
         return;
       }
