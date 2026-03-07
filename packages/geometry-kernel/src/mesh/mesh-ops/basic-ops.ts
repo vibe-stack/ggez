@@ -15,7 +15,10 @@ export function convertBrushToEditableMesh(brush: Brush): EditableMesh | undefin
   return createEditableMeshFromPolygons(
     rebuilt.faces.map((face) => ({
       id: face.id,
+      materialId: face.materialId,
       positions: face.vertices.map((vertex) => vec3(vertex.position.x, vertex.position.y, vertex.position.z))
+      ,
+      uvScale: face.uvScale
     }))
   );
 }
@@ -24,10 +27,13 @@ export function invertEditableMeshNormals(mesh: EditableMesh, faceIds?: string[]
   const selectedFaceIds = faceIds ? new Set(faceIds) : undefined;
   const polygons = getMeshPolygons(mesh).map((polygon) => ({
     id: polygon.id,
+    materialId: polygon.materialId,
     positions:
       !selectedFaceIds || selectedFaceIds.has(polygon.id)
         ? polygon.positions.slice().reverse()
-        : polygon.positions.map((position) => vec3(position.x, position.y, position.z))
+        : polygon.positions.map((position) => vec3(position.x, position.y, position.z)),
+    uvScale: polygon.uvScale,
+    vertexIds: [...polygon.vertexIds]
   }));
 
   return createEditableMeshFromPolygons(polygons);
@@ -39,7 +45,10 @@ export function deleteEditableMeshFaces(mesh: EditableMesh, faceIds: string[]): 
     .filter((polygon) => !selectedFaceIds.has(polygon.id))
     .map((polygon) => ({
       id: polygon.id,
-      positions: polygon.positions.map((position) => vec3(position.x, position.y, position.z))
+      materialId: polygon.materialId,
+      positions: polygon.positions.map((position) => vec3(position.x, position.y, position.z)),
+      uvScale: polygon.uvScale,
+      vertexIds: [...polygon.vertexIds]
     }));
 
   if (polygons.length === 0) {
@@ -110,15 +119,27 @@ export function mergeEditableMeshFaces(mesh: EditableMesh, faceIds: string[], ep
     return undefined;
   }
 
-  const mergedPolygon: EditableMeshPolygon & { id: FaceID } = {
+  const mergedPolygon: {
+    id: FaceID;
+    materialId: string | undefined;
+    positions: typeof orderedBoundary[number]["startPosition"][];
+    uvScale: typeof selected[0]["uvScale"];
+    vertexIds: VertexID[];
+  } = {
     id: selected[0].id,
-    positions: orderedBoundary.map((edge) => edge.startPosition)
+    materialId: selected[0].materialId,
+    positions: orderedBoundary.map((edge) => edge.startPosition),
+    uvScale: selected[0].uvScale,
+    vertexIds: orderedBoundary.map((edge) => edge.startId)
   };
   const nextPolygons = polygons
     .filter((polygon) => !selectedFaceIds.has(polygon.id))
     .map((polygon) => ({
       id: polygon.id,
-      positions: polygon.positions.map((position) => vec3(position.x, position.y, position.z))
+      materialId: polygon.materialId,
+      positions: polygon.positions.map((position) => vec3(position.x, position.y, position.z)),
+      uvScale: polygon.uvScale,
+      vertexIds: [...polygon.vertexIds]
     }));
 
   nextPolygons.push(mergedPolygon);

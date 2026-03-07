@@ -1,10 +1,12 @@
-import type { FaceID, Vec3, VertexID } from "@web-hammer/shared";
+import type { FaceID, MaterialID, Vec2, Vec3, VertexID } from "@web-hammer/shared";
 
 export type MeshPolygonData = {
   center: Vec3;
   id: FaceID;
+  materialId?: MaterialID;
   normal: Vec3;
   positions: Vec3[];
+  uvScale?: Vec2;
   vertexIds: VertexID[];
 };
 
@@ -35,7 +37,9 @@ export type EdgeBevelProfile = "flat" | "round";
 export type OrientedEditablePolygon = {
   expectedNormal?: Vec3;
   id: FaceID;
+  materialId?: MaterialID;
   positions: Vec3[];
+  uvScale?: Vec2;
   vertexIds?: VertexID[];
 };
 

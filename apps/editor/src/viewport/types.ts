@@ -32,6 +32,7 @@ export type ViewportCanvasProps = {
   onPreviewBrushData: (nodeId: string, brush: Brush) => void;
   onPreviewMeshData: (nodeId: string, mesh: EditableMesh) => void;
   onPreviewNodeTransform: (nodeId: string, transform: Transform) => void;
+  onSelectMaterialFaces: (faceIds: string[]) => void;
   onSelectNodes: (nodeIds: string[]) => void;
   onSplitBrushAtCoordinate: (nodeId: string, axis: "x" | "y" | "z", coordinate: number) => void;
   onUpdateBrushData: (nodeId: string, brush: Brush, beforeBrush?: Brush) => void;

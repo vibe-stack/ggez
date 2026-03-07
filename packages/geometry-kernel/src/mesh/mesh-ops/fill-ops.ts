@@ -80,7 +80,9 @@ function fillEditableMeshFaceFromBoundaryEdges(
   const nextPolygons: OrientedEditablePolygon[] = getMeshPolygons(mesh).map((polygon) => ({
     expectedNormal: polygon.normal,
     id: polygon.id,
+    materialId: polygon.materialId,
     positions: polygon.positions.map((position) => vec3(position.x, position.y, position.z)),
+    uvScale: polygon.uvScale,
     vertexIds: [...polygon.vertexIds]
   }));
   const faceId = `face:fill:${orderedBoundary.map((edge) => edge.key).join("|")}`;
@@ -88,7 +90,9 @@ function fillEditableMeshFaceFromBoundaryEdges(
   nextPolygons.push({
     expectedNormal: fillNormal,
     id: faceId,
+    materialId: undefined,
     positions: orderedPositions.map((position) => vec3(position.x, position.y, position.z)),
+    uvScale: undefined,
     vertexIds: orderedBoundary.map((edge) => edge.startId)
   });
 

@@ -1,4 +1,8 @@
-import type { BrushNode, GeometryNode, MeshNode, ModelNode, Transform, Vec3 } from "./types";
+import type { BrushNode, GeometryNode, MeshNode, ModelNode, Transform, Vec2, Vec3 } from "./types";
+
+export function vec2(x: number, y: number): Vec2 {
+  return { x, y };
+}
 
 export function vec3(x: number, y: number, z: number): Vec3 {
   return { x, y, z };

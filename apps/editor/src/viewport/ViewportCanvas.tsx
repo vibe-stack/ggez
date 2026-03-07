@@ -100,6 +100,7 @@ export function ViewportCanvas({
   onPreviewBrushData,
   onPreviewMeshData,
   onPreviewNodeTransform,
+  onSelectMaterialFaces,
   onSelectNodes,
   onSplitBrushAtCoordinate,
   onUpdateBrushData,
@@ -177,6 +178,25 @@ export function ViewportCanvas({
 
   const selectedBrushNode = selectedNode && isBrushNode(selectedNode) ? selectedNode : undefined;
   const selectedMeshNode = selectedNode && isMeshNode(selectedNode) ? selectedNode : undefined;
+
+  useEffect(() => {
+    if (activeToolId !== "mesh-edit" || meshEditMode !== "face") {
+      onSelectMaterialFaces([]);
+      return;
+    }
+
+    if (selectedMeshNode) {
+      onSelectMaterialFaces(meshEditSelectionIds);
+      return;
+    }
+
+    if (selectedBrushNode) {
+      onSelectMaterialFaces(brushEditHandleIds);
+      return;
+    }
+
+    onSelectMaterialFaces([]);
+  }, [activeToolId, brushEditHandleIds, meshEditMode, meshEditSelectionIds, onSelectMaterialFaces, selectedBrushNode, selectedMeshNode]);
   const brushEditHandles =
     activeToolId === "mesh-edit" && selectedBrushNode
       ? createBrushEditHandles(selectedBrushNode.data, meshEditMode)

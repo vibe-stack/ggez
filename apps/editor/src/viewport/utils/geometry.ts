@@ -1,13 +1,23 @@
 import { resolveTransformPivot, vec3, type Transform, type Vec3 } from "@web-hammer/shared";
 import { BufferGeometry, Euler, Float32BufferAttribute, Object3D, Quaternion, Vector3 } from "three";
+import type { DerivedSurfaceGroup } from "@web-hammer/render-pipeline";
 
-export function createIndexedGeometry(positions: number[], indices?: number[]) {
+export function createIndexedGeometry(positions: number[], indices?: number[], uvs?: number[], groups?: DerivedSurfaceGroup[]) {
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+
+  if (uvs) {
+    geometry.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
+  }
 
   if (indices) {
     geometry.setIndex(indices);
   }
+
+  geometry.clearGroups();
+  groups?.forEach((group) => {
+    geometry.addGroup(group.start, group.count, group.materialIndex);
+  });
 
   return geometry;
 }

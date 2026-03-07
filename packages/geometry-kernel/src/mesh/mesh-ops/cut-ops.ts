@@ -53,6 +53,8 @@ export function cutEditableMeshBetweenEdges(
 
   const firstPolygon = ringSlice(expanded.positions, cutAIndex, cutBIndex);
   const secondPolygon = ringSlice(expanded.positions, cutBIndex, cutAIndex);
+  const firstPolygonVertexIds = ringSlice(expanded.vertexIds, cutAIndex, cutBIndex);
+  const secondPolygonVertexIds = ringSlice(expanded.vertexIds, cutBIndex, cutAIndex);
 
   if (firstPolygon.length < 3 || secondPolygon.length < 3) {
     return undefined;
@@ -68,13 +70,28 @@ export function cutEditableMeshBetweenEdges(
 
       return {
         id: secondPassPolygon.id,
-        positions: secondPassPolygon.positions.map((position) => vec3(position.x, position.y, position.z))
+        materialId: polygon.materialId,
+        positions: secondPassPolygon.positions.map((position) => vec3(position.x, position.y, position.z)),
+        uvScale: polygon.uvScale,
+        vertexIds: [...secondPassPolygon.vertexIds]
       };
     });
 
   nextPolygons.push(
-    { id: `${target.id}:cut:1`, positions: firstPolygon },
-    { id: `${target.id}:cut:2`, positions: secondPolygon }
+    {
+      id: `${target.id}:cut:1`,
+      materialId: target.materialId,
+      positions: firstPolygon,
+      uvScale: target.uvScale,
+      vertexIds: firstPolygonVertexIds
+    },
+    {
+      id: `${target.id}:cut:2`,
+      materialId: target.materialId,
+      positions: secondPolygon,
+      uvScale: target.uvScale,
+      vertexIds: secondPolygonVertexIds
+    }
   );
 
   return createEditableMeshFromPolygons(nextPolygons);
@@ -133,6 +150,8 @@ export function cutEditableMeshFace(
 
   const firstPolygon = ringSlice(expanded.positions, cutAIndex, cutBIndex);
   const secondPolygon = ringSlice(expanded.positions, cutBIndex, cutAIndex);
+  const firstPolygonVertexIds = ringSlice(expanded.vertexIds, cutAIndex, cutBIndex);
+  const secondPolygonVertexIds = ringSlice(expanded.vertexIds, cutBIndex, cutAIndex);
 
   if (firstPolygon.length < 3 || secondPolygon.length < 3) {
     return undefined;
@@ -153,7 +172,10 @@ export function cutEditableMeshFace(
       return {
         expectedNormal: polygon.normal,
         id: secondPassPolygon.id,
-        positions: secondPassPolygon.positions.map((position) => vec3(position.x, position.y, position.z))
+        materialId: polygon.materialId,
+        positions: secondPassPolygon.positions.map((position) => vec3(position.x, position.y, position.z)),
+        uvScale: polygon.uvScale,
+        vertexIds: [...secondPassPolygon.vertexIds]
       };
     });
 
@@ -161,12 +183,18 @@ export function cutEditableMeshFace(
     {
       expectedNormal: resolvedCut.target.normal,
       id: `${resolvedCut.target.id}:cut:1`,
-      positions: firstPolygon
+      materialId: resolvedCut.target.materialId,
+      positions: firstPolygon,
+      uvScale: resolvedCut.target.uvScale,
+      vertexIds: firstPolygonVertexIds
     },
     {
       expectedNormal: resolvedCut.target.normal,
       id: `${resolvedCut.target.id}:cut:2`,
-      positions: secondPolygon
+      materialId: resolvedCut.target.materialId,
+      positions: secondPolygon,
+      uvScale: resolvedCut.target.uvScale,
+      vertexIds: secondPolygonVertexIds
     }
   );
 

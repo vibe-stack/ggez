@@ -28,7 +28,10 @@ export function splitAxisAlignedBrush(brush: Brush, axis: BrushAxis): [Brush, Br
   const second = cloneBounds(bounds);
   second[axis].min = midpoint;
 
-  return [createAxisAlignedBrushFromBounds(first), createAxisAlignedBrushFromBounds(second)];
+  return [
+    preserveAxisAlignedBrushFaceMetadata(brush, createAxisAlignedBrushFromBounds(first)),
+    preserveAxisAlignedBrushFaceMetadata(brush, createAxisAlignedBrushFromBounds(second))
+  ];
 }
 
 export function splitAxisAlignedBrushAtCoordinate(
@@ -57,7 +60,10 @@ export function splitAxisAlignedBrushAtCoordinate(
   const second = cloneBounds(bounds);
   second[axis].min = clamped;
 
-  return [createAxisAlignedBrushFromBounds(first), createAxisAlignedBrushFromBounds(second)];
+  return [
+    preserveAxisAlignedBrushFaceMetadata(brush, createAxisAlignedBrushFromBounds(first)),
+    preserveAxisAlignedBrushFaceMetadata(brush, createAxisAlignedBrushFromBounds(second))
+  ];
 }
 
 export function extrudeAxisAlignedBrush(
@@ -80,7 +86,7 @@ export function extrudeAxisAlignedBrush(
     next[axis].min -= amount;
   }
 
-  return createAxisAlignedBrushFromBounds(next);
+  return preserveAxisAlignedBrushFaceMetadata(brush, createAxisAlignedBrushFromBounds(next));
 }
 
 export function offsetAxisAlignedBrushFace(
@@ -108,7 +114,7 @@ export function offsetAxisAlignedBrushFace(
     return undefined;
   }
 
-  return createAxisAlignedBrushFromBounds(next);
+  return preserveAxisAlignedBrushFaceMetadata(brush, createAxisAlignedBrushFromBounds(next));
 }
 
 export function getAxisAlignedBrushBounds(brush: Brush): AxisBounds | undefined {
@@ -178,4 +184,32 @@ function cloneBounds(bounds: AxisBounds): AxisBounds {
     y: { ...bounds.y },
     z: { ...bounds.z }
   };
+}
+
+function preserveAxisAlignedBrushFaceMetadata(source: Brush, next: Brush): Brush {
+  const metadataByPlane = new Map(
+    source.planes.map((plane, index) => [
+      makeAxisPlaneKey(plane.normal.x, plane.normal.y, plane.normal.z),
+      source.faces[index]
+    ])
+  );
+
+  return {
+    ...next,
+    faces: next.planes.map((plane, index) => {
+      const preserved = metadataByPlane.get(makeAxisPlaneKey(plane.normal.x, plane.normal.y, plane.normal.z));
+
+      return {
+        id: preserved?.id ?? `face:brush:${index}`,
+        materialId: preserved?.materialId,
+        plane,
+        uvScale: preserved?.uvScale,
+        vertexIds: preserved?.vertexIds ?? []
+      };
+    })
+  };
+}
+
+function makeAxisPlaneKey(x: number, y: number, z: number) {
+  return `${x}:${y}:${z}`;
 }

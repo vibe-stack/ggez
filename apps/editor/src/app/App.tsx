@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useSnapshot } from "valtio";
 import {
   axisDelta,
-  createAssignMaterialToBrushesCommand,
+  createAssignMaterialCommand,
+  createDeleteMaterialCommand,
   createDeleteSelectionCommand,
   createExtrudeBrushNodesCommand,
   createDuplicateNodesCommand,
@@ -18,9 +19,11 @@ import {
   createPlaceBrushNodeCommand,
   createPlaceModelNodeCommand,
   createSeedSceneDocument,
+  createSetUvScaleCommand,
   createSplitBrushNodeAtCoordinateCommand,
   createSplitBrushNodesCommand,
   createTranslateNodesCommand,
+  createUpsertMaterialCommand,
   type TransformAxis
 } from "@web-hammer/editor-core";
 import { convertBrushToEditableMesh, invertEditableMeshNormals } from "@web-hammer/geometry-kernel";
@@ -31,12 +34,15 @@ import {
   isBrushNode,
   isMeshNode,
   makeTransform,
+  type Material,
   type MeshNode,
   snapVec3,
   subVec3,
+  vec2,
   vec3,
   type Brush,
   type EditableMesh,
+  type Vec2,
   type Vec3
 } from "@web-hammer/shared";
 import { createToolSession, defaultToolId, defaultTools, type ToolId } from "@web-hammer/tool-system";
@@ -59,6 +65,7 @@ export function App() {
   const [activeToolId, setActiveToolId] = useState<ToolId>(defaultToolId);
   const [meshEditMode, setMeshEditMode] = useState<MeshEditMode>("vertex");
   const [meshEditToolbarAction, setMeshEditToolbarAction] = useState<MeshEditToolbarActionRequest>();
+  const [selectedMaterialFaceIds, setSelectedMaterialFaceIds] = useState<string[]>([]);
   const [transformMode, setTransformMode] = useState<"rotate" | "scale" | "translate">("translate");
   const [workerManager] = useState(() => createWorkerTaskManager());
   const [workerJobs, setWorkerJobs] = useState<WorkerJob[]>([]);
@@ -424,14 +431,55 @@ export function App() {
     enqueueWorkerJob("Invert normals", { task: "triangulation", worker: "meshWorker" }, 650);
   };
 
-  const handleAssignMaterial = (materialId: string) => {
+  const handleApplyMaterial = (materialId: string, scope: "faces" | "object", faceIds: string[]) => {
     if (editor.selection.ids.length === 0) {
       return;
     }
 
     uiStore.selectedMaterialId = materialId;
-    editor.execute(createAssignMaterialToBrushesCommand(editor.scene, editor.selection.ids, materialId));
+    const targets =
+      scope === "faces" && faceIds.length > 0
+        ? editor.selection.ids.slice(0, 1).map((nodeId) => ({ faceIds, nodeId }))
+        : editor.selection.ids.map((nodeId) => ({ nodeId }));
+
+    editor.execute(createAssignMaterialCommand(editor.scene, targets, materialId));
     enqueueWorkerJob("Material preview rebuild", { task: "triangulation", worker: "geometryWorker" }, 600);
+  };
+
+  const handleSetMaterialUvScale = (scope: "faces" | "object", faceIds: string[], uvScale: Vec2) => {
+    if (editor.selection.ids.length === 0) {
+      return;
+    }
+
+    const targets =
+      scope === "faces" && faceIds.length > 0
+        ? editor.selection.ids.slice(0, 1).map((nodeId) => ({ faceIds, nodeId }))
+        : editor.selection.ids.map((nodeId) => ({ nodeId }));
+
+    editor.execute(createSetUvScaleCommand(editor.scene, targets, vec2(uvScale.x, uvScale.y)));
+    enqueueWorkerJob("UV update", { task: "triangulation", worker: "geometryWorker" }, 450);
+  };
+
+  const handleUpsertMaterial = (material: Material) => {
+    editor.execute(createUpsertMaterialCommand(editor.scene, material));
+    uiStore.selectedMaterialId = material.id;
+    enqueueWorkerJob("Material library update", { task: "triangulation", worker: "geometryWorker" }, 350);
+  };
+
+  const handleDeleteMaterial = (materialId: string) => {
+    const fallbackMaterial = Array.from(editor.scene.materials.values()).find((material) => material.id !== materialId);
+
+    if (!fallbackMaterial) {
+      return;
+    }
+
+    editor.execute(createDeleteMaterialCommand(editor.scene, materialId, fallbackMaterial.id));
+
+    if (uiStore.selectedMaterialId === materialId) {
+      uiStore.selectedMaterialId = fallbackMaterial.id;
+    }
+
+    enqueueWorkerJob("Material library update", { task: "triangulation", worker: "geometryWorker" }, 350);
   };
 
   const handleSelectAsset = (assetId: string) => {
@@ -566,13 +614,14 @@ export function App() {
         jobs={[...workerJobs, ...exportJobs]}
         meshEditToolbarAction={meshEditToolbarAction}
         onInvertSelectionNormals={handleInvertSelectionNormals}
-        onAssignMaterial={handleAssignMaterial}
+        onApplyMaterial={handleApplyMaterial}
         onClipSelection={handleClipSelection}
         onCreateBrush={handleCreateBrush}
         onDeleteSelection={handleDeleteSelection}
         onDuplicateSelection={handleDuplicateSelection}
         onClearSelection={handleClearSelection}
         onCommitMeshTopology={handleCommitMeshTopology}
+        onDeleteMaterial={handleDeleteMaterial}
         onExportEngine={handleExportEngine}
         onExportGltf={handleExportGltf}
         onExtrudeSelection={handleExtrudeSelection}
@@ -590,7 +639,9 @@ export function App() {
         onRedo={handleRedo}
         onSaveWhmap={handleSaveWhmap}
         onSelectAsset={handleSelectAsset}
+        onSelectMaterialFaces={setSelectedMaterialFaceIds}
         onSelectMaterial={handleSelectMaterial}
+        onSetUvScale={handleSetMaterialUvScale}
         onSelectNodes={handleSelectNodes}
         onSetMeshEditMode={setMeshEditMode}
         onSetRightPanel={handleSetRightPanel}
@@ -601,12 +652,14 @@ export function App() {
         onSplitBrushAtCoordinate={handleSplitBrushAtCoordinate}
         onTranslateSelection={handleTranslateSelection}
         onUndo={handleUndo}
+        onUpsertMaterial={handleUpsertMaterial}
         onUpdateBrushData={handleUpdateBrushData}
         onUpdateMeshData={handleUpdateMeshData}
         onUpdateNodeTransform={handleUpdateNodeTransform}
         meshEditMode={meshEditMode}
         renderScene={renderScene}
         selectedAssetId={ui.selectedAssetId}
+        selectedFaceIds={selectedMaterialFaceIds}
         selectedMaterialId={ui.selectedMaterialId}
         snapEnabled={ui.viewport.grid.enabled}
         transformMode={transformMode}

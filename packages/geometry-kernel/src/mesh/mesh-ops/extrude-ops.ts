@@ -28,13 +28,20 @@ export function extrudeEditableMeshFace(
     .map((polygon) => ({
       expectedNormal: polygon.normal,
       id: polygon.id,
+      materialId: polygon.materialId,
       positions: polygon.positions.map((position) => vec3(position.x, position.y, position.z))
+      ,
+      uvScale: polygon.uvScale,
+      vertexIds: [...polygon.vertexIds]
     }));
 
   extrudedPolygons.push({
     expectedNormal: target.normal,
     id: `${target.id}:extrude:cap`,
-    positions: capPositions
+    materialId: target.materialId,
+    positions: capPositions,
+    uvScale: target.uvScale,
+    vertexIds: target.vertexIds.map((vertexId, index) => `${vertexId}:extrude:cap:${index}`)
   });
 
   target.positions.forEach((position, index) => {
@@ -44,7 +51,15 @@ export function extrudeEditableMeshFace(
     extrudedPolygons.push({
       expectedNormal: computePolygonNormal(sidePositions),
       id: `${target.id}:extrude:side:${index}`,
-      positions: sidePositions
+      materialId: target.materialId,
+      positions: sidePositions,
+      uvScale: target.uvScale,
+      vertexIds: [
+        target.vertexIds[index],
+        target.vertexIds[nextIndex],
+        `${target.vertexIds[nextIndex]}:extrude:side:${index}`,
+        `${target.vertexIds[index]}:extrude:side:${index}`
+      ]
     });
   });
 
@@ -95,7 +110,9 @@ export function extrudeEditableMeshEdge(
   const nextPolygons: OrientedEditablePolygon[] = polygons.map((polygon) => ({
     expectedNormal: polygon.normal,
     id: polygon.id,
+    materialId: polygon.materialId,
     positions: polygon.positions.map((position) => vec3(position.x, position.y, position.z)),
+    uvScale: polygon.uvScale,
     vertexIds: [...polygon.vertexIds]
   }));
 
@@ -123,12 +140,14 @@ export function extrudeEditableMeshEdge(
           localStartExtruded
         ]),
         id: `${polygon.id}:extrude:side:${polygonIndex}`,
+        materialId: polygon.materialId,
         positions: [
           polygon.positions[polygonEdgeIndex],
           polygon.positions[polygonNextIndex],
           localEndExtruded,
           localStartExtruded
         ],
+        uvScale: polygon.uvScale,
         vertexIds: [
           `${polygon.id}:extrude:${edgeKey}:start`,
           `${polygon.id}:extrude:${edgeKey}:end`,
@@ -149,12 +168,14 @@ export function extrudeEditableMeshEdge(
       vec3(extrudedStart.x, extrudedStart.y, extrudedStart.z)
     ]),
     id: `${target.id}:extrude:${edgeKey}`,
+    materialId: target.materialId,
     positions: [
       vec3(startPosition.x, startPosition.y, startPosition.z),
       vec3(endPosition.x, endPosition.y, endPosition.z),
       vec3(extrudedEnd.x, extrudedEnd.y, extrudedEnd.z),
       vec3(extrudedStart.x, extrudedStart.y, extrudedStart.z)
     ],
+    uvScale: target.uvScale,
     vertexIds: [orientedEdge[0], orientedEdge[1], extrudedEndId, extrudedStartId]
   });
 

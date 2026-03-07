@@ -13,6 +13,11 @@ export type Vec3 = {
   z: number;
 };
 
+export type Vec2 = {
+  x: number;
+  y: number;
+};
+
 export type Transform = {
   position: Vec3;
   pivot?: Vec3;
@@ -30,6 +35,7 @@ export type Face = {
   plane: Plane;
   vertexIds: VertexID[];
   materialId?: MaterialID;
+  uvScale?: Vec2;
 };
 
 export type Brush = {
@@ -54,6 +60,8 @@ export type EditableMeshHalfEdge = {
 export type EditableMeshFace = {
   id: FaceID;
   halfEdge: HalfEdgeID;
+  materialId?: MaterialID;
+  uvScale?: Vec2;
 };
 
 export type EditableMesh = {
@@ -97,11 +105,22 @@ export type Asset = {
   metadata: Record<string, string | number | boolean>;
 };
 
+export type MaterialCategory = "blockout" | "custom" | "flat";
+
 export type Material = {
   id: MaterialID;
   name: string;
+  category?: MaterialCategory;
   color: string;
+  colorTexture?: string;
+  edgeColor?: string;
+  edgeThickness?: number;
+  metalness?: number;
+  metalnessTexture?: string;
+  normalTexture?: string;
   path?: string;
+  roughness?: number;
+  roughnessTexture?: string;
 };
 
 export type Layer = {

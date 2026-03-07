@@ -5,17 +5,21 @@ import { Button } from "@/components/ui/button";
 import { DragInput } from "@/components/ui/drag-input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FloatingPanel } from "@/components/editor-shell/FloatingPanel";
+import { MaterialLibraryPanel } from "@/components/editor-shell/MaterialLibraryPanel";
 import { rebaseTransformPivot } from "@/viewport/utils/geometry";
 import { cn } from "@/lib/utils";
+import type { MeshEditMode } from "@/viewport/editing";
 
 type InspectorSidebarProps = {
   activeRightPanel: "inspector" | "materials";
   activeToolId: ToolId;
   assets: Asset[];
   materials: Material[];
-  onAssignMaterial: (materialId: string) => void;
+  meshEditMode: MeshEditMode;
+  onApplyMaterial: (materialId: string, scope: "faces" | "object", faceIds: string[]) => void;
   onChangeRightPanel: (panel: "inspector" | "materials") => void;
   onClipSelection: (axis: "x" | "y" | "z") => void;
+  onDeleteMaterial: (materialId: string) => void;
   onExtrudeSelection: (axis: "x" | "y" | "z", direction: -1 | 1) => void;
   onMeshInflate: (factor: number) => void;
   onMirrorSelection: (axis: "x" | "y" | "z") => void;
@@ -23,9 +27,12 @@ type InspectorSidebarProps = {
   onPlaceEntity: (type: "spawn" | "light") => void;
   onSelectAsset: (assetId: string) => void;
   onSelectMaterial: (materialId: string) => void;
+  onSetUvScale: (scope: "faces" | "object", faceIds: string[], uvScale: { x: number; y: number }) => void;
   onTranslateSelection: (axis: "x" | "y" | "z", direction: -1 | 1) => void;
+  onUpsertMaterial: (material: Material) => void;
   onUpdateNodeTransform: (nodeId: string, transform: Transform, beforeTransform?: Transform) => void;
   selectedAssetId: string;
+  selectedFaceIds: string[];
   selectedMaterialId: string;
   selectedNode?: GeometryNode;
   viewportTarget: Vec3;
@@ -38,9 +45,11 @@ export function InspectorSidebar({
   activeToolId,
   assets,
   materials,
-  onAssignMaterial,
+  meshEditMode,
+  onApplyMaterial,
   onChangeRightPanel,
   onClipSelection,
+  onDeleteMaterial,
   onExtrudeSelection,
   onMeshInflate,
   onMirrorSelection,
@@ -48,9 +57,12 @@ export function InspectorSidebar({
   onPlaceEntity,
   onSelectAsset,
   onSelectMaterial,
+  onSetUvScale,
   onTranslateSelection,
+  onUpsertMaterial,
   onUpdateNodeTransform,
   selectedAssetId,
+  selectedFaceIds,
   selectedMaterialId,
   selectedNode,
   viewportTarget
@@ -78,7 +90,6 @@ export function InspectorSidebar({
   ]);
 
   const selectedAsset = assets.find((asset) => asset.id === selectedAssetId);
-  const selectedMaterial = materials.find((material) => material.id === selectedMaterialId);
   const selectedIsBrush = selectedNode?.kind === "brush";
   const selectedIsMesh = selectedNode?.kind === "mesh";
 
@@ -342,34 +353,17 @@ export function InspectorSidebar({
           </TabsContent>
 
           <TabsContent className="min-h-0 px-3 pb-3" value="materials">
-            <div className="space-y-2">
-              {materials.map((material) => (
-                <button
-                  className={cn(
-                    "flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left text-[12px] text-foreground/62 transition-colors hover:bg-white/5 hover:text-foreground",
-                    selectedMaterialId === material.id && "bg-emerald-500/14 text-emerald-200"
-                  )}
-                  key={material.id}
-                  onClick={() => onSelectMaterial(material.id)}
-                  type="button"
-                >
-                  <span
-                    className="size-3 rounded-full"
-                    style={{ backgroundColor: material.color }}
-                  />
-                  <span className="truncate font-medium">{material.name}</span>
-                </button>
-              ))}
-              <Button
-                className="w-full justify-center text-emerald-200"
-                disabled={!selectedNode || selectedNode.kind !== "brush"}
-                onClick={() => onAssignMaterial(selectedMaterialId)}
-                size="sm"
-                variant="ghost"
-              >
-                Apply {selectedMaterial?.name ?? "material"}
-              </Button>
-            </div>
+            <MaterialLibraryPanel
+              materials={materials}
+              onApplyMaterial={onApplyMaterial}
+              onDeleteMaterial={onDeleteMaterial}
+              onSelectMaterial={onSelectMaterial}
+              onSetUvScale={onSetUvScale}
+              onUpsertMaterial={onUpsertMaterial}
+              selectedFaceIds={activeToolId === "mesh-edit" && meshEditMode === "face" ? selectedFaceIds : []}
+              selectedMaterialId={selectedMaterialId}
+              selectedNode={selectedNode}
+            />
           </TabsContent>
         </Tabs>
       </FloatingPanel>

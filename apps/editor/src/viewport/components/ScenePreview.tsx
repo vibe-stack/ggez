@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { FrontSide, Mesh } from "three";
+import { CanvasTexture, FrontSide, Mesh, MeshStandardMaterial, RepeatWrapping, SRGBColorSpace, TextureLoader } from "three";
 import { disableBvhRaycast, enableBvhRaycast, type DerivedRenderMesh, type DerivedRenderScene } from "@web-hammer/render-pipeline";
 import { resolveTransformPivot, toTuple } from "@web-hammer/shared";
 import { createIndexedGeometry } from "@/viewport/utils/geometry";
@@ -87,13 +87,23 @@ function RenderPrimitive({
       return undefined;
     }
 
-    const bufferGeometry = createIndexedGeometry(mesh.surface.positions, mesh.surface.indices);
+    const bufferGeometry = createIndexedGeometry(
+      mesh.surface.positions,
+      mesh.surface.indices,
+      mesh.surface.uvs,
+      mesh.surface.groups
+    );
     bufferGeometry.computeVertexNormals();
     bufferGeometry.computeBoundingBox();
     bufferGeometry.computeBoundingSphere();
 
     return bufferGeometry;
   }, [mesh.surface]);
+  const previewMaterials = useMemo(() => {
+    const specs = mesh.materials ?? [mesh.material];
+
+    return specs.map((spec) => createPreviewMaterial(spec, selected, hovered));
+  }, [hovered, mesh.material, mesh.materials, selected]);
 
   useEffect(() => {
     if (geometry && meshObject && mesh.bvhEnabled) {
@@ -107,20 +117,21 @@ function RenderPrimitive({
     };
   }, [geometry, mesh.bvhEnabled, meshObject]);
 
+  useEffect(() => {
+    if (meshObject) {
+      meshObject.material = previewMaterials.length === 1 ? previewMaterials[0] : previewMaterials;
+    }
+  }, [meshObject, previewMaterials]);
+
+  useEffect(() => {
+    return () => {
+      previewMaterials.forEach((material) => disposePreviewMaterial(material));
+    };
+  }, [previewMaterials]);
+
   if (!hasRenderableGeometry) {
     return null;
   }
-
-  const materialProps = {
-    color: selected ? "#ffb35a" : hovered ? "#d8f4f0" : mesh.material.color,
-    flatShading: mesh.material.flatShaded,
-    wireframe: mesh.material.wireframe,
-    metalness: mesh.material.wireframe ? 0.05 : 0.15,
-    roughness: mesh.material.wireframe ? 0.45 : 0.72,
-    side: FrontSide,
-    emissive: selected ? "#f69036" : hovered ? "#2a7f74" : "#000000",
-    emissiveIntensity: selected ? 0.42 : hovered ? 0.16 : 0
-  };
   const pivot = resolveTransformPivot({
     pivot: mesh.pivot,
     position: mesh.position,
@@ -191,9 +202,80 @@ function RenderPrimitive({
               ]}
             />
           ) : null}
-          <meshStandardMaterial {...materialProps} />
         </mesh>
       </group>
     </group>
   );
+}
+
+function createPreviewMaterial(spec: DerivedRenderMesh["material"], selected: boolean, hovered: boolean) {
+  const colorTexture = spec.colorTexture
+    ? loadTexture(spec.colorTexture, true)
+    : spec.category === "blockout"
+      ? createBlockoutTexture(spec.color, spec.edgeColor ?? "#4f3118", spec.edgeThickness ?? 0.12)
+      : undefined;
+  const normalTexture = spec.normalTexture ? loadTexture(spec.normalTexture, false) : undefined;
+  const metalnessTexture = spec.metalnessTexture ? loadTexture(spec.metalnessTexture, false) : undefined;
+  const roughnessTexture = spec.roughnessTexture ? loadTexture(spec.roughnessTexture, false) : undefined;
+
+  return new MeshStandardMaterial({
+    color: colorTexture ? "#ffffff" : selected ? "#ffb35a" : hovered ? "#d8f4f0" : spec.color,
+    emissive: selected ? "#f69036" : hovered ? "#2a7f74" : "#000000",
+    emissiveIntensity: selected ? 0.38 : hovered ? 0.14 : 0,
+    flatShading: spec.flatShaded,
+    map: colorTexture,
+    metalness: spec.wireframe ? 0.05 : spec.metalness,
+    metalnessMap: metalnessTexture,
+    normalMap: normalTexture,
+    roughness: spec.wireframe ? 0.45 : spec.roughness,
+    roughnessMap: roughnessTexture,
+    side: FrontSide,
+    wireframe: spec.wireframe
+  });
+}
+
+function disposePreviewMaterial(material: MeshStandardMaterial) {
+  material.map?.dispose();
+  material.normalMap?.dispose();
+  material.metalnessMap?.dispose();
+  material.roughnessMap?.dispose();
+  material.dispose();
+}
+
+function loadTexture(source: string, isColor: boolean) {
+  const texture = new TextureLoader().load(source);
+  texture.wrapS = RepeatWrapping;
+  texture.wrapT = RepeatWrapping;
+
+  if (isColor) {
+    texture.colorSpace = SRGBColorSpace;
+  }
+
+  return texture;
+}
+
+function createBlockoutTexture(color: string, edgeColor: string, edgeThickness: number) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 128;
+  const context = canvas.getContext("2d");
+
+  if (!context) {
+    return undefined;
+  }
+
+  const border = Math.max(6, Math.round(128 * edgeThickness));
+  context.fillStyle = edgeColor;
+  context.fillRect(0, 0, 128, 128);
+  context.fillStyle = color;
+  context.fillRect(border, border, 128 - border * 2, 128 - border * 2);
+  context.strokeStyle = "rgba(255,255,255,0.18)";
+  context.lineWidth = Math.max(2, border * 0.25);
+  context.strokeRect(border * 0.75, border * 0.75, 128 - border * 1.5, 128 - border * 1.5);
+
+  const texture = new CanvasTexture(canvas);
+  texture.wrapS = RepeatWrapping;
+  texture.wrapT = RepeatWrapping;
+  texture.colorSpace = SRGBColorSpace;
+  return texture;
 }

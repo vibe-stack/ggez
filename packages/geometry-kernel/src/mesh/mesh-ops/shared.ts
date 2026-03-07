@@ -25,7 +25,7 @@ import type {
 } from "./types";
 
 export function getMeshPolygons(mesh: EditableMesh): MeshPolygonData[] {
-  return mesh.faces
+  const polygons: Array<MeshPolygonData | undefined> = mesh.faces
     .map((face) => {
       const positions = getFaceVertices(mesh, face.id).map((vertex) => vec3(vertex.position.x, vertex.position.y, vertex.position.z));
       const vertexIds = getFaceVertexIds(mesh, face.id);
@@ -34,15 +34,20 @@ export function getMeshPolygons(mesh: EditableMesh): MeshPolygonData[] {
         return undefined;
       }
 
-      return {
+      const polygon: MeshPolygonData = {
         center: averageVec3(positions),
         id: face.id,
+        materialId: face.materialId,
         normal: computePolygonNormal(positions),
         positions,
+        uvScale: face.uvScale,
         vertexIds
       };
+
+      return polygon;
     })
-    .filter((polygon): polygon is MeshPolygonData => Boolean(polygon));
+
+  return polygons.filter((polygon): polygon is MeshPolygonData => polygon !== undefined);
 }
 
 export function orderBoundaryEdges(
@@ -135,8 +140,8 @@ export function expandPolygonWithInsertedMidpoints(
   return { positions, vertexIds };
 }
 
-export function ringSlice(points: Vec3[], startIndex: number, endIndex: number) {
-  const loop: Vec3[] = [];
+export function ringSlice<T>(points: T[], startIndex: number, endIndex: number) {
+  const loop: T[] = [];
   let index = startIndex;
 
   while (true) {
@@ -339,7 +344,9 @@ export function replacePolygonVertexWithBevelPoints(
   return {
     expectedNormal,
     id: polygon.id,
+    materialId: polygon.materialId,
     positions,
+    uvScale: polygon.uvScale,
     vertexIds: nextVertexIds
   };
 }
@@ -365,6 +372,7 @@ export function orientPolygonLoops(polygons: OrientedEditablePolygon[]) {
       return {
         ...polygon,
         positions: polygon.positions.slice().reverse(),
+        uvScale: polygon.uvScale,
         vertexIds: polygon.vertexIds?.slice().reverse()
       };
     }
@@ -376,6 +384,7 @@ export function orientPolygonLoops(polygons: OrientedEditablePolygon[]) {
       : {
           ...polygon,
           positions: polygon.positions.slice().reverse(),
+          uvScale: polygon.uvScale,
           vertexIds: polygon.vertexIds?.slice().reverse()
         };
   });
@@ -405,8 +414,10 @@ export function getMeshPolygonWithInsertedPoint(
   return {
     center: averageVec3(insertedPolygon.positions),
     id: insertedPolygon.id,
+    materialId: polygon.materialId,
     normal: polygon.normal,
     positions: insertedPolygon.positions,
+    uvScale: polygon.uvScale,
     vertexIds: insertedPolygon.vertexIds ?? polygon.vertexIds
   };
 }
@@ -422,6 +433,7 @@ export function insertPointsOnPolygonEdge(
     return {
       ...polygon,
       positions: polygon.positions.map((position) => vec3(position.x, position.y, position.z)),
+      uvScale: polygon.uvScale,
       vertexIds: [...polygon.vertexIds]
     };
   }
@@ -447,7 +459,9 @@ export function insertPointsOnPolygonEdge(
   return {
     expectedNormal: polygon.expectedNormal,
     id: polygon.id,
+    materialId: polygon.materialId,
     positions,
+    uvScale: polygon.uvScale,
     vertexIds
   };
 }

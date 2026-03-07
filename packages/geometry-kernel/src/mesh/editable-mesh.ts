@@ -10,14 +10,18 @@ import type {
   EditableMeshVertex,
   FaceID,
   HalfEdgeID,
+  MaterialID,
   Vec3,
+  Vec2,
   VertexID
 } from "@web-hammer/shared";
 import { almostEqual, vec3 } from "@web-hammer/shared";
 
 export type EditableMeshPolygon = {
   id?: FaceID;
+  materialId?: MaterialID;
   positions: Vec3[];
+  uvScale?: Vec2;
   vertexIds?: VertexID[];
 };
 
@@ -111,7 +115,9 @@ export function createEditableMeshFromPolygons(
 
     faces.push({
       id: faceId,
-      halfEdge: faceHalfEdges[0].id
+      halfEdge: faceHalfEdges[0].id,
+      materialId: polygon.materialId,
+      uvScale: polygon.uvScale
     });
   });
 

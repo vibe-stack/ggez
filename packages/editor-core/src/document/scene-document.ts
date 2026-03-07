@@ -26,6 +26,7 @@ export type SceneDocument = {
   removeNode: (id: NodeID) => GeometryNode | undefined;
   addEntity: (entity: Entity) => void;
   removeEntity: (id: EntityID) => Entity | undefined;
+  removeMaterial: (id: MaterialID) => Material | undefined;
   setMaterial: (material: Material) => void;
   setAsset: (asset: Asset) => void;
   setLayer: (layer: Layer) => void;
@@ -91,6 +92,18 @@ export function createSceneDocument(): SceneDocument {
       document.touch();
 
       return entity;
+    },
+    removeMaterial(id) {
+      const material = materials.get(id);
+
+      if (!material) {
+        return undefined;
+      }
+
+      materials.delete(id);
+      document.touch();
+
+      return material;
     },
     setMaterial(material) {
       materials.set(material.id, material);
@@ -183,19 +196,79 @@ export function createSeedSceneDocument(): SceneDocument {
   document.materials.set("material:blockout:orange", {
     id: "material:blockout:orange",
     name: "Blockout Orange",
-    color: "#f69036"
+    category: "blockout",
+    color: "#f69036",
+    edgeColor: "#7a3b11",
+    edgeThickness: 0.13,
+    metalness: 0,
+    roughness: 0.95
   });
 
-  document.materials.set("material:detail:teal", {
-    id: "material:detail:teal",
-    name: "Detail Teal",
-    color: "#6ed5c0"
+  document.materials.set("material:blockout:concrete", {
+    id: "material:blockout:concrete",
+    name: "Blockout Concrete",
+    category: "blockout",
+    color: "#a8aea7",
+    edgeColor: "#52585a",
+    edgeThickness: 0.1,
+    metalness: 0,
+    roughness: 1
   });
 
-  document.materials.set("material:prop:steel", {
-    id: "material:prop:steel",
-    name: "Prop Steel",
-    color: "#7f8ea3"
+  document.materials.set("material:blockout:mint", {
+    id: "material:blockout:mint",
+    name: "Blockout Mint",
+    category: "blockout",
+    color: "#7ed8bc",
+    edgeColor: "#19584c",
+    edgeThickness: 0.12,
+    metalness: 0,
+    roughness: 0.9
+  });
+
+  document.materials.set("material:flat:orange", {
+    id: "material:flat:orange",
+    name: "Flat Orange",
+    category: "flat",
+    color: "#f69036",
+    metalness: 0,
+    roughness: 0.92
+  });
+
+  document.materials.set("material:flat:teal", {
+    id: "material:flat:teal",
+    name: "Flat Teal",
+    category: "flat",
+    color: "#6ed5c0",
+    metalness: 0,
+    roughness: 0.82
+  });
+
+  document.materials.set("material:flat:steel", {
+    id: "material:flat:steel",
+    name: "Flat Steel",
+    category: "flat",
+    color: "#7f8ea3",
+    metalness: 0.18,
+    roughness: 0.58
+  });
+
+  document.materials.set("material:flat:sand", {
+    id: "material:flat:sand",
+    name: "Flat Sand",
+    category: "flat",
+    color: "#c8b07e",
+    metalness: 0,
+    roughness: 0.88
+  });
+
+  document.materials.set("material:flat:charcoal", {
+    id: "material:flat:charcoal",
+    name: "Flat Charcoal",
+    category: "flat",
+    color: "#4e5564",
+    metalness: 0,
+    roughness: 0.8
   });
 
   document.assets.set("asset:model:crate", {

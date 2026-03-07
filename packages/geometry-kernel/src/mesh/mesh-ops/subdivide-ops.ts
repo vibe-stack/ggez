@@ -26,7 +26,9 @@ export function subdivideEditableMeshFace(
     .map((polygon) => ({
       expectedNormal: polygon.normal,
       id: polygon.id,
+      materialId: polygon.materialId,
       positions: polygon.positions.map((position) => vec3(position.x, position.y, position.z)),
+      uvScale: polygon.uvScale,
       vertexIds: [...polygon.vertexIds]
     }));
 
@@ -140,12 +142,14 @@ function buildQuadSubdivisionPolygons(
       polygons.push({
         expectedNormal: target.normal,
         id: `${target.id}:subdiv:${column}:${row}`,
+        materialId: target.materialId,
         positions: [
           gridPointAt(column, row),
           gridPointAt(column + 1, row),
           gridPointAt(column + 1, row + 1),
           gridPointAt(column, row + 1)
         ],
+        uvScale: target.uvScale,
         vertexIds: [
           gridVertexIdAt(column, row),
           gridVertexIdAt(column + 1, row),
@@ -196,12 +200,14 @@ function buildRadialSubdivisionPolygons(
       polygons.push({
         expectedNormal: target.normal,
         id: `${target.id}:subdiv:ring:${ringIndex}:cell:${pointIndex}`,
+        materialId: target.materialId,
         positions: [
           outerRing.points[pointIndex],
           outerRing.points[nextPointIndex],
           innerRing.points[nextPointIndex],
           innerRing.points[pointIndex]
         ],
+        uvScale: target.uvScale,
         vertexIds: [
           outerRing.vertexIds[pointIndex],
           outerRing.vertexIds[nextPointIndex],
@@ -218,6 +224,8 @@ function buildRadialSubdivisionPolygons(
     expectedNormal: target.normal,
     id: `${target.id}:subdiv:center`,
     positions: innerRing.points,
+    materialId: target.materialId,
+    uvScale: target.uvScale,
     vertexIds: innerRing.vertexIds
   });
 
