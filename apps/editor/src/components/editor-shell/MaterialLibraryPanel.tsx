@@ -1,9 +1,23 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { vec2, type GeometryNode, type Material, type Vec2 } from "@web-hammer/shared";
+import {
+  Check,
+  Copy,
+  Cuboid,
+  ImagePlus,
+  Lock,
+  Pencil,
+  Plus,
+  Save,
+  Square,
+  Trash2,
+  Unlock,
+  X
+} from "lucide-react";
+import { createBlockoutTextureDataUri, vec2, type GeometryNode, type Material, type Vec2 } from "@web-hammer/shared";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { DragInput } from "@/components/ui/drag-input";
 import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
 type MaterialLibraryPanelProps = {
@@ -47,6 +61,8 @@ export function MaterialLibraryPanel({
   );
   const customMaterials = useMemo(() => materials.filter((material) => resolveMaterialCategory(material) === "custom"), [materials]);
   const [draftMaterial, setDraftMaterial] = useState<Material>(() => createDraftMaterial(selectedMaterial));
+  const [expandedMaterialId, setExpandedMaterialId] = useState<string | "new" | null>(null);
+  const [scope, setScope] = useState<"faces" | "object">("object");
   const [uvDraft, setUvDraft] = useState<Vec2>(() => vec2(1, 1));
   const [uvLocked, setUvLocked] = useState(true);
   const fileInputsRef = useRef<Record<string, HTMLInputElement | null>>({});
@@ -65,6 +81,18 @@ export function MaterialLibraryPanel({
   }, [selectedMaterialId, selectedMaterial]);
 
   useEffect(() => {
+    if (scope === "faces" && !canApplyToFaces) {
+      setScope("object");
+    }
+  }, [canApplyToFaces, scope]);
+
+  useEffect(() => {
+    if (canApplyToFaces && selectedFaceIds.length > 0) {
+      setScope("faces");
+    }
+  }, [canApplyToFaces, selectedFaceIds.length]);
+
+  useEffect(() => {
     setUvDraft(vec2(targetUvScale.x, targetUvScale.y));
   }, [targetUvScale.x, targetUvScale.y, selectedNode?.id, selectedFaceIds.join("|")]);
 
@@ -78,6 +106,10 @@ export function MaterialLibraryPanel({
     });
   };
 
+  const resolvedScope = scope === "faces" && canApplyToFaces ? "faces" : "object";
+  const resolvedFaceIds = resolvedScope === "faces" ? selectedFaceIds : [];
+  const canApply = Boolean(selectedMaterial) && canApplyToObject && (resolvedScope === "object" || canApplyToFaces);
+
   const saveAsNewMaterial = () => {
     const material = {
       ...draftMaterial,
@@ -87,30 +119,99 @@ export function MaterialLibraryPanel({
 
     onUpsertMaterial(material);
     onSelectMaterial(material.id);
+    setExpandedMaterialId(material.id);
   };
 
   const updateSelectedMaterial = () => {
-    if (!selectedMaterial || resolveMaterialCategory(selectedMaterial) !== "custom") {
+    if (expandedMaterialId === "new") {
+      const material = {
+        ...draftMaterial,
+        category: "custom" as const,
+        id: createCustomMaterialId(draftMaterial.name)
+      };
+
+      onUpsertMaterial(material);
+      onSelectMaterial(material.id);
+      setExpandedMaterialId(material.id);
+      return;
+    }
+
+    if (!selectedMaterial || resolveMaterialCategory(selectedMaterial) !== "custom" || !expandedMaterialId) {
       return;
     }
 
     onUpsertMaterial({
       ...draftMaterial,
       category: "custom",
-      id: selectedMaterial.id
+      id: expandedMaterialId
     });
   };
 
+  const applyCurrentSelection = () => {
+    if (!selectedMaterial) {
+      return;
+    }
+
+    onApplyMaterial(selectedMaterial.id, resolvedScope, resolvedFaceIds);
+    onSetUvScale(resolvedScope, resolvedFaceIds, uvDraft);
+  };
+
+  const beginNewMaterial = () => {
+    setDraftMaterial(createDraftMaterial());
+    setExpandedMaterialId("new");
+  };
+
+  const beginEditMaterial = (material: Material) => {
+    onSelectMaterial(material.id);
+    setDraftMaterial(createDraftMaterial(material));
+    setExpandedMaterialId(material.id);
+  };
+
   return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <PanelLabel>Flat Colors</PanelLabel>
-        <div className="grid grid-cols-5 gap-2">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="sticky top-0 z-10 flex items-center justify-between gap-2 bg-[#0b1512]/96 px-1 pb-3 backdrop-blur-xl">
+        <div className="flex items-center gap-1 rounded-2xl bg-white/5 p-1">
+          <button
+            className={cn(
+              "inline-flex h-8 items-center gap-1.5 rounded-xl px-3 text-[11px] font-medium text-foreground/56 transition-colors",
+              resolvedScope === "object" && "bg-white/10 text-foreground"
+            )}
+            onClick={() => setScope("object")}
+            type="button"
+          >
+            <Cuboid className="size-3.5" />
+            <span>Object</span>
+          </button>
+          <button
+            className={cn(
+              "inline-flex h-8 items-center gap-1.5 rounded-xl px-3 text-[11px] font-medium text-foreground/56 transition-colors",
+              resolvedScope === "faces" && "bg-white/10 text-foreground",
+              !canApplyToFaces && "opacity-35"
+            )}
+            disabled={!canApplyToFaces}
+            onClick={() => setScope("faces")}
+            type="button"
+          >
+            <Square className="size-3.5" />
+            <span>Face</span>
+          </button>
+        </div>
+
+        <Button aria-label="Create custom material" onClick={beginNewMaterial} size="icon-sm" title="Create custom material" variant="ghost">
+          <Plus />
+        </Button>
+      </div>
+
+      <ScrollArea className="min-h-0 flex-1 pr-1">
+        <div className="space-y-5 px-1 pb-4">
+          <div className="space-y-2">
+            <PanelLabel>Flat</PanelLabel>
+            <div className="grid grid-cols-5 gap-2">
           {flatMaterials.map((material) => (
             <button
               className={cn(
-                "size-10 rounded-2xl border border-white/10 transition-transform hover:scale-[1.04] hover:border-white/30",
-                selectedMaterialId === material.id && "ring-2 ring-emerald-400/80 ring-offset-2 ring-offset-transparent"
+                "size-8 rounded-xl transition-transform hover:scale-[1.04]",
+                selectedMaterialId === material.id && "bg-white/10 shadow-[0_0_0_1px_rgba(255,255,255,0.18)]"
               )}
               key={material.id}
               onClick={() => onSelectMaterial(material.id)}
@@ -119,250 +220,153 @@ export function MaterialLibraryPanel({
               type="button"
             />
           ))}
+            </div>
         </div>
-      </div>
 
-      <div className="space-y-2">
-        <PanelLabel>Blockout Presets</PanelLabel>
-        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-2">
+            <PanelLabel>Blockout</PanelLabel>
+            <div className="flex flex-wrap gap-2">
           {blockoutMaterials.map((material) => (
             <button
               className={cn(
-                "space-y-2 rounded-2xl border border-white/8 bg-white/3 p-2 text-left transition-colors hover:border-white/18 hover:bg-white/5",
-                selectedMaterialId === material.id && "border-emerald-400/60 bg-emerald-400/10"
+                "size-8 rounded-xl bg-white/4 bg-cover bg-center transition-transform hover:scale-[1.04]",
+                selectedMaterialId === material.id && "bg-white/10 shadow-[0_0_0_1px_rgba(255,255,255,0.18)]"
               )}
               key={material.id}
               onClick={() => onSelectMaterial(material.id)}
+              style={{
+                backgroundColor: material.color,
+                backgroundImage: `url(${createBlockoutTextureDataUri(material.color, material.edgeColor ?? "#f5f2ea", material.edgeThickness ?? 0.018)})`,
+                backgroundPosition: "center",
+                backgroundSize: "cover"
+              }}
+              title={material.name}
               type="button"
-            >
-              <div
-                className="h-10 rounded-xl"
-                style={{
-                  backgroundColor: material.edgeColor ?? "#3f2f24",
-                  boxShadow: `inset 0 0 0 ${Math.max(4, Math.round(32 * (material.edgeThickness ?? 0.12)))}px ${material.color}`
-                }}
-              />
-              <div className="truncate text-[11px] font-medium text-foreground/82">{material.name}</div>
-            </button>
+            />
           ))}
-        </div>
-      </div>
-
-      <div className="space-y-2 rounded-2xl border border-white/8 bg-white/3 p-3">
-        <div className="flex items-center justify-between gap-2">
-          <PanelLabel>Custom Materials</PanelLabel>
-          <Button
-            onClick={() => {
-              setDraftMaterial(createDraftMaterial());
-            }}
-            size="xs"
-            variant="ghost"
-          >
-            New Custom
-          </Button>
-        </div>
-        {customMaterials.length > 0 ? (
-          <div className="flex flex-wrap gap-1.5">
-            {customMaterials.map((material) => (
-              <button
-                className={cn(
-                  "rounded-full border border-white/10 px-2.5 py-1 text-[11px] text-foreground/70 transition-colors hover:border-white/20 hover:text-foreground",
-                  selectedMaterialId === material.id && "border-emerald-400/60 bg-emerald-400/12 text-emerald-100"
-                )}
-                key={material.id}
-                onClick={() => onSelectMaterial(material.id)}
-                type="button"
-              >
-                {material.name}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div className="text-[11px] text-foreground/42">No custom materials yet.</div>
-        )}
-
-        <div className="space-y-3 pt-1">
-          <div className="flex items-end gap-2">
-            <div className="flex-1 space-y-1">
-              <div className="text-[10px] font-medium tracking-[0.18em] text-foreground/42 uppercase">Name</div>
-              <Input
-                onChange={(event) => setDraftMaterial((current) => ({ ...current, name: event.target.value }))}
-                value={draftMaterial.name}
-              />
             </div>
-            <label className="space-y-1">
-              <div className="text-[10px] font-medium tracking-[0.18em] text-foreground/42 uppercase">Color</div>
-              <input
-                className="h-8 w-12 rounded-lg border border-white/10 bg-transparent p-1"
-                onChange={(event) => setDraftMaterial((current) => ({ ...current, color: event.target.value }))}
-                type="color"
-                value={draftMaterial.color}
-              />
-            </label>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <DragInput
-              compact
-              label="Metal"
-              max={1}
-              min={0}
-              onChange={(value) => setDraftMaterial((current) => ({ ...current, metalness: value }))}
-              precision={2}
-              step={0.01}
-              value={draftMaterial.metalness ?? 0}
-            />
-            <DragInput
-              compact
-              label="Rough"
-              max={1}
-              min={0}
-              onChange={(value) => setDraftMaterial((current) => ({ ...current, roughness: value }))}
-              precision={2}
-              step={0.01}
-              value={draftMaterial.roughness ?? 0.8}
-            />
-          </div>
+        </div>
 
           <div className="space-y-2">
-            {TEXTURE_FIELDS.map(({ field, label }) => (
-              <div className="rounded-xl border border-white/8 bg-black/10 p-2" key={field}>
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <div className="text-[11px] font-medium text-foreground/78">{label}</div>
-                    <div className="text-[10px] text-foreground/38">
-                      {draftMaterial[field] ? "Embedded image" : "No texture assigned"}
-                    </div>
+            <PanelLabel>Custom</PanelLabel>
+            <div className="space-y-1.5">
+            {customMaterials.map((material) => (
+              <div className="space-y-2" key={material.id}>
+                <button
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-left transition-colors hover:bg-white/5",
+                    selectedMaterialId === material.id && "bg-white/8"
+                  )}
+                  onClick={() => onSelectMaterial(material.id)}
+                  type="button"
+                >
+                  <div
+                    className="size-8 shrink-0 rounded-xl bg-[#121619] bg-cover bg-center"
+                    style={{
+                      backgroundColor: material.color,
+                      backgroundImage: material.colorTexture ? `url(${material.colorTexture})` : undefined
+                    }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[12px] font-medium text-foreground/84">{material.name}</div>
                   </div>
-                  <div className="flex gap-1.5">
-                    <Button onClick={() => fileInputsRef.current[field]?.click()} size="xs" variant="ghost">
-                      {draftMaterial[field] ? "Replace" : "Add"}
-                    </Button>
-                    <Button
-                      disabled={!draftMaterial[field]}
-                      onClick={() => setDraftMaterial((current) => ({ ...current, [field]: undefined }))}
-                      size="xs"
-                      variant="ghost"
-                    >
-                      Clear
-                    </Button>
-                  </div>
-                </div>
-                <input
-                  accept="image/*"
-                  hidden
-                  onChange={(event) => void handleTextureUpload(field, event, setDraftMaterial)}
-                  ref={(element) => {
-                    fileInputsRef.current[field] = element;
-                  }}
-                  type="file"
-                />
+                  <Button
+                    aria-label={`Edit ${material.name}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (expandedMaterialId === material.id) {
+                        setExpandedMaterialId(null);
+                        return;
+                      }
+                      beginEditMaterial(material);
+                    }}
+                    size="icon-xs"
+                    title={`Edit ${material.name}`}
+                    variant="ghost"
+                  >
+                    <Pencil />
+                  </Button>
+                </button>
+
+                {expandedMaterialId === material.id ? (
+                  <MaterialEditorForm
+                    draftMaterial={draftMaterial}
+                    fileInputsRef={fileInputsRef}
+                    isNew={false}
+                    onChangeDraft={setDraftMaterial}
+                    onDelete={() => onDeleteMaterial(material.id)}
+                    onSave={updateSelectedMaterial}
+                    onSaveAsNew={saveAsNewMaterial}
+                  />
+                ) : null}
               </div>
             ))}
-          </div>
+            {customMaterials.length === 0 && expandedMaterialId !== "new" ? (
+              <div className="px-2 py-3 text-[11px] text-foreground/40">No custom materials yet.</div>
+            ) : null}
 
-          <div className="flex flex-wrap gap-1.5">
-            <Button onClick={saveAsNewMaterial} size="sm" variant="ghost">
-              Save As New
-            </Button>
-            <Button
-              disabled={resolveMaterialCategory(selectedMaterial) !== "custom"}
-              onClick={updateSelectedMaterial}
-              size="sm"
-              variant="ghost"
-            >
-              Update Selected
-            </Button>
-            <Button
-              disabled={resolveMaterialCategory(selectedMaterial) !== "custom"}
-              onClick={() => {
-                if (selectedMaterial) {
-                  onDeleteMaterial(selectedMaterial.id);
-                }
-              }}
-              size="sm"
-              variant="ghost"
-            >
-              Delete Selected
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-3 rounded-2xl border border-white/8 bg-white/3 p-3">
-        <PanelLabel>Selection</PanelLabel>
-        <div className="text-[11px] text-foreground/52">
-          {canApplyToFaces
-            ? `Editing ${selectedFaceIds.length} selected face${selectedFaceIds.length === 1 ? "" : "s"}.`
-            : canApplyToObject
-              ? "Applying to the whole object."
-              : "Select a brush or mesh to apply materials and UV scale."}
-        </div>
-
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="text-[10px] font-medium tracking-[0.18em] text-foreground/42 uppercase">UV Scale</div>
-            <label className="flex items-center gap-2 text-[11px] text-foreground/56">
-              <Checkbox checked={uvLocked} onCheckedChange={(value) => setUvLocked(Boolean(value))} />
-              Lock axes
-            </label>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <DragInput
-              compact
-              label="U"
-              min={0.05}
-              onChange={(value) => applyUvAxis("x", value)}
-              precision={2}
-              step={0.05}
-              value={uvDraft.x}
-            />
-            <DragInput
-              compact
-              label="V"
-              min={0.05}
-              onChange={(value) => applyUvAxis("y", value)}
-              precision={2}
-              step={0.05}
-              value={uvDraft.y}
-            />
+            {expandedMaterialId === "new" ? (
+              <MaterialEditorForm
+                draftMaterial={draftMaterial}
+                fileInputsRef={fileInputsRef}
+                isNew
+                onChangeDraft={setDraftMaterial}
+                onDelete={() => setExpandedMaterialId(null)}
+                onSave={updateSelectedMaterial}
+                onSaveAsNew={saveAsNewMaterial}
+              />
+            ) : null}
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-1.5">
-          <Button
-            disabled={!canApplyToObject || !selectedMaterial}
-            onClick={() => selectedMaterial && onApplyMaterial(selectedMaterial.id, "object", [])}
-            size="sm"
-            variant="ghost"
-          >
-            Apply to Object
-          </Button>
-          <Button
-            disabled={!canApplyToFaces || !selectedMaterial}
-            onClick={() => selectedMaterial && onApplyMaterial(selectedMaterial.id, "faces", selectedFaceIds)}
-            size="sm"
-            variant="ghost"
-          >
-            Apply to Selected Faces
-          </Button>
-          <Button
-            disabled={!canApplyToObject}
-            onClick={() => onSetUvScale("object", [], uvDraft)}
-            size="sm"
-            variant="ghost"
-          >
-            Set Object UV
-          </Button>
-          <Button
-            disabled={!canApplyToFaces}
-            onClick={() => onSetUvScale("faces", selectedFaceIds, uvDraft)}
-            size="sm"
-            variant="ghost"
-          >
-            Set Face UV
-          </Button>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <PanelLabel>UV</PanelLabel>
+              <Button
+                aria-label={uvLocked ? "Unlock UV axes" : "Lock UV axes"}
+                onClick={() => setUvLocked((current) => !current)}
+                size="icon-xs"
+                title={uvLocked ? "Unlock UV axes" : "Lock UV axes"}
+                variant="ghost"
+              >
+                {uvLocked ? <Lock /> : <Unlock />}
+              </Button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <DragInput
+                compact
+                label="U"
+                min={0.05}
+                onChange={(value) => applyUvAxis("x", value)}
+                precision={2}
+                step={0.05}
+                value={uvDraft.x}
+              />
+              <DragInput
+                compact
+                label="V"
+                min={0.05}
+                onChange={(value) => applyUvAxis("y", value)}
+                precision={2}
+                step={0.05}
+                value={uvDraft.y}
+              />
+            </div>
+          </div>
         </div>
+      </ScrollArea>
+
+      <div className="sticky bottom-0 z-10 mt-2 bg-[#0b1512]/96 px-1 pt-3 backdrop-blur-xl">
+        <Button
+          className="w-full justify-center gap-2 rounded-2xl bg-emerald-500/14 text-emerald-100 hover:bg-emerald-500/22"
+          disabled={!canApply}
+          onClick={applyCurrentSelection}
+          size="sm"
+          variant="ghost"
+        >
+          <Check className="size-4" />
+          <span>Apply</span>
+        </Button>
       </div>
     </div>
   );
@@ -370,6 +374,117 @@ export function MaterialLibraryPanel({
 
 function PanelLabel({ children }: { children: string }) {
   return <div className="text-[10px] font-medium tracking-[0.18em] text-foreground/42 uppercase">{children}</div>;
+}
+
+function MaterialEditorForm({
+  draftMaterial,
+  fileInputsRef,
+  isNew,
+  onChangeDraft,
+  onDelete,
+  onSave,
+  onSaveAsNew
+}: {
+  draftMaterial: Material;
+  fileInputsRef: React.MutableRefObject<Record<string, HTMLInputElement | null>>;
+  isNew: boolean;
+  onChangeDraft: React.Dispatch<React.SetStateAction<Material>>;
+  onDelete: () => void;
+  onSave: () => void;
+  onSaveAsNew: () => void;
+}) {
+  return (
+    <div className="space-y-3 rounded-2xl bg-white/[0.04] p-3">
+      <div className="flex items-end gap-2">
+        <div className="flex-1 space-y-1">
+          <PanelLabel>Name</PanelLabel>
+          <Input
+            className="border-0 bg-white/6"
+            onChange={(event) => onChangeDraft((current) => ({ ...current, name: event.target.value }))}
+            value={draftMaterial.name}
+          />
+        </div>
+        <label className="flex shrink-0 flex-col gap-1">
+          <PanelLabel>Color</PanelLabel>
+          <input
+            className="h-9 w-10 rounded-xl bg-transparent p-0"
+            onChange={(event) => onChangeDraft((current) => ({ ...current, color: event.target.value }))}
+            type="color"
+            value={draftMaterial.color}
+          />
+        </label>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <DragInput
+          compact
+          label="Metal"
+          max={1}
+          min={0}
+          onChange={(value) => onChangeDraft((current) => ({ ...current, metalness: value }))}
+          precision={2}
+          step={0.01}
+          value={draftMaterial.metalness ?? 0}
+        />
+        <DragInput
+          compact
+          label="Rough"
+          max={1}
+          min={0}
+          onChange={(value) => onChangeDraft((current) => ({ ...current, roughness: value }))}
+          precision={2}
+          step={0.01}
+          value={draftMaterial.roughness ?? 0.8}
+        />
+      </div>
+
+      <div className="space-y-2">
+        {TEXTURE_FIELDS.map(({ field, label }) => (
+          <div className="flex items-center gap-2" key={field}>
+            <div
+              className="size-8 shrink-0 rounded-xl bg-[#121619] bg-cover bg-center"
+              style={{ backgroundImage: draftMaterial[field] ? `url(${draftMaterial[field]})` : undefined }}
+            />
+            <div className="min-w-0 flex-1 text-[11px] text-foreground/64">{label}</div>
+            <Button aria-label={`Add ${label}`} onClick={() => fileInputsRef.current[field]?.click()} size="icon-xs" title={`Add ${label}`} variant="ghost">
+              <ImagePlus />
+            </Button>
+            <Button
+              aria-label={`Clear ${label}`}
+              disabled={!draftMaterial[field]}
+              onClick={() => onChangeDraft((current) => ({ ...current, [field]: undefined }))}
+              size="icon-xs"
+              title={`Clear ${label}`}
+              variant="ghost"
+            >
+              <X />
+            </Button>
+            <input
+              accept="image/*"
+              hidden
+              onChange={(event) => void handleTextureUpload(field, event, onChangeDraft)}
+              ref={(element) => {
+                fileInputsRef.current[field] = element;
+              }}
+              type="file"
+            />
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center justify-end gap-1">
+        <Button aria-label={isNew ? "Save material" : "Update material"} onClick={onSave} size="icon-xs" title={isNew ? "Save material" : "Update material"} variant="ghost">
+          <Save />
+        </Button>
+        <Button aria-label="Save as new material" onClick={onSaveAsNew} size="icon-xs" title="Save as new material" variant="ghost">
+          <Copy />
+        </Button>
+        <Button aria-label={isNew ? "Close editor" : "Delete material"} onClick={onDelete} size="icon-xs" title={isNew ? "Close editor" : "Delete material"} variant="ghost">
+          {isNew ? <X /> : <Trash2 />}
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 function resolveMaterialCategory(material?: Material) {

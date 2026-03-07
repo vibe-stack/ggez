@@ -198,8 +198,8 @@ export function createSeedSceneDocument(): SceneDocument {
     name: "Blockout Orange",
     category: "blockout",
     color: "#f69036",
-    edgeColor: "#7a3b11",
-    edgeThickness: 0.13,
+    edgeColor: "#fff5df",
+    edgeThickness: 0.018,
     metalness: 0,
     roughness: 0.95
   });
@@ -209,8 +209,8 @@ export function createSeedSceneDocument(): SceneDocument {
     name: "Blockout Concrete",
     category: "blockout",
     color: "#a8aea7",
-    edgeColor: "#52585a",
-    edgeThickness: 0.1,
+    edgeColor: "#f5f7f2",
+    edgeThickness: 0.016,
     metalness: 0,
     roughness: 1
   });
@@ -220,8 +220,8 @@ export function createSeedSceneDocument(): SceneDocument {
     name: "Blockout Mint",
     category: "blockout",
     color: "#7ed8bc",
-    edgeColor: "#19584c",
-    edgeThickness: 0.12,
+    edgeColor: "#f2fff8",
+    edgeThickness: 0.017,
     metalness: 0,
     roughness: 0.9
   });

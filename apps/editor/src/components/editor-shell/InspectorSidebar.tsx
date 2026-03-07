@@ -352,7 +352,7 @@ export function InspectorSidebar({
             </div>
           </TabsContent>
 
-          <TabsContent className="min-h-0 px-3 pb-3" value="materials">
+          <TabsContent className="flex min-h-0 flex-1 px-3 pb-3" value="materials">
             <MaterialLibraryPanel
               materials={materials}
               onApplyMaterial={onApplyMaterial}

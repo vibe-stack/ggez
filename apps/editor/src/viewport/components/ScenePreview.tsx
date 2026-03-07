@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { CanvasTexture, FrontSide, Mesh, MeshStandardMaterial, RepeatWrapping, SRGBColorSpace, TextureLoader } from "three";
 import { disableBvhRaycast, enableBvhRaycast, type DerivedRenderMesh, type DerivedRenderScene } from "@web-hammer/render-pipeline";
-import { resolveTransformPivot, toTuple } from "@web-hammer/shared";
+import { createBlockoutTextureDataUri, resolveTransformPivot, toTuple } from "@web-hammer/shared";
 import { createIndexedGeometry } from "@/viewport/utils/geometry";
 
 export function ScenePreview({
@@ -212,7 +212,7 @@ function createPreviewMaterial(spec: DerivedRenderMesh["material"], selected: bo
   const colorTexture = spec.colorTexture
     ? loadTexture(spec.colorTexture, true)
     : spec.category === "blockout"
-      ? createBlockoutTexture(spec.color, spec.edgeColor ?? "#4f3118", spec.edgeThickness ?? 0.12)
+      ? loadTexture(createBlockoutTextureDataUri(spec.color, spec.edgeColor ?? "#f5f2ea", spec.edgeThickness ?? 0.018), true)
       : undefined;
   const normalTexture = spec.normalTexture ? loadTexture(spec.normalTexture, false) : undefined;
   const metalnessTexture = spec.metalnessTexture ? loadTexture(spec.metalnessTexture, false) : undefined;
@@ -251,31 +251,5 @@ function loadTexture(source: string, isColor: boolean) {
     texture.colorSpace = SRGBColorSpace;
   }
 
-  return texture;
-}
-
-function createBlockoutTexture(color: string, edgeColor: string, edgeThickness: number) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 128;
-  canvas.height = 128;
-  const context = canvas.getContext("2d");
-
-  if (!context) {
-    return undefined;
-  }
-
-  const border = Math.max(6, Math.round(128 * edgeThickness));
-  context.fillStyle = edgeColor;
-  context.fillRect(0, 0, 128, 128);
-  context.fillStyle = color;
-  context.fillRect(border, border, 128 - border * 2, 128 - border * 2);
-  context.strokeStyle = "rgba(255,255,255,0.18)";
-  context.lineWidth = Math.max(2, border * 0.25);
-  context.strokeRect(border * 0.75, border * 0.75, 128 - border * 1.5, 128 - border * 1.5);
-
-  const texture = new CanvasTexture(canvas);
-  texture.wrapS = RepeatWrapping;
-  texture.wrapT = RepeatWrapping;
-  texture.colorSpace = SRGBColorSpace;
   return texture;
 }
