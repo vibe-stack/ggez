@@ -4,7 +4,7 @@ import { Grid3X3 } from "@/components/editor-shell/icons";
 import { Button } from "@/components/ui/button";
 import { DragInput } from "@/components/ui/drag-input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { formatSnapValue } from "@/viewport/utils/snap";
 
@@ -24,7 +24,29 @@ export function SnapControl({
   return (
     <FloatingPanel className="flex h-11 items-center gap-2.5 px-3 text-[11px] text-foreground/72">
       <Grid3X3 className="size-3.5 text-emerald-300" />
-      <Switch checked={snapEnabled} onCheckedChange={onSetSnapEnabled} size="sm" />
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              aria-pressed={snapEnabled}
+              className={cn(
+                "h-7 min-w-11 rounded-xl px-2 text-[10px] font-semibold tracking-[0.14em] uppercase",
+                snapEnabled
+                  ? "bg-emerald-500/18 text-emerald-200 shadow-[inset_0_0_0_1px_rgba(52,211,153,0.18)]"
+                  : "text-foreground/48"
+              )}
+              onClick={() => onSetSnapEnabled(!snapEnabled)}
+              size="sm"
+              variant="ghost"
+            >
+              {snapEnabled ? "On" : "Off"}
+            </Button>
+          }
+        />
+        <TooltipContent>
+          <TooltipLabel label="Toggle snapping" />
+        </TooltipContent>
+      </Tooltip>
       <div className="h-5 w-px bg-white/8" />
       <Popover>
         <PopoverTrigger
@@ -38,7 +60,20 @@ export function SnapControl({
           <div className="space-y-2">
             <div className="flex items-center justify-between px-1">
               <span className="text-[10px] font-medium tracking-[0.18em] text-foreground/45 uppercase">Grid Snap</span>
-              <Switch checked={snapEnabled} onCheckedChange={onSetSnapEnabled} size="sm" />
+              <Button
+                aria-pressed={snapEnabled}
+                className={cn(
+                  "h-6 min-w-10 rounded-lg px-2 text-[10px] font-semibold tracking-[0.14em] uppercase",
+                  snapEnabled
+                    ? "bg-emerald-500/18 text-emerald-200 shadow-[inset_0_0_0_1px_rgba(52,211,153,0.18)]"
+                    : "text-foreground/48"
+                )}
+                onClick={() => onSetSnapEnabled(!snapEnabled)}
+                size="xs"
+                variant="ghost"
+              >
+                {snapEnabled ? "On" : "Off"}
+              </Button>
             </div>
             <DragInput
               className="w-full"
@@ -70,4 +105,8 @@ export function SnapControl({
       </Popover>
     </FloatingPanel>
   );
+}
+
+function TooltipLabel({ label }: { label: string }) {
+  return <div className="text-[11px] font-medium text-foreground">{label}</div>;
 }

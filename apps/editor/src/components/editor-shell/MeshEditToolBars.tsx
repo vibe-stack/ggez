@@ -66,29 +66,29 @@ export function MeshEditToolBars({
   return (
     <div className="flex items-stretch gap-2">
       <FloatingPanel className="flex h-10 items-center gap-1 p-1.5">
-        <MeshBarButton active={meshEditMode === "vertex"} icon={VertexModeIcon} onClick={() => onSetMeshEditMode("vertex")} tooltip="Vertex mode" />
-        <MeshBarButton active={meshEditMode === "edge"} icon={EdgeModeIcon} onClick={() => onSetMeshEditMode("edge")} tooltip="Edge mode" />
-        <MeshBarButton active={meshEditMode === "face"} icon={FaceModeIcon} onClick={() => onSetMeshEditMode("face")} tooltip="Face mode" />
+        <MeshBarButton active={meshEditMode === "vertex"} icon={VertexModeIcon} onClick={() => onSetMeshEditMode("vertex")} shortcut="V" tooltip="Vertex mode" />
+        <MeshBarButton active={meshEditMode === "edge"} icon={EdgeModeIcon} onClick={() => onSetMeshEditMode("edge")} shortcut="E" tooltip="Edge mode" />
+        <MeshBarButton active={meshEditMode === "face"} icon={FaceModeIcon} onClick={() => onSetMeshEditMode("face")} shortcut="F" tooltip="Face mode" />
       </FloatingPanel>
       <FloatingPanel className="flex h-10 items-center gap-1 p-1.5">
-        <MeshBarButton active={transformMode === "translate"} disabled={!selectedGeometry} icon={TranslateModeIcon} onClick={() => onSetTransformMode("translate")} tooltip="Translate" />
-        <MeshBarButton active={transformMode === "rotate"} disabled={!selectedGeometry} icon={RotateModeIcon} onClick={() => onSetTransformMode("rotate")} tooltip="Rotate" />
-        <MeshBarButton active={transformMode === "scale"} disabled={!selectedGeometry} icon={ScaleModeIcon} onClick={() => onSetTransformMode("scale")} tooltip="Scale" />
+        <MeshBarButton active={transformMode === "translate"} disabled={!selectedGeometry} icon={TranslateModeIcon} onClick={() => onSetTransformMode("translate")} shortcut="G" tooltip="Translate" />
+        <MeshBarButton active={transformMode === "rotate"} disabled={!selectedGeometry} icon={RotateModeIcon} onClick={() => onSetTransformMode("rotate")} shortcut="R" tooltip="Rotate" />
+        <MeshBarButton active={transformMode === "scale"} disabled={!selectedGeometry} icon={ScaleModeIcon} onClick={() => onSetTransformMode("scale")} shortcut="S" tooltip="Scale" />
         <div className="mx-0.5 h-5 w-px bg-white/8" />
         <MeshBarButton disabled={!selectedMesh} icon={InflateIcon} onClick={onInflate} tooltip="Inflate" />
         <MeshBarButton disabled={!selectedMesh} icon={DeflateIcon} onClick={onDeflate} tooltip="Deflate" />
         <MeshBarButton disabled={!selectedMesh} icon={RaiseTopIcon} onClick={onRaiseTop} tooltip="Raise top" />
         <MeshBarButton disabled={!selectedMesh} icon={LowerTopIcon} onClick={onLowerTop} tooltip="Lower top" />
-        <MeshBarButton disabled={!selectedGeometry || meshEditMode !== "edge"} icon={BevelIcon} onClick={onBevel} tooltip="Bevel" />
+        <MeshBarButton disabled={!selectedGeometry || meshEditMode !== "edge"} icon={BevelIcon} onClick={onBevel} shortcut="B" tooltip="Bevel" />
       </FloatingPanel>
       <FloatingPanel className="flex h-10 items-center gap-1 p-1.5">
-        <MeshBarButton disabled={!selectedGeometry || meshEditMode === "vertex"} icon={ExtrudeIcon} onClick={onExtrude} tooltip="Extrude" />
-        <MeshBarButton disabled={!selectedGeometry || meshEditMode === "vertex"} icon={CutMeshIcon} onClick={onCut} tooltip={meshEditMode === "face" ? "Face cut" : "Edge cut"} />
-        <MeshBarButton disabled={!selectedGeometry || meshEditMode !== "face"} icon={MergeFacesIcon} onClick={onMerge} tooltip="Merge faces" />
-        <MeshBarButton disabled={!selectedGeometry} icon={FillFaceIcon} onClick={onFillFace} tooltip={meshEditMode === "vertex" ? "Fill from vertices" : "Fill from edges"} />
-        <MeshBarButton disabled={!selectedGeometry || meshEditMode !== "face"} icon={SubdivideIcon} onClick={onSubdivide} tooltip="Subdivide face" />
-        <MeshBarButton disabled={!selectedGeometry || meshEditMode !== "face"} icon={DeleteFacesIcon} onClick={onDelete} tooltip="Delete faces" />
-        <MeshBarButton disabled={!selectedGeometry} icon={FlipNormalsIcon} onClick={onInvertNormals} tooltip="Invert normals" />
+        <MeshBarButton disabled={!selectedGeometry || meshEditMode === "vertex"} icon={ExtrudeIcon} onClick={onExtrude} shortcut="X" tooltip="Extrude" />
+        <MeshBarButton disabled={!selectedGeometry || meshEditMode === "vertex"} icon={CutMeshIcon} onClick={onCut} shortcut={meshEditMode === "face" ? "Shift+K" : "K"} tooltip={meshEditMode === "face" ? "Face cut" : "Edge cut"} />
+        <MeshBarButton disabled={!selectedGeometry || meshEditMode !== "face"} icon={MergeFacesIcon} onClick={onMerge} shortcut="M" tooltip="Merge faces" />
+        <MeshBarButton disabled={!selectedGeometry} icon={FillFaceIcon} onClick={onFillFace} shortcut="Shift+F" tooltip={meshEditMode === "vertex" ? "Fill from vertices" : "Fill from edges"} />
+        <MeshBarButton disabled={!selectedGeometry || meshEditMode !== "face"} icon={SubdivideIcon} onClick={onSubdivide} shortcut="D" tooltip="Subdivide face" />
+        <MeshBarButton disabled={!selectedGeometry || meshEditMode !== "face"} icon={DeleteFacesIcon} onClick={onDelete} shortcut="Del" tooltip="Delete faces" />
+        <MeshBarButton disabled={!selectedGeometry} icon={FlipNormalsIcon} onClick={onInvertNormals} shortcut="N" tooltip="Invert normals" />
       </FloatingPanel>
     </div>
   );
@@ -99,12 +99,14 @@ function MeshBarButton({
   disabled = false,
   icon: Icon,
   onClick,
+  shortcut,
   tooltip
 }: {
   active?: boolean;
   disabled?: boolean;
   icon: React.ComponentType<{ className?: string }>;
   onClick: () => void;
+  shortcut?: string;
   tooltip: string;
 }) {
   return (
@@ -125,7 +127,12 @@ function MeshBarButton({
       >
         <Icon className="size-4" />
       </TooltipTrigger>
-      <TooltipContent>{tooltip}</TooltipContent>
+      <TooltipContent>
+        <div className="flex items-center gap-2 text-[11px]">
+          <span className="font-medium text-foreground">{tooltip}</span>
+          {shortcut ? <span className="text-foreground/45">{shortcut}</span> : null}
+        </div>
+      </TooltipContent>
     </Tooltip>
   );
 }

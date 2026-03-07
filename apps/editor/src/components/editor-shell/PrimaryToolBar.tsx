@@ -37,10 +37,42 @@ export function PrimaryToolBar({
             >
               <Icon className="size-4" />
             </TooltipTrigger>
-            <TooltipContent>{tool.label}</TooltipContent>
+            <TooltipContent>
+              <ToolbarTooltip label={tool.label} shortcut={shortcutForPrimaryTool(tool.id)} />
+            </TooltipContent>
           </Tooltip>
         );
       })}
     </FloatingPanel>
+  );
+}
+
+function shortcutForPrimaryTool(toolId: ToolId) {
+  switch (toolId) {
+    case "select":
+      return "1";
+    case "transform":
+      return "2";
+    case "brush":
+      return "3 / B";
+    case "clip":
+      return "4";
+    case "extrude":
+      return "5";
+    case "mesh-edit":
+      return "6";
+    case "asset-place":
+      return "7";
+    default:
+      return undefined;
+  }
+}
+
+function ToolbarTooltip({ label, shortcut }: { label: string; shortcut?: string }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2 text-[11px]">
+      <span className="font-medium text-foreground">{label}</span>
+      {shortcut ? <span className="text-foreground/45">{shortcut}</span> : null}
+    </div>
   );
 }
