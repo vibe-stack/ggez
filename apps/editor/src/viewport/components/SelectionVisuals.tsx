@@ -38,8 +38,9 @@ export function FaceHitArea({
       vertex.position.y + face.normal.y * 0.02,
       vertex.position.z + face.normal.z * 0.02
     ]);
-
-    return createIndexedGeometry(positions, face.triangleIndices);
+    const nextGeometry = createIndexedGeometry(positions, face.triangleIndices);
+    nextGeometry.computeVertexNormals();
+    return nextGeometry;
   }, [face]);
 
   useEffect(() => () => geometry.dispose(), [geometry]);
@@ -101,8 +102,16 @@ export function EditableFaceSelectionHitArea({
     ]);
     const indices = triangulatePolygon3D(points, normal ?? faceNormal);
 
-    return indices.length >= 3 ? createIndexedGeometry(positions, indices) : undefined;
+    if (indices.length < 3) {
+      return undefined;
+    }
+
+    const nextGeometry = createIndexedGeometry(positions, indices);
+    nextGeometry.computeVertexNormals();
+    return nextGeometry;
   }, [normal, points]);
+
+  useEffect(() => () => geometry?.dispose(), [geometry]);
 
   if (!geometry) {
     return null;
@@ -196,7 +205,7 @@ export function EditableEdgeSelectionHitArea({
 
   return (
     <mesh onClick={onSelect} position={toTuple(midpoint)} quaternion={quaternion} renderOrder={7}>
-      <cylinderGeometry args={[selected ? 0.1 : 0.085, selected ? 0.1 : 0.085, length, 6]} />
+      <boxGeometry args={[selected ? 0.16 : 0.13, length, selected ? 0.16 : 0.13]} />
       <meshBasicMaterial color="#93c5fd" depthWrite={false} opacity={selected ? 0.12 : 0.025} transparent />
     </mesh>
   );
@@ -482,7 +491,7 @@ export function PreviewLine({
 
   return (
     <mesh position={toTuple(midpoint)} quaternion={quaternion} renderOrder={10}>
-      <cylinderGeometry args={[radius, radius, length, 10]} />
+      <boxGeometry args={[radius * 2, length, radius * 2]} />
       <meshBasicMaterial color={color} depthTest={false} depthWrite={false} opacity={opacity} toneMapped={false} transparent />
     </mesh>
   );

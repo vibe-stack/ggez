@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   BoxGeometry,
   CylinderGeometry,
-  EdgesGeometry,
   FrontSide,
   IcosahedronGeometry,
   Mesh,
@@ -128,19 +127,14 @@ function RenderPrimitive({
       return undefined;
     }
 
-    bufferGeometry.computeVertexNormals();
+    if (renderMode === "lit") {
+      bufferGeometry.computeVertexNormals();
+    }
     bufferGeometry.computeBoundingBox();
     bufferGeometry.computeBoundingSphere();
 
     return bufferGeometry;
-  }, [mesh.primitive, mesh.surface]);
-  const edgeGeometry = useMemo(() => {
-    if (!geometry || renderMode !== "wireframe") {
-      return undefined;
-    }
-
-    return new EdgesGeometry(geometry, 1);
-  }, [geometry, renderMode]);
+  }, [mesh.primitive, mesh.surface, renderMode]);
   const previewMaterials = useMemo(() => {
     if (renderMode !== "lit") {
       return [];
@@ -178,9 +172,8 @@ function RenderPrimitive({
   useEffect(() => {
     return () => {
       geometry?.dispose();
-      edgeGeometry?.dispose();
     };
-  }, [edgeGeometry, geometry]);
+  }, [geometry]);
 
   if (!hasRenderableGeometry) {
     return null;
@@ -252,20 +245,14 @@ function RenderPrimitive({
         >
           {geometry ? <primitive attach="geometry" object={geometry} /> : null}
           {renderMode === "wireframe" ? (
-            <meshBasicMaterial color={selected ? "#fb923c" : hovered ? "#7dd3fc" : "#cbd5e1"} opacity={0.001} transparent />
-          ) : null}
-        </mesh>
-        {renderMode === "wireframe" && edgeGeometry ? (
-          <lineSegments geometry={edgeGeometry} renderOrder={6}>
-            <lineBasicMaterial
+            <meshBasicMaterial
               color={selected ? "#f97316" : hovered ? "#67e8f9" : "#94a3b8"}
               depthWrite={false}
-              opacity={selected ? 0.95 : 0.76}
               toneMapped={false}
-              transparent
+              wireframe
             />
-          </lineSegments>
-        ) : null}
+          ) : null}
+        </mesh>
       </group>
     </group>
   );
@@ -313,20 +300,22 @@ function createPreviewMaterial(spec: DerivedRenderMesh["material"], selected: bo
   const metalnessTexture = spec.metalnessTexture ? loadTexture(spec.metalnessTexture, false) : undefined;
   const roughnessTexture = spec.roughnessTexture ? loadTexture(spec.roughnessTexture, false) : undefined;
 
-  return new MeshStandardMaterial({
+  const materialOptions = {
     color: colorTexture ? "#ffffff" : selected ? "#ffb35a" : hovered ? "#d8f4f0" : spec.color,
     emissive: selected ? "#f69036" : hovered ? "#2a7f74" : "#000000",
     emissiveIntensity: selected ? 0.38 : hovered ? 0.14 : 0,
     flatShading: spec.flatShaded,
-    map: colorTexture,
     metalness: spec.wireframe ? 0.05 : spec.metalness,
-    metalnessMap: metalnessTexture,
-    normalMap: normalTexture,
     roughness: spec.wireframe ? 0.45 : spec.roughness,
-    roughnessMap: roughnessTexture,
     side: FrontSide,
-    wireframe: spec.wireframe
-  });
+    wireframe: spec.wireframe,
+    ...(colorTexture ? { map: colorTexture } : {}),
+    ...(metalnessTexture ? { metalnessMap: metalnessTexture } : {}),
+    ...(normalTexture ? { normalMap: normalTexture } : {}),
+    ...(roughnessTexture ? { roughnessMap: roughnessTexture } : {})
+  };
+
+  return new MeshStandardMaterial(materialOptions);
 }
 
 function disposePreviewMaterial(material: MeshStandardMaterial) {

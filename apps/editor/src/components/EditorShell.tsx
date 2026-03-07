@@ -176,6 +176,7 @@ export function EditorShell({
       >
         <ViewportCanvas
           activeToolId={activeToolId}
+          isActiveViewport={activeViewportId === viewportId}
           meshEditMode={meshEditMode}
           meshEditToolbarAction={meshEditToolbarAction}
           onActivateViewport={onActivateViewport}

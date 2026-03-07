@@ -113,6 +113,20 @@ export function getViewModePreset(viewModeId: ViewModeId) {
   return viewModePresets.find((preset) => preset.id === viewModeId) ?? viewModePresets[0];
 }
 
+export function resolveVisibleViewportPaneIds(viewModeId: ViewModeId): ViewportPaneId[] {
+  const preset = getViewModePreset(viewModeId);
+
+  if (preset.layout === "single") {
+    return ["perspective"];
+  }
+
+  if (preset.layout === "split") {
+    return ["perspective", preset.secondaryPaneId];
+  }
+
+  return ["perspective", "top", "front", "side"];
+}
+
 export function createEditorViewports() {
   return {
     perspective: createViewportState(),

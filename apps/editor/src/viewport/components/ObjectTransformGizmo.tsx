@@ -9,6 +9,8 @@ import type { ViewportCanvasProps } from "@/viewport/types";
 import { Group as ThreeGroup, Vector3 } from "three";
 
 const tempCameraPosition = new Vector3();
+const tempPivotWorldPosition = new Vector3();
+const tempPivotCameraDirection = new Vector3();
 
 export function ObjectTransformGizmo({
   activeToolId,
@@ -48,6 +50,41 @@ export function ObjectTransformGizmo({
       baselineTransformRef.current = undefined;
     }
   }, [activePivotNodeId, selectedNodes]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target;
+
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (!pivotEditingEnabled || !selectedNodeId) {
+        return;
+      }
+
+      const modifier = event.metaKey || event.ctrlKey;
+
+      if (modifier || !event.shiftKey || event.key.toLowerCase() !== "p") {
+        return;
+      }
+
+      event.preventDefault();
+      setActivePivotNodeId(selectedNodeId);
+      baselineTransformRef.current = undefined;
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [pivotEditingEnabled, selectedNodeId]);
 
   if (!pivotEditingEnabled) {
     return null;
@@ -170,21 +207,39 @@ function PivotHandleMarker({
   position: Vec3;
   selected: boolean;
 }) {
+  const markerRootRef = useRef<ThreeGroup | null>(null);
   const billboardRef = useRef<ThreeGroup | null>(null);
   const handleRef = useRef<ThreeGroup | null>(null);
   const outerSize: [number, number] = selected ? [18, 18] : [14, 14];
   const innerSize: [number, number] = selected ? [11, 11] : [8.5, 8.5];
 
   useFrame(({ camera, size }) => {
+    const markerRoot = markerRootRef.current;
     const billboard = billboardRef.current;
     const handle = handleRef.current;
 
-    if (!billboard || !handle || size.height <= 0) {
+    if (!markerRoot || !billboard || !handle || size.height <= 0) {
       return;
     }
 
-    const worldUnitsPerPixel = resolveWorldUnitsPerPixel(camera, billboard.position, size.height);
+    markerRoot.parent?.getWorldPosition(tempPivotWorldPosition);
+    const worldUnitsPerPixel = resolveWorldUnitsPerPixel(camera, tempPivotWorldPosition, size.height);
     const handleOffset = selected ? 0 : worldUnitsPerPixel * 22;
+    const forwardOffset = worldUnitsPerPixel * (selected ? 10 : 14);
+
+    camera.getWorldPosition(tempCameraPosition);
+    tempPivotCameraDirection
+      .subVectors(tempCameraPosition, tempPivotWorldPosition)
+      .normalize()
+      .multiplyScalar(forwardOffset);
+
+    if (
+      Math.abs(markerRoot.position.x - tempPivotCameraDirection.x) > 0.000001 ||
+      Math.abs(markerRoot.position.y - tempPivotCameraDirection.y) > 0.000001 ||
+      Math.abs(markerRoot.position.z - tempPivotCameraDirection.z) > 0.000001
+    ) {
+      markerRoot.position.copy(tempPivotCameraDirection);
+    }
 
     if (Math.abs(billboard.scale.x - worldUnitsPerPixel) > 0.000001) {
       billboard.scale.setScalar(worldUnitsPerPixel);
@@ -200,49 +255,57 @@ function PivotHandleMarker({
 
   return (
     <group position={toTuple(position)}>
-      <mesh renderOrder={13}>
-        <sphereGeometry args={[selected ? 0.12 : 0.09, 18, 18]} />
-        <meshBasicMaterial
-          color={selected ? "#a855f7" : "#9333ea"}
-          depthTest={false}
-          depthWrite={false}
-          toneMapped={false}
-          transparent
-        />
-      </mesh>
-
-      <Billboard ref={billboardRef}>
-        <group
+      <group ref={markerRootRef}>
+        <mesh
           onClick={(event) => {
             event.stopPropagation();
             onSelect();
           }}
-          ref={handleRef}
-          renderOrder={14}
+          renderOrder={13}
         >
-          <mesh rotation={[0, 0, Math.PI / 4]} renderOrder={14}>
-            <planeGeometry args={outerSize} />
-            <meshBasicMaterial
-              color={selected ? "#f5d0fe" : "#d8b4fe"}
-              depthTest={false}
-              depthWrite={false}
-              opacity={selected ? 1 : 0.94}
-              toneMapped={false}
-              transparent
-            />
-          </mesh>
-          <mesh position={[0, 0, 0.001]} rotation={[0, 0, Math.PI / 4]} renderOrder={15}>
-            <planeGeometry args={innerSize} />
-            <meshBasicMaterial
-              color={selected ? "#a855f7" : "#9333ea"}
-              depthTest={false}
-              depthWrite={false}
-              toneMapped={false}
-              transparent
-            />
-          </mesh>
-        </group>
-      </Billboard>
+          <sphereGeometry args={[selected ? 0.12 : 0.09, 18, 18]} />
+          <meshBasicMaterial
+            color={selected ? "#a855f7" : "#9333ea"}
+            depthTest={false}
+            depthWrite={false}
+            toneMapped={false}
+            transparent
+          />
+        </mesh>
+
+        <Billboard ref={billboardRef}>
+          <group
+            onClick={(event) => {
+              event.stopPropagation();
+              onSelect();
+            }}
+            ref={handleRef}
+            renderOrder={14}
+          >
+            <mesh rotation={[0, 0, Math.PI / 4]} renderOrder={14}>
+              <planeGeometry args={outerSize} />
+              <meshBasicMaterial
+                color={selected ? "#f5d0fe" : "#d8b4fe"}
+                depthTest={false}
+                depthWrite={false}
+                opacity={selected ? 1 : 0.94}
+                toneMapped={false}
+                transparent
+              />
+            </mesh>
+            <mesh position={[0, 0, 0.001]} rotation={[0, 0, Math.PI / 4]} renderOrder={15}>
+              <planeGeometry args={innerSize} />
+              <meshBasicMaterial
+                color={selected ? "#a855f7" : "#9333ea"}
+                depthTest={false}
+                depthWrite={false}
+                toneMapped={false}
+                transparent
+              />
+            </mesh>
+          </group>
+        </Billboard>
+      </group>
     </group>
   );
 }

@@ -59,6 +59,7 @@ import { clampSnapSize, resolveViewportSnapSize } from "@/viewport/utils/snap";
 import type { MeshEditToolbarActionRequest } from "@/viewport/types";
 import {
   focusViewportOnPoint,
+  resolveVisibleViewportPaneIds,
   viewportPaneIds,
   type ViewModeId,
   type ViewportPaneId
@@ -105,12 +106,42 @@ export function App() {
     uiStore.activeViewportId = viewportId;
   };
 
+  const resolveViewportFocusPoint = () => {
+    const selectedNodeId = editor.selection.ids[0];
+    const selectedNode = selectedNodeId ? editor.scene.getNode(selectedNodeId) : undefined;
+
+    return selectedNode
+      ? vec3(
+          selectedNode.transform.position.x,
+          selectedNode.transform.position.y,
+          selectedNode.transform.position.z
+        )
+      : vec3(0, 0, 0);
+  };
+
   const handleSetViewMode = (viewMode: ViewModeId) => {
     uiStore.viewMode = viewMode;
+
+    const visiblePaneIds = resolveVisibleViewportPaneIds(viewMode);
+
+    if (!visiblePaneIds.includes(uiStore.activeViewportId)) {
+      uiStore.activeViewportId = "perspective";
+    }
+
+    if (viewMode === "3d-only") {
+      return;
+    }
+
+    const focusPoint = resolveViewportFocusPoint();
+
+    (["top", "front", "side"] as const).forEach((viewportId) => {
+      focusViewportOnPoint(uiStore.viewports[viewportId], focusPoint);
+    });
   };
 
   const handleUpdateViewport = (viewportId: ViewportPaneId, viewport: ViewportState) => {
-    uiStore.viewports[viewportId] = viewport;
+    uiStore.viewports[viewportId].projection = viewport.projection;
+    uiStore.viewports[viewportId].camera = viewport.camera;
   };
 
   const handleClearSelection = () => {
