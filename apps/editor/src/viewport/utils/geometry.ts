@@ -82,3 +82,14 @@ export function worldPointToNodeLocal(point: Vec3, transform: Transform): Vec3 {
 
   return vec3(local.x, local.y, local.z);
 }
+
+export function nodeLocalPointToWorld(point: Vec3, transform: Transform): Vec3 {
+  const pivot = resolveTransformPivot(transform);
+  const world = new Vector3(point.x, point.y, point.z)
+    .sub(new Vector3(pivot.x, pivot.y, pivot.z))
+    .multiply(new Vector3(transform.scale.x, transform.scale.y, transform.scale.z))
+    .applyEuler(new Euler(transform.rotation.x, transform.rotation.y, transform.rotation.z, "XYZ"))
+    .add(new Vector3(transform.position.x, transform.position.y, transform.position.z));
+
+  return vec3(world.x, world.y, world.z);
+}

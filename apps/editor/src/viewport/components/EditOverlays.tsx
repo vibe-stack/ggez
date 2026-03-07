@@ -6,6 +6,7 @@ import {
   applyBrushEditTransform,
   collectMeshEdgeLoop,
   applyMeshEditTransform,
+  createBrushEditHandles,
   computeBrushEditSelectionCenter,
   computeBrushEditSelectionOrientation,
   computeMeshEditSelectionCenter,
@@ -21,13 +22,23 @@ import { NodeTransformGroup } from "@/viewport/components/NodeTransformGroup";
 import { objectToTransform, worldPointToNodeLocal } from "@/viewport/utils/geometry";
 import { findMatchingBrushEdgeHandleId, findMatchingMeshEdgePair, resolveSubobjectSelection } from "@/viewport/utils/interaction";
 import {
+  BrushEditHandleMarker,
   BrushEditHandleVisual,
+  EdgeLengthLabel,
   EditableEdgeSelectionHitArea,
   EditableFaceSelectionHitArea,
-  MeshEditHandleVisual
+  MeshEditHandleMarker,
+  MeshEditHandleVisual,
+  PreviewLine
 } from "@/viewport/components/SelectionVisuals";
-import { Euler, Object3D, Quaternion } from "three";
+import { Euler, Object3D, Quaternion, Vector3 } from "three";
 import type { LastMeshEditAction } from "@/viewport/types";
+
+type EdgeLabel = {
+  id: string;
+  position: Vec3;
+  text: string;
+};
 
 export function MeshEditOverlay({
   handles,
@@ -56,6 +67,16 @@ export function MeshEditOverlay({
   const controlRef = useRef<Object3D | null>(null);
   const baselineMeshRef = useRef<EditableMesh | undefined>(undefined);
   const baselineTransformRef = useRef<Transform | undefined>(undefined);
+  const edgeHandles = useMemo(() => createMeshEditHandles(node.data, "edge"), [node.data]);
+  const faceHandles = useMemo(() => createMeshEditHandles(node.data, "face"), [node.data]);
+  const vertexModeEdgeHandles = useMemo(
+    () => (meshEditMode === "vertex" ? createMeshEditHandles(node.data, "edge") : []),
+    [meshEditMode, node.data]
+  );
+  const edgeLabels = useMemo(
+    () => resolveMeshEdgeLabels(edgeHandles, faceHandles, meshEditMode, node.transform, selectedHandleIds),
+    [edgeHandles, faceHandles, meshEditMode, node.transform, selectedHandleIds]
+  );
   const selectionCenter = useMemo(
     () => computeMeshEditSelectionCenter(handles, selectedHandleIds),
     [handles, selectedHandleIds]
@@ -123,6 +144,19 @@ export function MeshEditOverlay({
   return (
     <>
       <NodeTransformGroup transform={node.transform}>
+        {vertexModeEdgeHandles.map((handle) => {
+          const selected = handle.vertexIds.every((vertexId) => selectedHandleIds.includes(vertexId));
+
+          return handle.points?.length === 2 ? (
+            <PreviewLine
+              color={selected ? "#7dd3fc" : "#94a3b8"}
+              end={handle.points[1]}
+              key={`vertex-edge:${handle.id}`}
+              start={handle.points[0]}
+            />
+          ) : null;
+        })}
+
         {handles.map((handle) => {
           const selected = selectedHandleIds.includes(handle.id);
 
@@ -152,10 +186,6 @@ export function MeshEditOverlay({
               <MeshEditHandleVisual
                 handle={handle}
                 mode={meshEditMode}
-                onSelect={(event) => {
-                  event.stopPropagation();
-                  resolveHandleSelection(handle, event);
-                }}
                 selected={selected}
               />
             </group>
@@ -186,6 +216,33 @@ export function MeshEditOverlay({
           </group>
         ) : null}
       </NodeTransformGroup>
+
+      {handles.map((handle) => {
+        const selected = selectedHandleIds.includes(handle.id);
+
+        return (
+          <MeshEditHandleMarker
+            handle={handle}
+            key={`marker:${handle.id}`}
+            mode={meshEditMode}
+            nodeTransform={node.transform}
+            onSelect={(event) => {
+              event.stopPropagation();
+              resolveHandleSelection(handle, event);
+            }}
+            selected={selected}
+          />
+        );
+      })}
+
+      {edgeLabels.map((label) => (
+        <EdgeLengthLabel
+          key={`label:${label.id}`}
+          nodeTransform={node.transform}
+          position={label.position}
+          text={label.text}
+        />
+      ))}
 
       {selectedHandleIds.length > 0 && controlObject ? (
         <TransformControls
@@ -280,6 +337,16 @@ export function BrushEditOverlay({
   const baselineBrushRef = useRef<Brush | undefined>(undefined);
   const baselineHandlesRef = useRef<BrushEditHandle[] | undefined>(undefined);
   const baselineTransformRef = useRef<Transform | undefined>(undefined);
+  const edgeHandles = useMemo(() => createBrushEditHandles(node.data, "edge"), [node.data]);
+  const faceHandles = useMemo(() => createBrushEditHandles(node.data, "face"), [node.data]);
+  const vertexModeEdgeHandles = useMemo(
+    () => (meshEditMode === "vertex" ? createBrushEditHandles(node.data, "edge") : []),
+    [meshEditMode, node.data]
+  );
+  const edgeLabels = useMemo(
+    () => resolveBrushEdgeLabels(edgeHandles, faceHandles, meshEditMode, node.transform, selectedHandleIds),
+    [edgeHandles, faceHandles, meshEditMode, node.transform, selectedHandleIds]
+  );
   const selectionCenter = useMemo(
     () => computeBrushEditSelectionCenter(handles, selectedHandleIds),
     [handles, selectedHandleIds]
@@ -370,6 +437,19 @@ export function BrushEditOverlay({
   return (
     <>
       <NodeTransformGroup transform={node.transform}>
+        {vertexModeEdgeHandles.map((handle) => {
+          const selected = handle.vertexIds.every((vertexId) => selectedHandleIds.includes(vertexId));
+
+          return handle.points?.length === 2 ? (
+            <PreviewLine
+              color={selected ? "#7dd3fc" : "#94a3b8"}
+              end={handle.points[1]}
+              key={`vertex-edge:${handle.id}`}
+              start={handle.points[0]}
+            />
+          ) : null;
+        })}
+
         {handles.map((handle) => {
           const selected = selectedHandleIds.includes(handle.id);
 
@@ -399,10 +479,6 @@ export function BrushEditOverlay({
               <BrushEditHandleVisual
                 handle={handle}
                 mode={meshEditMode}
-                onSelect={(event) => {
-                  event.stopPropagation();
-                  resolveHandleSelection(handle, event);
-                }}
                 selected={selected}
               />
             </group>
@@ -433,6 +509,33 @@ export function BrushEditOverlay({
           </group>
         ) : null}
       </NodeTransformGroup>
+
+      {handles.map((handle) => {
+        const selected = selectedHandleIds.includes(handle.id);
+
+        return (
+          <BrushEditHandleMarker
+            handle={handle}
+            key={`marker:${handle.id}`}
+            mode={meshEditMode}
+            nodeTransform={node.transform}
+            onSelect={(event) => {
+              event.stopPropagation();
+              resolveHandleSelection(handle, event);
+            }}
+            selected={selected}
+          />
+        );
+      })}
+
+      {edgeLabels.map((label) => (
+        <EdgeLengthLabel
+          key={`label:${label.id}`}
+          nodeTransform={node.transform}
+          position={label.position}
+          text={label.text}
+        />
+      ))}
 
       {selectedHandleIds.length > 0 && controlObject ? (
         <TransformControls
@@ -510,6 +613,123 @@ export function BrushEditOverlay({
       ) : null}
     </>
   );
+}
+
+function resolveMeshEdgeLabels(
+  edgeHandles: MeshEditHandle[],
+  faceHandles: MeshEditHandle[],
+  meshEditMode: MeshEditMode,
+  transform: Transform,
+  selectedHandleIds: string[]
+): EdgeLabel[] {
+  if (selectedHandleIds.length === 0) {
+    return [];
+  }
+
+  const selectedIds = new Set(selectedHandleIds);
+  const affectedEdgeIds = new Set<string>();
+
+  if (meshEditMode === "edge") {
+    edgeHandles.forEach((handle) => {
+      if (selectedIds.has(handle.id)) {
+        affectedEdgeIds.add(handle.id);
+      }
+    });
+  }
+
+  if (meshEditMode === "face") {
+    faceHandles.forEach((handle) => {
+      if (!selectedIds.has(handle.id)) {
+        return;
+      }
+
+      handle.vertexIds.forEach((vertexId, index) => {
+        const nextVertexId = handle.vertexIds[(index + 1) % handle.vertexIds.length];
+        affectedEdgeIds.add([vertexId, nextVertexId].sort().join(":"));
+      });
+    });
+  }
+
+  return edgeHandles
+    .filter((handle) => affectedEdgeIds.has(handle.id) && handle.points?.length === 2)
+    .map((handle) => ({
+      id: handle.id,
+      position: handle.position,
+      text: formatWorldLength(resolveWorldEdgeLength(handle.points!, transform))
+    }));
+}
+
+function resolveBrushEdgeLabels(
+  edgeHandles: BrushEditHandle[],
+  faceHandles: BrushEditHandle[],
+  meshEditMode: MeshEditMode,
+  transform: Transform,
+  selectedHandleIds: string[]
+): EdgeLabel[] {
+  if (selectedHandleIds.length === 0) {
+    return [];
+  }
+
+  const selectedIds = new Set(selectedHandleIds);
+  const selectedFaceIds =
+    meshEditMode === "face"
+      ? new Set(
+          faceHandles
+            .filter((handle) => selectedIds.has(handle.id))
+            .flatMap((handle) => handle.faceIds)
+        )
+      : new Set<string>();
+
+  return edgeHandles
+    .filter((handle) => {
+      if (!handle.points || handle.points.length !== 2) {
+        return false;
+      }
+
+      if (meshEditMode === "edge" && selectedIds.has(handle.id)) {
+        return true;
+      }
+
+      if (meshEditMode === "face" && handle.faceIds.some((faceId) => selectedFaceIds.has(faceId))) {
+        return true;
+      }
+
+      return false;
+    })
+    .map((handle) => ({
+      id: handle.id,
+      position: handle.position,
+      text: formatWorldLength(resolveWorldEdgeLength(handle.points!, transform))
+    }));
+}
+
+function resolveWorldEdgeLength(points: Vec3[], transform: Transform) {
+  const [start, end] = points;
+  const worldStart = nodePointToWorldVector(start, transform);
+  const worldEnd = nodePointToWorldVector(end, transform);
+
+  return worldStart.distanceTo(worldEnd);
+}
+
+function nodePointToWorldVector(point: Vec3, transform: Transform) {
+  const worldPoint = objectToTransformPoint(point, transform);
+
+  return new Vector3(worldPoint.x, worldPoint.y, worldPoint.z);
+}
+
+function objectToTransformPoint(point: Vec3, transform: Transform) {
+  const pivot = transform.pivot ?? vec3(0, 0, 0);
+  const world = new Vector3(point.x, point.y, point.z)
+    .sub(new Vector3(pivot.x, pivot.y, pivot.z))
+    .multiply(new Vector3(transform.scale.x, transform.scale.y, transform.scale.z))
+    .applyEuler(new Euler(transform.rotation.x, transform.rotation.y, transform.rotation.z, "XYZ"))
+    .add(new Vector3(transform.position.x, transform.position.y, transform.position.z));
+
+  return vec3(world.x, world.y, world.z);
+}
+
+function formatWorldLength(value: number) {
+  return value.toFixed(2);
 }
 
 function resolveRotationDelta(baselineRotation: Vec3, currentRotation: Vec3) {
