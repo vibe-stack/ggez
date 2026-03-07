@@ -108,6 +108,7 @@ export function ViewportCanvas({
   renderScene,
   selectedNode,
   selectedNodeIds,
+  selectedNodes,
   transformMode,
   viewport
 }: ViewportCanvasProps) {
@@ -1776,6 +1777,7 @@ export function ViewportCanvas({
           onUpdateNodeTransform={onUpdateNodeTransform}
           selectedNode={selectedNode}
           selectedNodeIds={selectedNodeIds}
+          selectedNodes={selectedNodes}
           transformMode={transformMode}
           viewport={viewport}
         />

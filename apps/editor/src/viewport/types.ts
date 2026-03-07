@@ -40,6 +40,7 @@ export type ViewportCanvasProps = {
   renderScene: DerivedRenderScene;
   selectedNode?: GeometryNode;
   selectedNodeIds: string[];
+  selectedNodes: GeometryNode[];
   transformMode: "rotate" | "scale" | "translate";
   viewport: ViewportState;
 };

@@ -132,6 +132,9 @@ export function EditorShell({
   const assets = Array.from(editor.scene.assets.values());
   const selectedNodeId = editor.selection.ids[0];
   const selectedNode = selectedNodeId ? editor.scene.getNode(selectedNodeId) : undefined;
+  const selectedNodes = editor.selection.ids
+    .map((nodeId) => editor.scene.getNode(nodeId))
+    .filter((node): node is NonNullable<typeof node> => Boolean(node));
   const activeToolLabel = tools.find((tool) => tool.id === activeToolId)?.label ?? activeToolId;
   const selectedIsGeometry = selectedNode?.kind === "brush" || selectedNode?.kind === "mesh";
   const selectedIsMesh = selectedNode?.kind === "mesh";
@@ -181,6 +184,7 @@ export function EditorShell({
           renderScene={renderScene}
           selectedNode={selectedNode}
           selectedNodeIds={editor.selection.ids}
+          selectedNodes={selectedNodes}
           transformMode={transformMode}
           viewport={viewport}
         />
