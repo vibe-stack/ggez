@@ -10,7 +10,8 @@ import {
   fillEditableMeshFaceFromEdges,
   fillEditableMeshFaceFromVertices,
   invertEditableMeshNormals,
-  mergeEditableMeshFaces
+  mergeEditableMeshFaces,
+  subdivideEditableMeshFace
 } from "@web-hammer/geometry-kernel";
 import {
   averageVec3,
@@ -46,6 +47,7 @@ import { BrushEditOverlay, MeshEditOverlay } from "@/viewport/components/EditOve
 import { EditorCameraRig } from "@/viewport/components/EditorCameraRig";
 import { BrushExtrudeOverlay, ExtrudeAxisGuide, MeshExtrudeOverlay } from "@/viewport/components/ExtrudeOverlays";
 import { MeshCutOverlay } from "@/viewport/components/MeshCutOverlay";
+import { MeshSubdivideOverlay } from "@/viewport/components/MeshSubdivideOverlay";
 import { ObjectTransformGizmo } from "@/viewport/components/ObjectTransformGizmo";
 import { ScenePreview } from "@/viewport/components/ScenePreview";
 import {
@@ -78,6 +80,7 @@ import type {
   BevelState,
   BrushCreateState,
   ExtrudeGestureState,
+  FaceSubdivisionState,
   LastMeshEditAction,
   MarqueeState,
   ViewportCanvasProps
@@ -117,6 +120,7 @@ export function ViewportCanvas({
   const [bevelState, setBevelState] = useState<BevelState | null>(null);
   const [extrudeState, setExtrudeState] = useState<ExtrudeGestureState | null>(null);
   const [faceCutState, setFaceCutState] = useState<{ faceId: string } | null>(null);
+  const [faceSubdivisionState, setFaceSubdivisionState] = useState<FaceSubdivisionState | null>(null);
   const [meshEditSelectionIds, setMeshEditSelectionIds] = useState<string[]>([]);
   const [transformDragging, setTransformDragging] = useState(false);
   const [marquee, setMarquee] = useState<MarqueeState | null>(null);
@@ -138,6 +142,7 @@ export function ViewportCanvas({
     setBrushEditHandleIds([]);
     setBevelState(null);
     setFaceCutState(null);
+    setFaceSubdivisionState(null);
     setExtrudeState(null);
     setTransformDragging(false);
   }, [activeToolId, meshEditMode, selectedNode?.id, selectedNode?.kind]);
@@ -259,6 +264,31 @@ export function ViewportCanvas({
 
     setFaceCutState({
       faceId: selectedFaces[0]
+    });
+  };
+
+  const startFaceSubdivisionOperation = () => {
+    if (meshEditMode !== "face" || !editableMeshSource) {
+      return;
+    }
+
+    const selectedFaces = resolveSelectedEditableMeshFaceIds();
+
+    if (selectedFaces.length !== 1) {
+      return;
+    }
+
+    const previewMesh = subdivideEditableMeshFace(editableMeshSource, selectedFaces[0], 1);
+
+    if (!previewMesh) {
+      return;
+    }
+
+    setFaceSubdivisionState({
+      baseMesh: structuredClone(editableMeshSource),
+      cuts: 1,
+      faceId: selectedFaces[0],
+      previewMesh
     });
   };
 
@@ -398,6 +428,7 @@ export function ViewportCanvas({
     onCommitMeshTopology(selectedNode.id, mesh);
     clearSubobjectSelection();
     setBevelState(null);
+    setFaceSubdivisionState(null);
   };
 
   const startBevelOperation = () => {
@@ -659,6 +690,36 @@ export function ViewportCanvas({
   }, [bevelState]);
 
   useEffect(() => {
+    const handleWheel = (event: WheelEvent) => {
+      if (!faceSubdivisionState) {
+        return;
+      }
+
+      event.preventDefault();
+      setFaceSubdivisionState((current) => {
+        if (!current) {
+          return current;
+        }
+
+        const nextCuts = Math.max(1, current.cuts + (event.deltaY < 0 ? 1 : -1));
+
+        return {
+          ...current,
+          cuts: nextCuts,
+          previewMesh:
+            subdivideEditableMeshFace(current.baseMesh, current.faceId, nextCuts) ?? current.previewMesh
+        };
+      });
+    };
+
+    window.addEventListener("wheel", handleWheel, { passive: false });
+
+    return () => {
+      window.removeEventListener("wheel", handleWheel);
+    };
+  }, [faceSubdivisionState]);
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (activeToolId !== "mesh-edit" || !selectedNode) {
         return;
@@ -718,6 +779,14 @@ export function ViewportCanvas({
         return;
       }
 
+      if (faceSubdivisionState) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setFaceSubdivisionState(null);
+        }
+        return;
+      }
+
       if (bevelState) {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -768,6 +837,12 @@ export function ViewportCanvas({
       if (event.shiftKey && event.key.toLowerCase() === "k" && meshEditMode === "face") {
         event.preventDefault();
         startFaceCutOperation();
+        return;
+      }
+
+      if (!event.shiftKey && event.key.toLowerCase() === "d" && meshEditMode === "face") {
+        event.preventDefault();
+        startFaceSubdivisionOperation();
         return;
       }
 
@@ -842,6 +917,7 @@ export function ViewportCanvas({
     editableMeshSource,
     extrudeState,
     faceCutState,
+    faceSubdivisionState,
     meshEditHandles,
     meshEditMode,
     meshEditSelectionIds,
@@ -1270,7 +1346,7 @@ export function ViewportCanvas({
     const bounds = event.currentTarget.getBoundingClientRect();
     pointerPositionRef.current = new Vector2(event.clientX - bounds.left, event.clientY - bounds.top);
 
-    if (extrudeState || bevelState || faceCutState) {
+    if (extrudeState || bevelState || faceCutState || faceSubdivisionState) {
       return;
     }
 
@@ -1296,6 +1372,10 @@ export function ViewportCanvas({
     }
 
     if (faceCutState) {
+      return;
+    }
+
+    if (faceSubdivisionState) {
       return;
     }
 
@@ -1341,6 +1421,10 @@ export function ViewportCanvas({
     }
 
     if (faceCutState) {
+      return;
+    }
+
+    if (faceSubdivisionState) {
       return;
     }
 
@@ -1457,7 +1541,15 @@ export function ViewportCanvas({
           cameraRef.current = state.camera as PerspectiveCamera;
         }}
         onPointerMissed={() => {
-          if (activeToolId === "brush" || extrudeState || bevelState || faceCutState || marqueeOriginRef.current || marquee) {
+          if (
+            activeToolId === "brush" ||
+            extrudeState ||
+            bevelState ||
+            faceCutState ||
+            faceSubdivisionState ||
+            marqueeOriginRef.current ||
+            marquee
+          ) {
             return;
           }
 
@@ -1485,7 +1577,15 @@ export function ViewportCanvas({
           shadow-normalBias={0.045}
         />
         <EditorCameraRig
-          controlsEnabled={!marquee && !transformDragging && !brushCreateState && !bevelState && !extrudeState && !faceCutState}
+          controlsEnabled={
+            !marquee &&
+            !transformDragging &&
+            !brushCreateState &&
+            !bevelState &&
+            !extrudeState &&
+            !faceCutState &&
+            !faceSubdivisionState
+          }
           viewport={viewport}
         />
         <ConstructionGrid activeToolId={activeToolId} onPlaceAsset={onPlaceAsset} viewport={viewport} />
@@ -1533,6 +1633,18 @@ export function ViewportCanvas({
             viewport={viewport}
           />
         ) : null}
+        {activeToolId === "mesh-edit" && faceSubdivisionState && selectedNode ? (
+          <MeshSubdivideOverlay
+            faceId={faceSubdivisionState.faceId}
+            mesh={faceSubdivisionState.baseMesh}
+            node={selectedNode}
+            onCommitSubdivision={(mesh) => {
+              setFaceSubdivisionState(null);
+              commitMeshTopology(mesh);
+            }}
+            previewMesh={faceSubdivisionState.previewMesh}
+          />
+        ) : null}
         {activeToolId === "extrude" && selectedBrushNode ? (
           <BrushExtrudeOverlay
             node={selectedBrushNode}
@@ -1551,7 +1663,7 @@ export function ViewportCanvas({
             viewport={viewport}
           />
         ) : null}
-        {activeToolId === "mesh-edit" && selectedBrushNode && !bevelState && !extrudeState && !faceCutState ? (
+        {activeToolId === "mesh-edit" && selectedBrushNode && !bevelState && !extrudeState && !faceCutState && !faceSubdivisionState ? (
           <BrushEditOverlay
             handles={brushEditHandles}
             meshEditMode={meshEditMode}
@@ -1567,7 +1679,7 @@ export function ViewportCanvas({
             viewport={viewport}
           />
         ) : null}
-        {activeToolId === "mesh-edit" && selectedMeshNode && !bevelState && !extrudeState && !faceCutState ? (
+        {activeToolId === "mesh-edit" && selectedMeshNode && !bevelState && !extrudeState && !faceCutState && !faceSubdivisionState ? (
           <MeshEditOverlay
             handles={meshEditHandles}
             meshEditMode={meshEditMode}
@@ -1594,7 +1706,9 @@ export function ViewportCanvas({
         />
       </Canvas>
 
-      {bevelState || extrudeState || faceCutState ? <div className="pointer-events-none absolute inset-0 z-20 cursor-crosshair" /> : null}
+      {bevelState || extrudeState || faceCutState || faceSubdivisionState ? (
+        <div className="pointer-events-none absolute inset-0 z-20 cursor-crosshair" />
+      ) : null}
 
       {marqueeRect ? (
         <div

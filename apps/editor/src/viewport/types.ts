@@ -70,6 +70,13 @@ export type BevelState = {
   width: number;
 };
 
+export type FaceSubdivisionState = {
+  baseMesh: EditableMesh;
+  cuts: number;
+  faceId: string;
+  previewMesh: EditableMesh;
+};
+
 export type LastMeshEditAction =
   | {
       amount: number;
