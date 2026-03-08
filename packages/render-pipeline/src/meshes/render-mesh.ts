@@ -84,8 +84,10 @@ export type DerivedRenderMesh = {
   scale: Vec3;
   modelAssetId?: AssetID;
   modelCenter?: Vec3;
+  modelFormat?: string;
   modelPath?: string;
   modelSize?: Vec3;
+  modelTexturePath?: string;
   primitive?: RenderPrimitive;
   surface?: DerivedSurfaceGeometry;
   material: RenderMaterial;
@@ -128,11 +130,17 @@ export function createDerivedRenderMesh(
     modelCenter: isModelNode(node)
       ? resolveModelVec3Metadata(assetsById.get(node.data.assetId), "nativeCenter")
       : undefined,
+    modelFormat: isModelNode(node)
+      ? resolveModelStringMetadata(assetsById.get(node.data.assetId), "modelFormat")
+      : undefined,
     modelPath: isModelNode(node)
       ? assetsById.get(node.data.assetId)?.path ?? node.data.path
       : undefined,
     modelSize: isModelNode(node)
       ? resolveModelVec3Metadata(assetsById.get(node.data.assetId), "nativeSize")
+      : undefined,
+    modelTexturePath: isModelNode(node)
+      ? resolveModelStringMetadata(assetsById.get(node.data.assetId), "texturePath")
       : undefined,
     primitive: resolveNodePrimitive(node, assetsById),
     surface: surfaceResult?.surface,
@@ -332,6 +340,15 @@ function resolveModelVec3Metadata(
   }
 
   return vec3(x, y, z);
+}
+
+function resolveModelStringMetadata(asset: Asset | undefined, key: string) {
+  if (!asset) {
+    return undefined;
+  }
+
+  const value = asset.metadata[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function createBrushSurface(

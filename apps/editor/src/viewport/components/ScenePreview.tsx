@@ -18,6 +18,7 @@ import {
   Vector3,
   type BufferGeometry
 } from "three";
+import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { disableBvhRaycast, enableBvhRaycast, type DerivedEntityMarker, type DerivedLight, type DerivedRenderMesh, type DerivedRenderScene } from "@web-hammer/render-pipeline";
 import { createBlockoutTextureDataUri, resolveTransformPivot, toTuple } from "@web-hammer/shared";
@@ -28,6 +29,8 @@ import type { SceneSettings } from "@web-hammer/shared";
 const previewTextureCache = new Map<string, ReturnType<TextureLoader["load"]>>();
 const modelSceneCache = new Map<string, Object3D>();
 const gltfLoader = new GLTFLoader();
+const objLoader = new OBJLoader();
+const modelTextureLoader = new TextureLoader();
 
 export function ScenePreview({
   hiddenNodeIds = [],
@@ -884,7 +887,11 @@ function RenderModelBody({
   renderMode: ViewportRenderMode;
   selected: boolean;
 }) {
-  const loadedScene = useLoadedModelScene(mesh.modelPath);
+  const loadedScene = useLoadedModelScene(
+    mesh.modelPath,
+    mesh.modelFormat === "obj" ? "obj" : "glb",
+    mesh.modelTexturePath
+  );
   const loadedBounds = useMemo(
     () => (loadedScene ? computeModelBounds(loadedScene) : undefined),
     [loadedScene]
@@ -971,7 +978,11 @@ function RenderModelBody({
   );
 }
 
-function useLoadedModelScene(path?: string) {
+function useLoadedModelScene(
+  path?: string,
+  format: "glb" | "obj" = "glb",
+  texturePath?: string
+) {
   const [scene, setScene] = useState<Object3D>();
 
   useEffect(() => {
@@ -980,7 +991,8 @@ function useLoadedModelScene(path?: string) {
       return;
     }
 
-    const cachedScene = modelSceneCache.get(path);
+    const cacheKey = `${format}:${path}:${texturePath ?? ""}`;
+    const cachedScene = modelSceneCache.get(cacheKey);
 
     if (cachedScene) {
       setScene(cachedScene);
@@ -989,14 +1001,14 @@ function useLoadedModelScene(path?: string) {
 
     let cancelled = false;
 
-    void gltfLoader.loadAsync(path)
-      .then((gltf) => {
+    void loadModelScene(path, format, texturePath)
+      .then((loadedScene) => {
         if (cancelled) {
           return;
         }
 
-        modelSceneCache.set(path, gltf.scene);
-        setScene(gltf.scene);
+        modelSceneCache.set(cacheKey, loadedScene);
+        setScene(loadedScene);
       })
       .catch(() => {
         if (!cancelled) {
@@ -1007,9 +1019,51 @@ function useLoadedModelScene(path?: string) {
     return () => {
       cancelled = true;
     };
-  }, [path]);
+  }, [format, path, texturePath]);
 
   return scene;
+}
+
+async function loadModelScene(
+  path: string,
+  format: "glb" | "obj",
+  texturePath?: string
+) {
+  if (format === "obj") {
+    const object = await objLoader.loadAsync(path);
+
+    if (texturePath) {
+      const texture = await loadModelTexture(texturePath);
+
+      object.traverse((child) => {
+        if (child instanceof Mesh) {
+          child.material = new MeshStandardMaterial({
+            map: texture,
+            metalness: 0.12,
+            roughness: 0.76
+          });
+        }
+      });
+    }
+
+    return object;
+  }
+
+  const gltf = await gltfLoader.loadAsync(path);
+  return gltf.scene;
+}
+
+async function loadModelTexture(path: string) {
+  const cached = previewTextureCache.get(path);
+
+  if (cached) {
+    return cached;
+  }
+
+  const texture = await modelTextureLoader.loadAsync(path);
+  texture.colorSpace = SRGBColorSpace;
+  previewTextureCache.set(path, texture);
+  return texture;
 }
 
 function computeModelBounds(scene: Object3D) {

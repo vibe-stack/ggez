@@ -1,14 +1,18 @@
 import type { Asset, GeometryNode, PrimitiveNode, Vec3 } from "@web-hammer/shared";
 import { isPrimitiveNode, vec3 } from "@web-hammer/shared";
+import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { Box3, Vector3 } from "three";
 
 const gltfLoader = new GLTFLoader();
+const objLoader = new OBJLoader();
 
 export type ModelBounds = {
   center: Vec3;
   size: Vec3;
 };
+
+export type ModelFormat = "glb" | "obj";
 
 export async function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -26,9 +30,15 @@ export async function readFileAsDataUrl(file: File) {
   });
 }
 
-export async function analyzeModelSource(path: string): Promise<ModelBounds> {
-  const gltf = await gltfLoader.loadAsync(path);
-  const bounds = new Box3().setFromObject(gltf.scene);
+export async function analyzeModelSource(input: {
+  format?: ModelFormat;
+  path: string;
+}): Promise<ModelBounds> {
+  const model =
+    input.format === "obj"
+      ? await objLoader.loadAsync(input.path)
+      : (await gltfLoader.loadAsync(input.path)).scene;
+  const bounds = new Box3().setFromObject(model);
   const size = bounds.getSize(new Vector3());
   const center = bounds.getCenter(new Vector3());
 
@@ -44,15 +54,18 @@ export async function analyzeModelSource(path: string): Promise<ModelBounds> {
 
 export function createModelAsset(input: {
   center: Vec3;
+  format?: ModelFormat;
   name: string;
   path: string;
   size: Vec3;
   source: "ai" | "import" | "placeholder";
   prompt?: string;
+  texturePath?: string;
 }) {
   return {
     id: `asset:model:${slugify(input.name)}:${crypto.randomUUID()}`,
     metadata: {
+      modelFormat: input.format ?? "glb",
       nativeCenterX: input.center.x,
       nativeCenterY: input.center.y,
       nativeCenterZ: input.center.z,
@@ -61,7 +74,8 @@ export function createModelAsset(input: {
       nativeSizeZ: input.size.z,
       previewColor: input.source === "ai" ? "#9fd0b1" : "#7f8ea3",
       prompt: input.prompt ?? "",
-      source: input.source
+      source: input.source,
+      texturePath: input.texturePath ?? ""
     },
     path: input.path,
     type: "model"

@@ -91,8 +91,8 @@ import {
   createPrimitiveNodeData,
   createPrimitiveNodeLabel
 } from "@/lib/authoring";
+import type { ObjectGenerationResponse } from "@/lib/object-generation-contract";
 import { convertPrimitiveNodeToMeshNode } from "@/lib/primitive-to-mesh";
-import { createObjectGenerator } from "@/lib/object-generation";
 import {
   analyzeModelSource,
   createAiModelPlaceholder,
@@ -111,13 +111,11 @@ import {
 
 export function App() {
   const [editor] = useState(() => createEditorCore(createSeedSceneDocument()));
-  const [objectGenerator] = useState(() => createObjectGenerator());
   const [activeToolId, setActiveToolId] = useState<ToolId>(defaultToolId);
   const [activeBrushShape, setActiveBrushShape] = useState<BrushShape>("cube");
   const [aiModelPlacementArmed, setAiModelPlacementArmed] = useState(false);
   const [aiModelDraft, setAiModelDraft] = useState<{
     error?: string;
-    generating: boolean;
     nodeId: string;
     prompt: string;
   } | null>(null);
@@ -601,10 +599,14 @@ export function App() {
 
     try {
       const dataUrl = await readFileAsDataUrl(file);
-      const bounds = await analyzeModelSource(dataUrl);
+      const bounds = await analyzeModelSource({
+        format: "glb",
+        path: dataUrl
+      });
       const name = file.name.replace(/\.[^.]+$/, "") || "Imported Model";
       const asset = createModelAsset({
         center: bounds.center,
+        format: "glb",
         name,
         path: dataUrl,
         size: bounds.size,
@@ -702,7 +704,6 @@ export function App() {
     setTransformMode("scale");
     setAiModelDraft((current) => ({
       error: undefined,
-      generating: false,
       nodeId,
       prompt: current?.prompt ?? ""
     }));
@@ -710,11 +711,12 @@ export function App() {
   };
 
   const handleGenerateAiModel = async () => {
-    if (!aiModelDraft || aiModelDraft.generating || aiModelDraft.prompt.trim().length === 0) {
+    if (!aiModelDraft || aiModelDraft.prompt.trim().length === 0) {
       return;
     }
 
-    const node = editor.scene.getNode(aiModelDraft.nodeId);
+    const { nodeId, prompt } = aiModelDraft;
+    const node = editor.scene.getNode(nodeId);
 
     if (!node || !isPrimitiveNode(node)) {
       setAiModelDraft((current) =>
@@ -728,37 +730,60 @@ export function App() {
       return;
     }
 
-    setAiModelDraft((current) =>
-      current
-        ? {
-            ...current,
-            error: undefined,
-            generating: true
-          }
-        : current
-    );
+    setAiModelDraft(null);
+    setAiModelPlacementArmed(false);
+    void queueAiModelGeneration(nodeId, prompt.trim());
+  };
 
+  const queueAiModelGeneration = async (nodeId: string, prompt: string) => {
     try {
-      const generated = await objectGenerator.generateModel({
-        prompt: aiModelDraft.prompt.trim()
+      const payload = await runWorkerRequest(
+        {
+          kind: "ai-model-generate",
+          prompt
+        },
+        "Generate AI 3D"
+      );
+
+      if (typeof payload !== "string") {
+        throw new Error("Invalid AI model response.");
+      }
+
+      const parsed = JSON.parse(payload) as ObjectGenerationResponse;
+
+      if (!parsed.asset) {
+        throw new Error("Missing AI model payload.");
+      }
+
+      const generated = parsed.asset;
+      const bounds = await analyzeModelSource({
+        format: "obj",
+        path: generated.modelDataUrl
       });
-      const bounds = await analyzeModelSource(generated.dataUrl);
       const asset = createModelAsset({
         center: bounds.center,
+        format: "obj",
         name: generated.name,
-        path: generated.dataUrl,
+        path: generated.modelDataUrl,
         prompt: generated.prompt,
         size: bounds.size,
-        source: "ai"
+        source: "ai",
+        texturePath: generated.textureDataUrl
       });
-      const targetBounds = resolvePrimitiveNodeBounds(node) ?? vec3(2, 2, 2);
+      const latestNode = editor.scene.getNode(nodeId);
+
+      if (!latestNode || !isPrimitiveNode(latestNode)) {
+        return;
+      }
+
+      const targetBounds = resolvePrimitiveNodeBounds(latestNode) ?? vec3(2, 2, 2);
       const fitScale = resolveModelFitScale(targetBounds, bounds);
       const replacement: ModelNode = {
-        id: node.id,
+        id: latestNode.id,
         kind: "model",
         name: generated.name,
         transform: {
-          ...structuredClone(node.transform),
+          ...structuredClone(latestNode.transform),
           scale: vec3(fitScale, fitScale, fitScale)
         },
         data: {
@@ -769,24 +794,18 @@ export function App() {
 
       editor.execute(createUpsertAssetCommand(editor.scene, asset));
       editor.execute(createReplaceNodesCommand(editor.scene, [replacement], "generate ai model"));
-      editor.select([replacement.id], "object");
+      if (editor.selection.ids.includes(replacement.id)) {
+        editor.select([replacement.id], "object");
+      }
       uiStore.selectedAssetId = asset.id;
       enqueueWorkerJob("AI model generation", { task: "triangulation", worker: "geometryWorker" }, 700);
-      setAiModelDraft(null);
     } catch (error) {
-      setAiModelDraft((current) =>
-        current
-          ? {
-              ...current,
-              error: error instanceof Error ? error.message : "Failed to generate model.",
-              generating: false
-            }
-          : current
-      );
-      return;
+      setAiModelDraft({
+        error: error instanceof Error ? error.message : "Failed to generate model.",
+        nodeId,
+        prompt
+      });
     }
-
-    setAiModelPlacementArmed(false);
   };
 
   const handlePlaceBlockoutPlatform = () => {
@@ -1250,7 +1269,7 @@ export function App() {
         aiModelPlacementActive={Boolean(aiModelDraft)}
         aiModelPlacementArmed={aiModelPlacementArmed}
         aiModelPrompt={aiModelDraft?.prompt ?? ""}
-        aiModelPromptBusy={aiModelDraft?.generating ?? false}
+        aiModelPromptBusy={false}
         aiModelPromptError={aiModelDraft?.error}
         activeViewportId={ui.activeViewportId}
         canRedo={editor.commands.canRedo()}

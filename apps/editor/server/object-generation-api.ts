@@ -80,24 +80,34 @@ async function generateModel(
     logs: false
   });
 
-  const modelUrl = extractGlbUrl(result);
+  const generatedAsset = extractGeneratedAsset(result);
 
-  if (!modelUrl) {
-    throw new Error("Fal did not return a GLB.");
+  if (!generatedAsset?.modelObj?.url) {
+    throw new Error("Fal did not return an OBJ model.");
   }
 
   return {
     asset: {
-      dataUrl: await fetchAsDataUrl(modelUrl, "model/gltf-binary"),
-      mimeType: "model/gltf-binary",
+      modelDataUrl: await fetchAsDataUrl(
+        generatedAsset.modelObj.url,
+        generatedAsset.modelObj.content_type ?? "model/obj"
+      ),
+      modelMimeType: generatedAsset.modelObj.content_type ?? "model/obj",
       model: MODEL_ID,
       name: createGeneratedModelName(request.prompt),
-      prompt: request.prompt
+      prompt: request.prompt,
+      textureDataUrl: generatedAsset.texture?.url
+        ? await fetchAsDataUrl(
+            generatedAsset.texture.url,
+            generatedAsset.texture.content_type ?? "image/png"
+          )
+        : undefined,
+      textureMimeType: generatedAsset.texture?.content_type
     }
   };
 }
 
-function extractGlbUrl(result: unknown) {
+function extractGeneratedAsset(result: unknown) {
   if (
     typeof result !== "object" ||
     !result ||
@@ -109,11 +119,18 @@ function extractGlbUrl(result: unknown) {
   }
 
   const data = result.data as {
-    model_mesh?: { url?: string };
-    model_urls?: { glb?: string; gltf?: string };
+    model_obj?: { content_type?: string; url?: string };
+    model_urls?: {
+      obj?: { content_type?: string; url?: string };
+      texture?: { content_type?: string; url?: string };
+    };
+    texture?: { content_type?: string; url?: string };
   };
 
-  return data.model_urls?.glb ?? data.model_mesh?.url ?? data.model_urls?.gltf;
+  return {
+    modelObj: data.model_urls?.obj ?? data.model_obj,
+    texture: data.model_urls?.texture ?? data.texture
+  };
 }
 
 async function fetchAsDataUrl(url: string, mimeType: string) {

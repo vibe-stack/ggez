@@ -63,6 +63,8 @@ export function useExportWorker() {
         ? { task: "whmap-save" as const, worker: "exportWorker" as const }
         : request.kind === "whmap-load"
           ? { task: "whmap-load" as const, worker: "exportWorker" as const }
+          : request.kind === "ai-model-generate"
+            ? { task: "ai-model-generate" as const, worker: "exportWorker" as const }
           : request.kind === "gltf-export"
             ? { task: "gltf" as const, worker: "exportWorker" as const }
             : { task: "engine-format" as const, worker: "exportWorker" as const };

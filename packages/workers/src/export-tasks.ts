@@ -18,7 +18,7 @@ import {
 } from "@web-hammer/shared";
 import { BoxGeometry, ConeGeometry, CylinderGeometry, SphereGeometry } from "three";
 
-export type WorkerExportKind = "whmap-load" | "whmap-save" | "engine-export" | "gltf-export";
+export type WorkerExportKind = "whmap-load" | "whmap-save" | "engine-export" | "gltf-export" | "ai-model-generate";
 
 export type WorkerRequest =
   | {
@@ -35,6 +35,11 @@ export type WorkerRequest =
       id: string;
       kind: "engine-export" | "gltf-export";
       snapshot: SceneDocumentSnapshot;
+    }
+  | {
+      id: string;
+      kind: "ai-model-generate";
+      prompt: string;
     };
 
 export type WorkerResponse =
@@ -80,6 +85,15 @@ export async function executeWorkerRequest(request: WorkerRequest): Promise<Work
       };
     }
 
+    if (request.kind === "ai-model-generate") {
+      return {
+        id: request.id,
+        kind: request.kind,
+        ok: true,
+        payload: await generateAiModel(request.prompt)
+      };
+    }
+
     return {
       id: request.id,
       kind: request.kind,
@@ -94,6 +108,29 @@ export async function executeWorkerRequest(request: WorkerRequest): Promise<Work
       error: error instanceof Error ? error.message : "Unknown worker error."
     };
   }
+}
+
+async function generateAiModel(prompt: string): Promise<string> {
+  const response = await fetch(new URL("/api/ai/models", self.location.origin), {
+    body: JSON.stringify({ prompt }),
+    headers: {
+      "Content-Type": "application/json"
+    },
+    method: "POST"
+  });
+
+  const payload = await response.text();
+
+  if (!response.ok) {
+    try {
+      const parsed = JSON.parse(payload) as { error?: string };
+      throw new Error(parsed.error ?? "Failed to generate AI model.");
+    } catch {
+      throw new Error(payload || "Failed to generate AI model.");
+    }
+  }
+
+  return payload;
 }
 
 export function serializeWhmap(snapshot: SceneDocumentSnapshot): string {

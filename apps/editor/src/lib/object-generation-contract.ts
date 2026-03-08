@@ -3,11 +3,13 @@ export type ObjectGenerationRequest = {
 };
 
 export type GeneratedModelDraft = {
-  dataUrl: string;
-  mimeType: string;
+  modelDataUrl: string;
+  modelMimeType: string;
   model: "fal-ai/hunyuan-3d/v3.1/rapid/text-to-3d";
   name: string;
   prompt: string;
+  textureDataUrl?: string;
+  textureMimeType?: string;
 };
 
 export type ObjectGenerationResponse = {
