@@ -22,6 +22,7 @@ export type EditableMeshPolygon = {
   materialId?: MaterialID;
   positions: Vec3[];
   uvScale?: Vec2;
+  uvs?: Vec2[];
   vertexIds?: VertexID[];
 };
 
@@ -117,7 +118,8 @@ export function createEditableMeshFromPolygons(
       id: faceId,
       halfEdge: faceHalfEdges[0].id,
       materialId: polygon.materialId,
-      uvScale: polygon.uvScale
+      uvScale: polygon.uvScale,
+      uvs: polygon.uvs?.slice(0, orderedVertices.length)
     });
   });
 

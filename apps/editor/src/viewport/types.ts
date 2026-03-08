@@ -240,6 +240,7 @@ export type LastMeshEditAction =
 export type ExtrudeGestureState =
   | {
       amount: number;
+  amountSign: 1 | -1;
       axisLock?: "x" | "y" | "z";
       baseBrush: Brush;
       dragPlane: Plane;
@@ -252,6 +253,7 @@ export type ExtrudeGestureState =
     }
   | {
       amount: number;
+      amountSign: 1 | -1;
       axisLock?: "x" | "y" | "z";
       baseBrush: Brush;
       baseMesh: EditableMesh;
@@ -266,6 +268,7 @@ export type ExtrudeGestureState =
     }
   | {
       amount: number;
+      amountSign: 1 | -1;
       axisLock?: "x" | "y" | "z";
       baseMesh: EditableMesh;
       dragPlane: Plane;

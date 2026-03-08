@@ -473,6 +473,7 @@ async function buildExportGeometry(
     triangleIndices: number[];
     uvOffset?: Vec2;
     uvScale?: Vec2;
+    uvs?: Vec2[];
     vertices: Vec3[];
   }) => {
     const material = params.faceMaterialId ? await resolveExportMaterial(materialsById.get(params.faceMaterialId)) : fallbackMaterial;
@@ -484,7 +485,9 @@ async function buildExportGeometry(
       uvs: []
     };
     const vertexOffset = primitive.positions.length / 3;
-    const uvs = projectPlanarUvs(params.vertices, params.normal, params.uvScale, params.uvOffset);
+    const uvs = params.uvs && params.uvs.length === params.vertices.length
+      ? params.uvs.flatMap((uv) => [uv.x, uv.y])
+      : projectPlanarUvs(params.vertices, params.normal, params.uvScale, params.uvOffset);
 
     params.vertices.forEach((vertex) => {
       primitive.positions.push(vertex.x, vertex.y, vertex.z);
@@ -530,6 +533,7 @@ async function buildExportGeometry(
         triangleIndices: triangulated.indices,
         uvOffset: face.uvOffset,
         uvScale: face.uvScale,
+        uvs: face.uvs,
         vertices: getFaceVertices(node.data, face.id).map((vertex) => vertex.position)
       });
     }

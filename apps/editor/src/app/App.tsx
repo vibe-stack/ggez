@@ -101,6 +101,7 @@ import {
   resolveModelFitScale,
   resolvePrimitiveNodeBounds
 } from "@/lib/model-assets";
+import { createEditableMeshFromPrimitiveData } from "@/lib/primitive-to-mesh";
 import {
   focusViewportOnPoint,
   resolveVisibleViewportPaneIds,
@@ -862,26 +863,12 @@ export function App() {
       return;
     }
 
-    if (activeBrushShape !== "cube") {
-      const data = createPrimitiveNodeData("brush", activeBrushShape);
-      handlePlacePrimitiveNode(
-        data,
-        createDefaultPrimitiveTransform(resolvePlacementPosition(data.size)),
-        createPrimitiveNodeLabel("brush", activeBrushShape)
-      );
-      return;
-    }
-
-    const activeViewportState = resolveActiveViewportState();
-    const snappedTarget = snapVec3(activeViewportState.camera.target, resolveViewportSnapSize(activeViewportState));
-    const { command, nodeId } = createPlaceBrushNodeCommand(
-      editor.scene,
-      makeTransform(vec3(snappedTarget.x, 1.5, snappedTarget.z))
+    const data = createPrimitiveNodeData("brush", activeBrushShape);
+    handlePlaceMeshNode(
+      createEditableMeshFromPrimitiveData(data, `brush:${activeBrushShape}`),
+      createDefaultPrimitiveTransform(resolvePlacementPosition(data.size)),
+      createPrimitiveNodeLabel("brush", activeBrushShape)
     );
-
-    editor.execute(command);
-    editor.select([nodeId], "object");
-    enqueueWorkerJob("Brush placement", { task: "brush-rebuild", worker: "geometryWorker" }, 650);
   };
 
   const handlePlaceBrush = (brush: Brush, transform: Transform) => {

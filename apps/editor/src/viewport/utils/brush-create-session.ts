@@ -1,4 +1,4 @@
-import { computePolygonNormal, createAxisAlignedBrushFromBounds, createEditableMeshFromPolygons } from "@web-hammer/geometry-kernel";
+import { computePolygonNormal, createEditableMeshFromPolygons } from "@web-hammer/geometry-kernel";
 import type { EditableMeshPolygon } from "@web-hammer/geometry-kernel";
 import {
   addVec3,
@@ -15,6 +15,7 @@ import {
   type Vec3
 } from "@web-hammer/shared";
 import { createPrimitiveNodeData, createPrimitiveNodeLabel } from "@/lib/authoring";
+import { createEditableMeshFromPrimitiveData } from "@/lib/primitive-to-mesh";
 import type { BrushCreateBasis, BrushCreatePlacement, BrushCreateState } from "@/viewport/types";
 import {
   computeBrushCreateCenter,
@@ -406,20 +407,12 @@ export function buildBrushCreatePlacement(state: BrushCreateState): BrushCreateP
     }
 
     const center = computeBrushCreateCenter(state.anchor, state.basis, state.width, state.depth, state.height);
-    const rotation = basisToEuler(state.basis);
-
-    return {
-      brush: createAxisAlignedBrushFromBounds({
-        x: { min: -Math.abs(state.width) * 0.5, max: Math.abs(state.width) * 0.5 },
-        y: { min: -Math.abs(state.height) * 0.5, max: Math.abs(state.height) * 0.5 },
-        z: { min: -Math.abs(state.depth) * 0.5, max: Math.abs(state.depth) * 0.5 }
-      }),
-      kind: "brush",
-      transform: {
-        ...makeTransform(center),
-        rotation
-      }
-    };
+    return buildPrimitiveMeshPlacement(
+      "cube",
+      vec3(Math.abs(state.width), Math.abs(state.height), Math.abs(state.depth)),
+      center,
+      basisToEuler(state.basis)
+    );
   }
 
   if (state.shape === "sphere") {
@@ -434,15 +427,12 @@ export function buildBrushCreatePlacement(state: BrushCreateState): BrushCreateP
       state.anchor.z + state.basis.normal.z * radius
     );
 
-    return {
-      kind: "primitive",
-      name: createPrimitiveNodeLabel("brush", "sphere"),
-      primitive: createPrimitiveNodeData("brush", "sphere", vec3(radius * 2, radius * 2, radius * 2)),
-      transform: {
-        ...makeTransform(center),
-        rotation: basisToEuler(state.basis)
-      }
-    };
+    return buildPrimitiveMeshPlacement(
+      "sphere",
+      vec3(radius * 2, radius * 2, radius * 2),
+      center,
+      basisToEuler(state.basis)
+    );
   }
 
   if (state.shape === "custom-polygon") {
@@ -486,15 +476,12 @@ export function buildBrushCreatePlacement(state: BrushCreateState): BrushCreateP
     state.anchor.z + state.basis.normal.z * (state.height * 0.5)
   );
 
-  return {
-    kind: "primitive",
-    name: createPrimitiveNodeLabel("brush", state.shape),
-    primitive: createPrimitiveNodeData("brush", state.shape, vec3(radius * 2, Math.abs(state.height), radius * 2)),
-    transform: {
-      ...makeTransform(center),
-      rotation: basisToEuler(state.basis)
-    }
-  };
+  return buildPrimitiveMeshPlacement(
+    state.shape,
+    vec3(radius * 2, Math.abs(state.height), radius * 2),
+    center,
+    basisToEuler(state.basis)
+  );
 }
 
 export function buildBrushCreatePreviewPositions(state: BrushCreateState, snapSize: number): number[] {
@@ -888,6 +875,20 @@ function buildMeshPlacementFromPolygons(polygons: EditableMeshPolygon[], name: s
     mesh: createEditableMeshFromPolygons(rebasedPolygons),
     name,
     transform: makeTransform(center)
+  };
+}
+
+function buildPrimitiveMeshPlacement(shape: "cone" | "cube" | "cylinder" | "sphere", size: Vec3, center: Vec3, rotation: Vec3): BrushCreatePlacement {
+  const data = createPrimitiveNodeData("brush", shape, size);
+
+  return {
+    kind: "mesh",
+    mesh: createEditableMeshFromPrimitiveData(data, `brush:${shape}`),
+    name: createPrimitiveNodeLabel("brush", shape),
+    transform: {
+      ...makeTransform(center),
+      rotation
+    }
   };
 }
 

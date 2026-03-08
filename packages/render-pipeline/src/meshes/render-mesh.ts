@@ -398,6 +398,7 @@ function createEditableMeshSurface(
       triangleIndices: triangulated.indices,
       uvOffset: face.uvOffset,
       uvScale: face.uvScale,
+      uvs: face.uvs,
       vertices: getFaceVertices(node, face.id).map((vertex) => vertex.position)
     };
   });
@@ -407,6 +408,7 @@ function createEditableMeshSurface(
     triangleIndices: number[];
     uvOffset?: Vec2;
     uvScale?: Vec2;
+    uvs?: Vec2[];
     vertices: Vec3[];
   }> = mappedFaces.filter((face) => face !== undefined) as Array<{
     materialId?: MaterialID;
@@ -414,6 +416,7 @@ function createEditableMeshSurface(
     triangleIndices: number[];
     uvOffset?: Vec2;
     uvScale?: Vec2;
+    uvs?: Vec2[];
     vertices: Vec3[];
   }>;
 
@@ -431,6 +434,7 @@ function buildDerivedSurface(
     triangleIndices: number[];
     uvOffset?: Vec2;
     uvScale?: Vec2;
+    uvs?: Vec2[];
     vertices: Vec3[];
   }>,
   materialsById: Map<MaterialID, Material>,
@@ -461,7 +465,9 @@ function buildDerivedSurface(
       positions.push(vertex.x, vertex.y, vertex.z);
     });
 
-    const faceUvs = projectPlanarUvs(face.vertices, face.normal, face.uvScale, face.uvOffset);
+    const faceUvs = face.uvs && face.uvs.length === face.vertices.length
+      ? face.uvs.flatMap((uv) => [uv.x, uv.y])
+      : projectPlanarUvs(face.vertices, face.normal, face.uvScale, face.uvOffset);
     uvs.push(...faceUvs);
 
     const groupStart = indices.length;

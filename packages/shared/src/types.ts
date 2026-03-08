@@ -73,6 +73,7 @@ export type EditableMeshFace = {
   materialId?: MaterialID;
   uvOffset?: Vec2;
   uvScale?: Vec2;
+  uvs?: Vec2[];
 };
 
 export type EditableMesh = {

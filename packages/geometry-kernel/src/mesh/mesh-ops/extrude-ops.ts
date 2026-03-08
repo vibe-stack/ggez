@@ -2,7 +2,7 @@ import type { EditableMesh, FaceID, Vec3, VertexID } from "@web-hammer/shared";
 import { addVec3, averageVec3, normalizeVec3, scaleVec3, vec3 } from "@web-hammer/shared";
 import { computePolygonNormal } from "../../polygon/polygon-utils";
 import { createEditableMeshFromPolygons, findEdgeIndex, getMeshPolygons, makeUndirectedEdgeKey, orientPolygonLoops } from "./shared";
-import type { OrientedEditablePolygon } from "./types";
+import type { MeshPolygonData, OrientedEditablePolygon } from "./types";
 
 export function extrudeEditableMeshFace(
   mesh: EditableMesh,
@@ -14,7 +14,7 @@ export function extrudeEditableMeshFace(
     return structuredClone(mesh);
   }
 
-  const polygons = getMeshPolygons(mesh);
+  const polygons = normalizeExtrudeSourcePolygons(mesh);
   const target = polygons.find((polygon) => polygon.id === faceId);
 
   if (!target) {
@@ -94,7 +94,7 @@ export function extrudeEditableMeshEdge(
     return structuredClone(mesh);
   }
 
-  const polygons = getMeshPolygons(mesh);
+  const polygons = normalizeExtrudeSourcePolygons(mesh);
   const adjacent = polygons.filter((polygon) => findEdgeIndex(polygon.vertexIds, edge) >= 0);
 
   if (adjacent.length === 0 || adjacent.length > 2) {
@@ -197,4 +197,26 @@ export function extrudeEditableMeshEdge(
   });
 
   return createEditableMeshFromPolygons(orientPolygonLoops(nextPolygons));
+}
+
+function normalizeExtrudeSourcePolygons(mesh: EditableMesh) {
+  const oriented = orientPolygonLoops(
+    getMeshPolygons(mesh).map((polygon) => ({
+      id: polygon.id,
+      materialId: polygon.materialId,
+      positions: polygon.positions.map((position) => vec3(position.x, position.y, position.z)),
+      uvScale: polygon.uvScale,
+      vertexIds: [...polygon.vertexIds]
+    }))
+  );
+
+  return oriented.map((polygon): MeshPolygonData => ({
+    center: averageVec3(polygon.positions),
+    id: polygon.id,
+    materialId: polygon.materialId,
+    normal: computePolygonNormal(polygon.positions),
+    positions: polygon.positions,
+    uvScale: polygon.uvScale,
+    vertexIds: polygon.vertexIds ?? []
+  }));
 }

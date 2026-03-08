@@ -3,7 +3,9 @@ import {
   type EditableMeshPolygon
 } from "@web-hammer/geometry-kernel";
 import {
+  vec2,
   vec3,
+  type PrimitiveNodeData,
   type MeshNode,
   type PrimitiveNode
 } from "@web-hammer/shared";
@@ -22,6 +24,20 @@ export function convertPrimitiveNodeToMeshNode(node: PrimitiveNode): MeshNode {
     transform: structuredClone(node.transform),
     data: createEditableMeshFromPrimitive(node)
   };
+}
+
+export function createEditableMeshFromPrimitiveData(data: PrimitiveNodeData, idPrefix = "primitive") {
+  return createEditableMeshFromPrimitive({
+    data,
+    id: idPrefix,
+    kind: "primitive",
+    name: idPrefix,
+    transform: {
+      position: vec3(0, 0, 0),
+      rotation: vec3(0, 0, 0),
+      scale: vec3(1, 1, 1)
+    }
+  });
 }
 
 function createEditableMeshFromPrimitive(node: PrimitiveNode) {
@@ -78,9 +94,9 @@ function createBoxPolygons(node: PrimitiveNode): EditableMeshPolygon[] {
       materialId,
       positions: [
         vec3(halfX, -halfY, -halfZ),
-        vec3(halfX, -halfY, halfZ),
+        vec3(halfX, halfY, -halfZ),
         vec3(halfX, halfY, halfZ),
-        vec3(halfX, halfY, -halfZ)
+        vec3(halfX, -halfY, halfZ)
       ]
     },
     {
@@ -88,9 +104,9 @@ function createBoxPolygons(node: PrimitiveNode): EditableMeshPolygon[] {
       materialId,
       positions: [
         vec3(-halfX, -halfY, halfZ),
-        vec3(-halfX, -halfY, -halfZ),
+        vec3(-halfX, halfY, halfZ),
         vec3(-halfX, halfY, -halfZ),
-        vec3(-halfX, halfY, halfZ)
+        vec3(-halfX, -halfY, -halfZ)
       ]
     },
     {
@@ -98,9 +114,9 @@ function createBoxPolygons(node: PrimitiveNode): EditableMeshPolygon[] {
       materialId,
       positions: [
         vec3(-halfX, halfY, -halfZ),
-        vec3(halfX, halfY, -halfZ),
+        vec3(-halfX, halfY, halfZ),
         vec3(halfX, halfY, halfZ),
-        vec3(-halfX, halfY, halfZ)
+        vec3(halfX, halfY, -halfZ)
       ]
     },
     {
@@ -108,9 +124,9 @@ function createBoxPolygons(node: PrimitiveNode): EditableMeshPolygon[] {
       materialId,
       positions: [
         vec3(-halfX, -halfY, halfZ),
-        vec3(halfX, -halfY, halfZ),
+        vec3(-halfX, -halfY, -halfZ),
         vec3(halfX, -halfY, -halfZ),
-        vec3(-halfX, -halfY, -halfZ)
+        vec3(halfX, -halfY, halfZ)
       ]
     },
     {
@@ -118,9 +134,9 @@ function createBoxPolygons(node: PrimitiveNode): EditableMeshPolygon[] {
       materialId,
       positions: [
         vec3(-halfX, -halfY, halfZ),
-        vec3(-halfX, halfY, halfZ),
+        vec3(halfX, -halfY, halfZ),
         vec3(halfX, halfY, halfZ),
-        vec3(halfX, -halfY, halfZ)
+        vec3(-halfX, halfY, halfZ)
       ]
     },
     {
@@ -128,9 +144,9 @@ function createBoxPolygons(node: PrimitiveNode): EditableMeshPolygon[] {
       materialId,
       positions: [
         vec3(halfX, -halfY, -halfZ),
-        vec3(halfX, halfY, -halfZ),
+        vec3(-halfX, -halfY, -halfZ),
         vec3(-halfX, halfY, -halfZ),
-        vec3(-halfX, -halfY, -halfZ)
+        vec3(halfX, halfY, -halfZ)
       ]
     }
   ];
@@ -142,6 +158,7 @@ function createTrianglePolygons(
 ): EditableMeshPolygon[] {
   const nonIndexed = geometry.toNonIndexed();
   const positions = nonIndexed.getAttribute("position");
+  const uvAttribute = nonIndexed.getAttribute("uv");
   const polygons: EditableMeshPolygon[] = [];
 
   for (let index = 0; index < positions.count; index += 3) {
@@ -164,7 +181,14 @@ function createTrianglePolygons(
           positions.getY(index + 2),
           positions.getZ(index + 2)
         )
-      ]
+      ],
+      uvs: uvAttribute
+        ? [
+            vec2(uvAttribute.getX(index), uvAttribute.getY(index)),
+            vec2(uvAttribute.getX(index + 1), uvAttribute.getY(index + 1)),
+            vec2(uvAttribute.getX(index + 2), uvAttribute.getY(index + 2))
+          ]
+        : undefined
     });
   }
 

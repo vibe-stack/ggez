@@ -824,6 +824,7 @@ export function ViewportCanvas({
 
         setExtrudeState({
           amount: 0,
+          amountSign: 1,
           baseBrush: structuredClone(selectedBrushNode.data),
           baseMesh: structuredClone(baseMesh),
           dragPlane,
@@ -837,8 +838,10 @@ export function ViewportCanvas({
         return;
       }
 
-      const anchor = resolveExtrudeAnchor(handle.position, handle.normal, handle.kind);
-      const dragPlane = createBrushCreateDragPlane(cameraRef.current, handle.normal, anchor);
+      const interactionNormal = resolveExtrudeInteractionNormal(cameraRef.current, handle.normal, handle.kind);
+      const amountSign = resolveExtrudeAmountSign(interactionNormal, handle.normal, handle.kind);
+      const anchor = resolveExtrudeAnchor(handle.position, interactionNormal, handle.kind);
+      const dragPlane = createBrushCreateDragPlane(cameraRef.current, interactionNormal, anchor);
       const startPoint =
         projectPointerToThreePlane(
           pointerPositionRef.current.x + bounds.left,
@@ -851,12 +854,13 @@ export function ViewportCanvas({
 
       setExtrudeState({
         amount: 0,
+        amountSign,
         baseBrush: structuredClone(selectedBrushNode.data),
         dragPlane,
         handle: structuredClone(handle),
         kind: "brush",
         nodeId: selectedBrushNode.id,
-        normal: vec3(handle.normal.x, handle.normal.y, handle.normal.z),
+        normal: vec3(interactionNormal.x, interactionNormal.y, interactionNormal.z),
         previewBrush: structuredClone(selectedBrushNode.data),
         startPoint: vec3(startPoint.x, startPoint.y, startPoint.z)
       });
@@ -897,7 +901,9 @@ export function ViewportCanvas({
                 .map((candidate) => candidate.position)
             )
           : handle.position;
-      const normal = vec3LengthSquared(resolvedNormal) > 0.000001 ? resolvedNormal : handle.normal;
+      const baseNormal = vec3LengthSquared(resolvedNormal) > 0.000001 ? resolvedNormal : handle.normal;
+      const normal = resolveExtrudeInteractionNormal(cameraRef.current, baseNormal, handle.kind);
+      const amountSign = resolveExtrudeAmountSign(normal, handle.normal, handle.kind);
 
       const anchor = resolveExtrudeAnchor(resolvedAnchor, normal, handle.kind);
       const dragPlane = createBrushCreateDragPlane(cameraRef.current, normal, anchor);
@@ -913,6 +919,7 @@ export function ViewportCanvas({
 
       setExtrudeState({
         amount: 0,
+        amountSign,
         baseMesh: structuredClone(selectedMeshNode.data),
         dragPlane,
         faceIds: meshEditMode === "face" ? selectedFaceIds : undefined,
@@ -1459,12 +1466,14 @@ export function ViewportCanvas({
   };
 
   function buildExtrudePreviewState(state: ExtrudeGestureState, amount: number): ExtrudeGestureState {
+    const appliedAmount = amount * state.amountSign;
+
     if (state.kind === "brush") {
       const previewBrush =
         extrudeBrushHandle(
           state.baseBrush,
           state.handle,
-          amount,
+          appliedAmount,
           resolveExtrudeDirection(state)
         ) ?? state.baseBrush;
       onPreviewBrushData(state.nodeId, previewBrush);
@@ -1480,13 +1489,13 @@ export function ViewportCanvas({
       state.handle.kind === "face"
         ? (
             state.faceIds && state.faceIds.length > 1
-              ? extrudeEditableMeshFaces(state.baseMesh, state.faceIds, amount)
-              : extrudeEditableMeshFace(state.baseMesh, state.handle.id, amount)
+              ? extrudeEditableMeshFaces(state.baseMesh, state.faceIds, appliedAmount)
+              : extrudeEditableMeshFace(state.baseMesh, state.handle.id, appliedAmount)
           ) ?? state.baseMesh
         : extrudeEditableMeshEdge(
             state.baseMesh,
             state.handle.vertexIds as [string, string],
-            amount,
+            appliedAmount,
             resolveExtrudeDirection(state)
           ) ?? state.baseMesh;
 
@@ -1566,7 +1575,7 @@ export function ViewportCanvas({
     }
 
     lastMeshEditActionRef.current = {
-      amount: extrudeState.amount,
+      amount: extrudeState.amount * extrudeState.amountSign,
       direction: extrudeState.handle.kind === "edge" ? resolveExtrudeDirection(extrudeState) : undefined,
       handleKind: extrudeState.handle.kind,
       kind: "extrude"
@@ -2098,7 +2107,7 @@ export function ViewportCanvas({
         <ScenePreview
           hiddenNodeIds={
             selectedNode &&
-            (arcState || bevelState || extrudeState?.kind === "brush-mesh" || (extrudeState?.kind === "mesh" && extrudeState.handle.kind === "edge"))
+            (arcState || bevelState || extrudeState?.kind === "brush-mesh" || extrudeState?.kind === "mesh")
               ? [selectedNode.id]
               : []
           }
@@ -2347,4 +2356,40 @@ function resolveExtrudeAnchor(
     position.y + normal.y * distance,
     position.z + normal.z * distance
   );
+}
+
+function resolveExtrudeInteractionNormal(
+  camera: Camera,
+  normal: { x: number; y: number; z: number },
+  kind: "edge" | "face"
+) {
+  if (kind !== "face") {
+    return vec3(normal.x, normal.y, normal.z);
+  }
+
+  const cameraDirection = camera.getWorldDirection(new Vector3());
+  const alignment = normal.x * cameraDirection.x + normal.y * cameraDirection.y + normal.z * cameraDirection.z;
+
+  if (alignment <= 0) {
+    return vec3(normal.x, normal.y, normal.z);
+  }
+
+  return vec3(-normal.x, -normal.y, -normal.z);
+}
+
+function resolveExtrudeAmountSign(
+  interactionNormal: { x: number; y: number; z: number },
+  handleNormal: { x: number; y: number; z: number },
+  kind: "edge" | "face"
+): 1 | -1 {
+  if (kind !== "face") {
+    return 1;
+  }
+
+  const alignment =
+    interactionNormal.x * handleNormal.x +
+    interactionNormal.y * handleNormal.y +
+    interactionNormal.z * handleNormal.z;
+
+  return alignment >= 0 ? 1 : -1;
 }
