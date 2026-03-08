@@ -1,4 +1,4 @@
-import { BookOpen, FileText, Pencil, Sparkles } from "lucide-react";
+import { Gauge } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Menubar,
@@ -9,6 +9,7 @@ import {
   MenubarTrigger
 } from "@/components/ui/menubar";
 import { TridentIcon } from "@/components/editor-shell/icons";
+import type { ViewportQuality } from "@/state/ui-store";
 
 type EditorMenuBarProps = {
   canRedo: boolean;
@@ -23,7 +24,9 @@ type EditorMenuBarProps = {
   onLoadWhmap: () => void;
   onRedo: () => void;
   onSaveWhmap: () => void;
+  onToggleViewportQuality: () => void;
   onUndo: () => void;
+  viewportQuality: ViewportQuality;
 };
 
 export function EditorMenuBar({
@@ -39,6 +42,8 @@ export function EditorMenuBar({
   onLoadWhmap,
   onRedo,
   onSaveWhmap,
+  onToggleViewportQuality,
+  viewportQuality,
   onUndo
 }: EditorMenuBarProps) {
   return (
@@ -134,18 +139,17 @@ export function EditorMenuBar({
         </Menubar>
       </div>
 
-      <div className="flex items-center gap-1">
-        <Button className="text-[11px] text-foreground/65" size="icon-xs" variant="ghost">
-          <FileText className="size-3.5" />
-        </Button>
-        <Button className="text-[11px] text-foreground/65" size="icon-xs" variant="ghost">
-          <Pencil className="size-3.5" />
-        </Button>
-        <Button className="text-[11px] text-foreground/65" size="icon-xs" variant="ghost">
-          <Sparkles className="size-3.5" />
-        </Button>
-        <Button className="text-[11px] text-foreground/65" size="icon-xs" variant="ghost">
-          <BookOpen className="size-3.5" />
+      <div className="flex items-center gap-1 px-2">
+        <Button
+          aria-label={`Canvas DPR ${viewportQuality.toFixed(2)}x`}
+          className="text-[11px] text-foreground/65 hover:text-foreground flex flex-row gap-1 px-2"
+          onClick={onToggleViewportQuality}
+          size="icon-xs"
+          title={`Canvas DPR ${viewportQuality.toFixed(2)}x`}
+          variant="ghost"
+        >
+          <Gauge className="size-3.5" />
+          {viewportQuality.toFixed(2)}
         </Button>
       </div>
     </div>

@@ -3,7 +3,22 @@ import { useFrame } from "@react-three/fiber";
 import { triangulatePolygon3D, type ReconstructedBrushFace } from "@web-hammer/geometry-kernel";
 import { averageVec3, normalizeVec3, toTuple, vec3, type Transform, type Vec3 } from "@web-hammer/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CanvasTexture, DoubleSide, Group, LinearFilter, Quaternion, Sprite, SRGBColorSpace, Vector3 } from "three";
+import {
+  BufferGeometry,
+  CanvasTexture,
+  Color,
+  DoubleSide,
+  Euler,
+  Float32BufferAttribute,
+  Group,
+  InstancedMesh,
+  LinearFilter,
+  Object3D,
+  Quaternion,
+  Sprite,
+  SRGBColorSpace,
+  Vector3
+} from "three";
 import type { BrushEditHandle, MeshEditHandle, MeshEditMode } from "@/viewport/editing";
 import { createIndexedGeometry, nodeLocalPointToWorld } from "@/viewport/utils/geometry";
 
@@ -17,6 +32,20 @@ type EdgeLabelTexture = {
   height: number;
   texture: CanvasTexture;
   width: number;
+};
+
+type OverlayHandle = {
+  id: string;
+  normal?: Vec3;
+  points?: Vec3[];
+  position: Vec3;
+};
+
+type EdgeHitAreaInstance = {
+  id: string;
+  length: number;
+  midpoint: Vec3;
+  quaternion: Quaternion;
 };
 
 export function FaceHitArea({
@@ -211,6 +240,198 @@ export function EditableEdgeSelectionHitArea({
   );
 }
 
+export function EditableEdgeSelectionHitAreas({
+  handles,
+  onSelectHandle,
+  selectedHandleIds
+}: {
+  handles: OverlayHandle[];
+  onSelectHandle: (handleId: string, event: any) => void;
+  selectedHandleIds: string[];
+}) {
+  const selectedIdSet = useMemo(() => new Set(selectedHandleIds), [selectedHandleIds]);
+  const { selected, unselected } = useMemo(() => {
+    const nextSelected: EdgeHitAreaInstance[] = [];
+    const nextUnselected: EdgeHitAreaInstance[] = [];
+
+    handles.forEach((handle) => {
+      if (!handle.points || handle.points.length !== 2) {
+        return;
+      }
+
+      const [start, end] = handle.points;
+      const direction = new Vector3(end.x - start.x, end.y - start.y, end.z - start.z);
+      const length = direction.length();
+
+      if (length <= 0.0001) {
+        return;
+      }
+
+      const item: EdgeHitAreaInstance = {
+        id: handle.id,
+        length,
+        midpoint: averageVec3(handle.points),
+        quaternion: new Quaternion().setFromUnitVectors(new Vector3(0, 1, 0), direction.normalize())
+      };
+
+      if (selectedIdSet.has(handle.id)) {
+        nextSelected.push(item);
+        return;
+      }
+
+      nextUnselected.push(item);
+    });
+
+    return {
+      selected: nextSelected,
+      unselected: nextUnselected
+    };
+  }, [handles, selectedIdSet]);
+
+  return (
+    <>
+      <EditableEdgeSelectionInstanceMesh
+        items={unselected}
+        onSelectHandle={onSelectHandle}
+        opacity={0.025}
+        thickness={0.13}
+      />
+      <EditableEdgeSelectionInstanceMesh
+        items={selected}
+        onSelectHandle={onSelectHandle}
+        opacity={0.12}
+        thickness={0.16}
+      />
+    </>
+  );
+}
+
+export function BatchedHandleLineSegments({
+  closed = false,
+  color,
+  handles,
+  opacity = 0.9,
+  selectedColor,
+  selectedHandleIds = []
+}: {
+  closed?: boolean;
+  color: string;
+  handles: OverlayHandle[];
+  opacity?: number;
+  selectedColor?: string;
+  selectedHandleIds?: string[];
+}) {
+  const geometry = useMemo(() => {
+    const positions: number[] = [];
+    const colors: number[] = [];
+    const defaultColor = new Color(color);
+    const activeColor = selectedColor ? new Color(selectedColor) : defaultColor;
+    const selectedIdSet = new Set(selectedHandleIds);
+
+    handles.forEach((handle) => {
+      if (!handle.points || handle.points.length < 2) {
+        return;
+      }
+
+      if (!closed && handle.points.length !== 2) {
+        return;
+      }
+
+      const handleColor = selectedIdSet.has(handle.id) ? activeColor : defaultColor;
+      const segments = closed ? handle.points.length : 1;
+
+      for (let index = 0; index < segments; index += 1) {
+        const start = handle.points[index];
+        const end = closed ? handle.points[(index + 1) % handle.points.length] : handle.points[1];
+
+        positions.push(start.x, start.y, start.z, end.x, end.y, end.z);
+        colors.push(
+          handleColor.r,
+          handleColor.g,
+          handleColor.b,
+          handleColor.r,
+          handleColor.g,
+          handleColor.b
+        );
+      }
+    });
+
+    if (positions.length === 0) {
+      return undefined;
+    }
+
+    const nextGeometry = new BufferGeometry();
+    nextGeometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+    nextGeometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
+    return nextGeometry;
+  }, [closed, color, handles, selectedColor, selectedHandleIds]);
+
+  useEffect(() => () => geometry?.dispose(), [geometry]);
+
+  if (!geometry) {
+    return null;
+  }
+
+  return (
+    <lineSegments geometry={geometry} renderOrder={10}>
+      <lineBasicMaterial depthWrite={false} opacity={opacity} toneMapped={false} transparent vertexColors />
+    </lineSegments>
+  );
+}
+
+export function BatchedHandleMarkers({
+  handles,
+  mode,
+  nodeTransform,
+  onSelectHandle,
+  selectedFillColor,
+  selectedHandleIds,
+  unselectedFillColor
+}: {
+  handles: OverlayHandle[];
+  mode: MeshEditMode;
+  nodeTransform: Transform;
+  onSelectHandle?: (handleId: string, event: any) => void;
+  selectedFillColor: string;
+  selectedHandleIds: string[];
+  unselectedFillColor: string;
+}) {
+  const selectedIdSet = useMemo(() => new Set(selectedHandleIds), [selectedHandleIds]);
+  const selectedHandles = useMemo(
+    () => handles.filter((handle) => selectedIdSet.has(handle.id)),
+    [handles, selectedIdSet]
+  );
+  const unselectedHandles = useMemo(
+    () => handles.filter((handle) => !selectedIdSet.has(handle.id)),
+    [handles, selectedIdSet]
+  );
+  const innerSize =
+    mode === "face"
+      ? { selected: 8, unselected: 6.5 }
+      : mode === "edge"
+        ? { selected: 7, unselected: 5.5 }
+        : { selected: 6, unselected: 4.75 };
+
+  return (
+    <>
+      <HandleMarkerPointCloud
+        color={unselectedFillColor}
+        handles={unselectedHandles}
+        nodeTransform={nodeTransform}
+        onSelectHandle={onSelectHandle}
+        size={innerSize.unselected}
+      />
+      <HandleMarkerPointCloud
+        color={selectedFillColor}
+        handles={selectedHandles}
+        nodeTransform={nodeTransform}
+        onSelectHandle={onSelectHandle}
+        size={innerSize.selected}
+      />
+    </>
+  );
+}
+
 export function MeshEditHandleVisual({
   handle,
   mode,
@@ -275,7 +496,6 @@ export function MeshEditHandleMarker({
       mode={mode}
       nodeTransform={nodeTransform}
       onSelect={onSelect}
-      outlineColor={selected ? SELECTED_HANDLE_COLOR : "#0f172a"}
       position={handle.position}
       selected={selected}
     />
@@ -301,7 +521,6 @@ export function BrushEditHandleMarker({
       mode={mode}
       nodeTransform={nodeTransform}
       onSelect={onSelect}
-      outlineColor={selected ? SELECTED_HANDLE_COLOR : "#0f172a"}
       position={handle.position}
       selected={selected}
     />
@@ -363,7 +582,6 @@ function HandleMarker({
   mode,
   nodeTransform,
   onSelect,
-  outlineColor,
   position,
   selected
 }: {
@@ -371,19 +589,12 @@ function HandleMarker({
   mode: MeshEditMode;
   nodeTransform: Transform;
   onSelect: (event: any) => void;
-  outlineColor: string;
   position: Vec3;
   selected: boolean;
 }) {
   const billboardRef = useRef<Group | null>(null);
   const rotationZ = mode === "vertex" ? Math.PI / 4 : 0;
   const worldPosition = useMemo(() => nodeLocalPointToWorld(position, nodeTransform), [nodeTransform, position]);
-  const outerSize: [number, number] =
-    mode === "face"
-      ? [selected ? 14 : 12, selected ? 10 : 8.5]
-      : mode === "edge"
-        ? [selected ? 11 : 9, selected ? 11 : 9]
-        : [selected ? 10 : 8, selected ? 10 : 8];
   const innerSize: [number, number] =
     mode === "face"
       ? [selected ? 10 : 8.5, selected ? 6.5 : 5.5]
@@ -407,25 +618,205 @@ function HandleMarker({
 
   return (
     <Billboard position={toTuple(worldPosition)} ref={billboardRef}>
-      <group onClick={mode === "vertex" ? onSelect : undefined} renderOrder={11}>
-        <mesh rotation={[0, 0, rotationZ]} renderOrder={11}>
-          <planeGeometry args={outerSize} />
+      <group onClick={mode === "vertex" ? onSelect : undefined}>
+        <mesh rotation={[0, 0, rotationZ]}>
+          <planeGeometry args={innerSize} />
           <meshBasicMaterial
-            color={outlineColor}
-            depthTest={false}
+            color={fillColor}
+            depthTest
             depthWrite={false}
-            opacity={selected ? 0.98 : 0.82}
+            polygonOffset
+            polygonOffsetFactor={-2}
+            polygonOffsetUnits={-2}
             toneMapped={false}
             transparent
           />
         </mesh>
-        <mesh position={[0, 0, 0.001]} rotation={[0, 0, rotationZ]} renderOrder={12}>
-          <planeGeometry args={innerSize} />
-          <meshBasicMaterial color={fillColor} depthTest={false} depthWrite={false} toneMapped={false} transparent />
-        </mesh>
       </group>
     </Billboard>
   );
+}
+
+function EditableEdgeSelectionInstanceMesh({
+  items,
+  onSelectHandle,
+  opacity,
+  thickness
+}: {
+  items: EdgeHitAreaInstance[];
+  onSelectHandle: (handleId: string, event: any) => void;
+  opacity: number;
+  thickness: number;
+}) {
+  const meshRef = useRef<InstancedMesh | null>(null);
+
+  useEffect(() => {
+    if (!meshRef.current) {
+      return;
+    }
+
+    const helper = new Object3D();
+
+    items.forEach((item, index) => {
+      helper.position.set(item.midpoint.x, item.midpoint.y, item.midpoint.z);
+      helper.quaternion.copy(item.quaternion);
+      helper.scale.set(thickness, item.length, thickness);
+      helper.updateMatrix();
+      meshRef.current!.setMatrixAt(index, helper.matrix);
+    });
+
+    meshRef.current.instanceMatrix.needsUpdate = true;
+  }, [items, thickness]);
+
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <instancedMesh
+      args={[undefined, undefined, items.length]}
+      onClick={(event) => {
+        if (typeof event.instanceId !== "number") {
+          return;
+        }
+
+        onSelectHandle(items[event.instanceId].id, event);
+      }}
+      ref={meshRef}
+      renderOrder={7}
+    >
+      <boxGeometry args={[1, 1, 1]} />
+      <meshBasicMaterial color="#93c5fd" depthWrite={false} opacity={opacity} transparent />
+    </instancedMesh>
+  );
+}
+
+function HandleMarkerPointCloud({
+  color,
+  handles,
+  nodeTransform,
+  onSelectHandle,
+  size
+}: {
+  color: string;
+  handles: OverlayHandle[];
+  nodeTransform: Transform;
+  onSelectHandle?: (handleId: string, event: any) => void;
+  size: number;
+}) {
+  const { geometry, ids } = useMemo(() => {
+    if (handles.length === 0) {
+      return {
+        geometry: undefined,
+        ids: [] as string[]
+      };
+    }
+
+    const nextGeometry = new BufferGeometry();
+    nextGeometry.setAttribute("position", new Float32BufferAttribute(new Float32Array(handles.length * 3), 3));
+
+    return {
+      geometry: nextGeometry,
+      ids: handles.map((handle) => handle.id)
+    };
+  }, [handles]);
+
+  useFrame(({ camera, size: viewportSize }) => {
+    if (!geometry || viewportSize.height <= 0) {
+      return;
+    }
+
+    const positionAttribute = geometry.getAttribute("position") as Float32BufferAttribute;
+    let dirty = false;
+
+    handles.forEach((handle, index) => {
+      const worldPosition = nodeLocalPointToWorld(handle.position, nodeTransform);
+      let nextX = worldPosition.x;
+      let nextY = worldPosition.y;
+      let nextZ = worldPosition.z;
+
+      if (handle.normal) {
+        const worldNormal = transformNormalToWorld(handle.normal, nodeTransform);
+        const worldUnitsPerPixel = resolveWorldUnitsPerPixel(
+          camera,
+          new Vector3(worldPosition.x, worldPosition.y, worldPosition.z),
+          viewportSize.height
+        );
+        const lift = worldUnitsPerPixel * Math.max(size * 0.55, 3);
+
+        nextX += worldNormal.x * lift;
+        nextY += worldNormal.y * lift;
+        nextZ += worldNormal.z * lift;
+      }
+
+      if (
+        Math.abs(positionAttribute.getX(index) - nextX) > 0.000001 ||
+        Math.abs(positionAttribute.getY(index) - nextY) > 0.000001 ||
+        Math.abs(positionAttribute.getZ(index) - nextZ) > 0.000001
+      ) {
+        positionAttribute.setXYZ(index, nextX, nextY, nextZ);
+        dirty = true;
+      }
+    });
+
+    if (dirty) {
+      positionAttribute.needsUpdate = true;
+      geometry.computeBoundingSphere();
+    }
+  });
+
+  useEffect(() => () => geometry?.dispose(), [geometry]);
+
+  if (!geometry) {
+    return null;
+  }
+
+  return (
+    <points
+      geometry={geometry}
+      onClick={
+        onSelectHandle
+          ? (event) => {
+              if (typeof event.index !== "number") {
+                return;
+              }
+
+              onSelectHandle(ids[event.index], event);
+            }
+          : undefined
+      }
+    >
+      <pointsMaterial
+        color={color}
+        depthTest
+        depthWrite={false}
+        opacity={0.96}
+        polygonOffset
+        polygonOffsetFactor={-2}
+        polygonOffsetUnits={-2}
+        size={size}
+        sizeAttenuation={false}
+        toneMapped={false}
+        transparent
+      />
+    </points>
+  );
+}
+
+function transformNormalToWorld(normal: Vec3, transform: Transform) {
+  const worldNormal = new Vector3(normal.x, normal.y, normal.z)
+    .multiply(new Vector3(Math.sign(transform.scale.x) || 1, Math.sign(transform.scale.y) || 1, Math.sign(transform.scale.z) || 1))
+    .applyQuaternion(
+      new Quaternion().setFromEuler(
+        new Euler(transform.rotation.x, transform.rotation.y, transform.rotation.z, "XYZ")
+      )
+    );
+
+  if (worldNormal.lengthSq() <= 0.000001) {
+    return new Vector3(0, 0, 1);
+  }
+
+  return worldNormal.normalize();
 }
 
 export function ClosedPolyline({

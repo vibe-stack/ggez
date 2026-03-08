@@ -144,6 +144,17 @@ export function App() {
     uiStore.viewports[viewportId].camera = viewport.camera;
   };
 
+  const handleToggleViewportQuality = () => {
+    uiStore.viewportQuality =
+      uiStore.viewportQuality === 0.5
+        ? 0.75
+        : uiStore.viewportQuality === 0.75
+          ? 1
+          : uiStore.viewportQuality === 1
+            ? 1.5
+            : 0.5;
+  };
+
   const handleClearSelection = () => {
     editor.clearSelection();
   };
@@ -701,6 +712,7 @@ export function App() {
         onSetSnapSize={handleSetSnapSize}
         onSetTransformMode={setTransformMode}
         onSetToolId={handleSetToolId}
+        onToggleViewportQuality={handleToggleViewportQuality}
         onSetViewMode={handleSetViewMode}
         onSplitBrushAtCoordinate={handleSplitBrushAtCoordinate}
         onTranslateSelection={handleTranslateSelection}
@@ -718,6 +730,7 @@ export function App() {
         transformMode={transformMode}
         tools={defaultTools}
         viewMode={ui.viewMode}
+        viewportQuality={ui.viewportQuality}
         viewports={ui.viewports}
       />
       <input

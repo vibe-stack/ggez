@@ -75,7 +75,7 @@ import {
 } from "@/viewport/utils/screen-space";
 import { composeTransformRotation, rebaseTransformPivot } from "@/viewport/utils/geometry";
 import { resolveViewportSnapSize } from "@/viewport/utils/snap";
-import { useEffect, useRef, useState, type PointerEventHandler } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEventHandler } from "react";
 import { Camera, Mesh, Object3D, Plane, Raycaster, Vector2, Vector3 } from "three";
 import type {
   ArcState,
@@ -91,6 +91,7 @@ import type {
 
 export function ViewportCanvas({
   activeToolId,
+  dprScale,
   isActiveViewport,
   meshEditMode,
   meshEditToolbarAction,
@@ -211,24 +212,36 @@ export function ViewportCanvas({
 
     onSelectMaterialFaces([]);
   }, [activeToolId, brushEditHandleIds, isActiveViewport, meshEditMode, meshEditSelectionIds, onSelectMaterialFaces, selectedBrushNode, selectedMeshNode]);
-  const brushEditHandles =
-    activeToolId === "mesh-edit" && selectedBrushNode
-      ? createBrushEditHandles(selectedBrushNode.data, meshEditMode)
-      : [];
-  const meshEditHandles =
-    activeToolId === "mesh-edit" && selectedMeshNode
-      ? createMeshEditHandles(selectedMeshNode.data, meshEditMode)
-      : [];
-  const editableMeshSource =
-    activeToolId === "mesh-edit" && selectedBrushNode
-      ? convertBrushToEditableMesh(selectedBrushNode.data)
-      : activeToolId === "mesh-edit" && selectedMeshNode
-        ? selectedMeshNode.data
-        : undefined;
-  const editableMeshHandles =
-    activeToolId === "mesh-edit" && editableMeshSource
-      ? createMeshEditHandles(editableMeshSource, meshEditMode)
-      : [];
+  const brushEditHandles = useMemo(
+    () =>
+      activeToolId === "mesh-edit" && selectedBrushNode
+        ? createBrushEditHandles(selectedBrushNode.data, meshEditMode)
+        : [],
+    [activeToolId, meshEditMode, selectedBrushNode?.data]
+  );
+  const meshEditHandles = useMemo(
+    () =>
+      activeToolId === "mesh-edit" && selectedMeshNode
+        ? createMeshEditHandles(selectedMeshNode.data, meshEditMode)
+        : [],
+    [activeToolId, meshEditMode, selectedMeshNode?.data]
+  );
+  const editableMeshSource = useMemo(
+    () =>
+      activeToolId === "mesh-edit" && selectedBrushNode
+        ? convertBrushToEditableMesh(selectedBrushNode.data)
+        : activeToolId === "mesh-edit" && selectedMeshNode
+          ? selectedMeshNode.data
+          : undefined,
+    [activeToolId, selectedBrushNode?.data, selectedMeshNode?.data]
+  );
+  const editableMeshHandles = useMemo(
+    () =>
+      activeToolId === "mesh-edit" && editableMeshSource
+        ? createMeshEditHandles(editableMeshSource, meshEditMode)
+        : [],
+    [activeToolId, editableMeshSource, meshEditMode]
+  );
 
   const resolveSelectedEditableMeshEdgePairs = () => {
     if (!editableMeshSource) {
@@ -1910,6 +1923,7 @@ export function ViewportCanvas({
     >
       <Canvas
         camera={canvasCamera}
+        dpr={Math.max(0.5, Math.min((typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1) * dprScale, 2.5))}
         orthographic={viewport.projection === "orthographic"}
         onCreated={(state: RootState) => {
           cameraRef.current = state.camera;

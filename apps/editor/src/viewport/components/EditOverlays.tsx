@@ -23,6 +23,8 @@ import { objectToTransform, worldPointToNodeLocal } from "@/viewport/utils/geome
 import { findMatchingBrushEdgeHandleId, findMatchingMeshEdgePair, resolveSubobjectSelection } from "@/viewport/utils/interaction";
 import { resolveViewportSnapSize } from "@/viewport/utils/snap";
 import {
+  BatchedHandleLineSegments,
+  BatchedHandleMarkers,
   BrushEditHandleMarker,
   BrushEditHandleVisual,
   EdgeLengthLabel,
@@ -68,12 +70,33 @@ export function MeshEditOverlay({
   const controlRef = useRef<Object3D | null>(null);
   const baselineMeshRef = useRef<EditableMesh | undefined>(undefined);
   const baselineTransformRef = useRef<Transform | undefined>(undefined);
-  const edgeHandles = useMemo(() => createMeshEditHandles(node.data, "edge"), [node.data]);
-  const faceHandles = useMemo(() => createMeshEditHandles(node.data, "face"), [node.data]);
-  const vertexModeEdgeHandles = useMemo(
-    () => (meshEditMode === "vertex" ? createMeshEditHandles(node.data, "edge") : []),
-    [meshEditMode, node.data]
+  const shouldResolveEdgeLabels = selectedHandleIds.length > 0 && (meshEditMode === "edge" || meshEditMode === "face");
+  const edgeHandles = useMemo(
+    () => (shouldResolveEdgeLabels || meshEditMode === "vertex" ? createMeshEditHandles(node.data, "edge") : []),
+    [meshEditMode, node.data, shouldResolveEdgeLabels]
   );
+  const faceHandles = useMemo(
+    () => (shouldResolveEdgeLabels && meshEditMode === "face" ? createMeshEditHandles(node.data, "face") : []),
+    [meshEditMode, node.data, shouldResolveEdgeLabels]
+  );
+  const vertexModeEdgeHandles = meshEditMode === "vertex" ? edgeHandles : [];
+  const handlesById = useMemo(() => new Map(handles.map((handle) => [handle.id, handle])), [handles]);
+  const [selectedVertexModeEdgeHandles, unselectedVertexModeEdgeHandles] = useMemo(() => {
+    const selectedIds = new Set(selectedHandleIds);
+    const selected: MeshEditHandle[] = [];
+    const unselected: MeshEditHandle[] = [];
+
+    vertexModeEdgeHandles.forEach((handle) => {
+      if (handle.vertexIds.every((vertexId) => selectedIds.has(vertexId))) {
+        selected.push(handle);
+        return;
+      }
+
+      unselected.push(handle);
+    });
+
+    return [selected, unselected] as const;
+  }, [selectedHandleIds, vertexModeEdgeHandles]);
   const edgeLabels = useMemo(
     () => resolveMeshEdgeLabels(edgeHandles, faceHandles, meshEditMode, node.transform, selectedHandleIds),
     [edgeHandles, faceHandles, meshEditMode, node.transform, selectedHandleIds]
@@ -146,53 +169,49 @@ export function MeshEditOverlay({
   return (
     <>
       <NodeTransformGroup transform={node.transform}>
-        {vertexModeEdgeHandles.map((handle) => {
-          const selected = handle.vertexIds.every((vertexId) => selectedHandleIds.includes(vertexId));
+        <BatchedHandleLineSegments color="#94a3b8" handles={unselectedVertexModeEdgeHandles} />
+        <BatchedHandleLineSegments color="#7dd3fc" handles={selectedVertexModeEdgeHandles} />
 
-          return handle.points?.length === 2 ? (
-            <PreviewLine
-              color={selected ? "#7dd3fc" : "#94a3b8"}
-              end={handle.points[1]}
-              key={`vertex-edge:${handle.id}`}
-              start={handle.points[0]}
-            />
-          ) : null;
-        })}
-
-        {handles.map((handle) => {
-          const selected = selectedHandleIds.includes(handle.id);
-
-          return (
-            <group key={handle.id}>
-              {meshEditMode === "face" && handle.points && handle.points.length >= 3 ? (
+        {meshEditMode === "face"
+          ? handles.map((handle) => (
+              handle.points && handle.points.length >= 3 ? (
                 <EditableFaceSelectionHitArea
+                  key={handle.id}
                   normal={handle.normal}
                   onSelect={(event) => {
                     event.stopPropagation();
                     resolveHandleSelection(handle, event);
                   }}
                   points={handle.points}
-                  selected={selected}
+                  selected={selectedHandleIds.includes(handle.id)}
                 />
-              ) : null}
-              {meshEditMode === "edge" && handle.points?.length === 2 ? (
+              ) : null
+            ))
+          : null}
+        {meshEditMode === "edge"
+          ? handles.map((handle) => (
+              handle.points?.length === 2 ? (
                 <EditableEdgeSelectionHitArea
+                  key={handle.id}
                   onSelect={(event) => {
                     event.stopPropagation();
                     resolveHandleSelection(handle, event);
                   }}
                   points={handle.points}
-                  selected={selected}
+                  selected={selectedHandleIds.includes(handle.id)}
                 />
-              ) : null}
-              <MeshEditHandleVisual
-                handle={handle}
-                mode={meshEditMode}
-                selected={selected}
-              />
-            </group>
-          );
-        })}
+              ) : null
+            ))
+          : null}
+        {meshEditMode !== "vertex" ? (
+          <BatchedHandleLineSegments
+            closed={meshEditMode === "face"}
+            color={meshEditMode === "face" ? "#67e8f9" : "#94a3b8"}
+            handles={handles}
+            selectedColor="#7dd3fc"
+            selectedHandleIds={selectedHandleIds}
+          />
+        ) : null}
 
         {selectedHandleIds.length > 0 ? (
           <group
@@ -219,23 +238,26 @@ export function MeshEditOverlay({
         ) : null}
       </NodeTransformGroup>
 
-      {handles.map((handle) => {
-        const selected = selectedHandleIds.includes(handle.id);
+      <BatchedHandleMarkers
+        handles={handles}
+        mode={meshEditMode}
+        nodeTransform={node.transform}
+        onSelectHandle={
+          meshEditMode === "vertex"
+            ? (handleId, event) => {
+                event.stopPropagation();
+                const handle = handlesById.get(handleId);
 
-        return (
-          <MeshEditHandleMarker
-            handle={handle}
-            key={`marker:${handle.id}`}
-            mode={meshEditMode}
-            nodeTransform={node.transform}
-            onSelect={(event) => {
-              event.stopPropagation();
-              resolveHandleSelection(handle, event);
-            }}
-            selected={selected}
-          />
-        );
-      })}
+                if (handle) {
+                  resolveHandleSelection(handle, event);
+                }
+              }
+            : undefined
+        }
+        selectedFillColor="#dbeafe"
+        selectedHandleIds={selectedHandleIds}
+        unselectedFillColor={meshEditMode === "face" ? "#67e8f9" : "#cbd5e1"}
+      />
 
       {edgeLabels.map((label) => (
         <EdgeLengthLabel
@@ -339,12 +361,33 @@ export function BrushEditOverlay({
   const baselineBrushRef = useRef<Brush | undefined>(undefined);
   const baselineHandlesRef = useRef<BrushEditHandle[] | undefined>(undefined);
   const baselineTransformRef = useRef<Transform | undefined>(undefined);
-  const edgeHandles = useMemo(() => createBrushEditHandles(node.data, "edge"), [node.data]);
-  const faceHandles = useMemo(() => createBrushEditHandles(node.data, "face"), [node.data]);
-  const vertexModeEdgeHandles = useMemo(
-    () => (meshEditMode === "vertex" ? createBrushEditHandles(node.data, "edge") : []),
-    [meshEditMode, node.data]
+  const shouldResolveEdgeLabels = selectedHandleIds.length > 0 && (meshEditMode === "edge" || meshEditMode === "face");
+  const edgeHandles = useMemo(
+    () => (shouldResolveEdgeLabels || meshEditMode === "vertex" ? createBrushEditHandles(node.data, "edge") : []),
+    [meshEditMode, node.data, shouldResolveEdgeLabels]
   );
+  const faceHandles = useMemo(
+    () => (shouldResolveEdgeLabels && meshEditMode === "face" ? createBrushEditHandles(node.data, "face") : []),
+    [meshEditMode, node.data, shouldResolveEdgeLabels]
+  );
+  const vertexModeEdgeHandles = meshEditMode === "vertex" ? edgeHandles : [];
+  const handlesById = useMemo(() => new Map(handles.map((handle) => [handle.id, handle])), [handles]);
+  const [selectedVertexModeEdgeHandles, unselectedVertexModeEdgeHandles] = useMemo(() => {
+    const selectedIds = new Set(selectedHandleIds);
+    const selected: BrushEditHandle[] = [];
+    const unselected: BrushEditHandle[] = [];
+
+    vertexModeEdgeHandles.forEach((handle) => {
+      if (handle.vertexIds.every((vertexId) => selectedIds.has(vertexId))) {
+        selected.push(handle);
+        return;
+      }
+
+      unselected.push(handle);
+    });
+
+    return [selected, unselected] as const;
+  }, [selectedHandleIds, vertexModeEdgeHandles]);
   const edgeLabels = useMemo(
     () => resolveBrushEdgeLabels(edgeHandles, faceHandles, meshEditMode, node.transform, selectedHandleIds),
     [edgeHandles, faceHandles, meshEditMode, node.transform, selectedHandleIds]
@@ -440,53 +483,49 @@ export function BrushEditOverlay({
   return (
     <>
       <NodeTransformGroup transform={node.transform}>
-        {vertexModeEdgeHandles.map((handle) => {
-          const selected = handle.vertexIds.every((vertexId) => selectedHandleIds.includes(vertexId));
+        <BatchedHandleLineSegments color="#94a3b8" handles={unselectedVertexModeEdgeHandles} />
+        <BatchedHandleLineSegments color="#7dd3fc" handles={selectedVertexModeEdgeHandles} />
 
-          return handle.points?.length === 2 ? (
-            <PreviewLine
-              color={selected ? "#7dd3fc" : "#94a3b8"}
-              end={handle.points[1]}
-              key={`vertex-edge:${handle.id}`}
-              start={handle.points[0]}
-            />
-          ) : null;
-        })}
-
-        {handles.map((handle) => {
-          const selected = selectedHandleIds.includes(handle.id);
-
-          return (
-            <group key={handle.id}>
-              {meshEditMode === "face" && handle.points && handle.points.length >= 3 ? (
+        {meshEditMode === "face"
+          ? handles.map((handle) => (
+              handle.points && handle.points.length >= 3 ? (
                 <EditableFaceSelectionHitArea
+                  key={handle.id}
                   normal={handle.normal}
                   onSelect={(event) => {
                     event.stopPropagation();
                     resolveHandleSelection(handle, event);
                   }}
                   points={handle.points}
-                  selected={selected}
+                  selected={selectedHandleIds.includes(handle.id)}
                 />
-              ) : null}
-              {meshEditMode === "edge" && handle.points?.length === 2 ? (
+              ) : null
+            ))
+          : null}
+        {meshEditMode === "edge"
+          ? handles.map((handle) => (
+              handle.points?.length === 2 ? (
                 <EditableEdgeSelectionHitArea
+                  key={handle.id}
                   onSelect={(event) => {
                     event.stopPropagation();
                     resolveHandleSelection(handle, event);
                   }}
                   points={handle.points}
-                  selected={selected}
+                  selected={selectedHandleIds.includes(handle.id)}
                 />
-              ) : null}
-              <BrushEditHandleVisual
-                handle={handle}
-                mode={meshEditMode}
-                selected={selected}
-              />
-            </group>
-          );
-        })}
+              ) : null
+            ))
+          : null}
+        {meshEditMode !== "vertex" ? (
+          <BatchedHandleLineSegments
+            closed={meshEditMode === "face"}
+            color={meshEditMode === "face" ? "#67e8f9" : "#94a3b8"}
+            handles={handles}
+            selectedColor="#7dd3fc"
+            selectedHandleIds={selectedHandleIds}
+          />
+        ) : null}
 
         {selectedHandleIds.length > 0 ? (
           <group
@@ -513,23 +552,26 @@ export function BrushEditOverlay({
         ) : null}
       </NodeTransformGroup>
 
-      {handles.map((handle) => {
-        const selected = selectedHandleIds.includes(handle.id);
+      <BatchedHandleMarkers
+        handles={handles}
+        mode={meshEditMode}
+        nodeTransform={node.transform}
+        onSelectHandle={
+          meshEditMode === "vertex"
+            ? (handleId, event) => {
+                event.stopPropagation();
+                const handle = handlesById.get(handleId);
 
-        return (
-          <BrushEditHandleMarker
-            handle={handle}
-            key={`marker:${handle.id}`}
-            mode={meshEditMode}
-            nodeTransform={node.transform}
-            onSelect={(event) => {
-              event.stopPropagation();
-              resolveHandleSelection(handle, event);
-            }}
-            selected={selected}
-          />
-        );
-      })}
+                if (handle) {
+                  resolveHandleSelection(handle, event);
+                }
+              }
+            : undefined
+        }
+        selectedFillColor="#dbeafe"
+        selectedHandleIds={selectedHandleIds}
+        unselectedFillColor="#e2e8f0"
+      />
 
       {edgeLabels.map((label) => (
         <EdgeLengthLabel

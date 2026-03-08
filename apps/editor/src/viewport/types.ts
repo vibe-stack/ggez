@@ -24,6 +24,7 @@ export type MeshEditToolbarActionRequest = {
 
 export type ViewportCanvasProps = {
   activeToolId: ToolId;
+  dprScale: number;
   isActiveViewport: boolean;
   meshEditMode: MeshEditMode;
   meshEditToolbarAction?: MeshEditToolbarActionRequest;

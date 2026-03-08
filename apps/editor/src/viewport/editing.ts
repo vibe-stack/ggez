@@ -120,9 +120,31 @@ export function buildBrushClipPreview(
 }
 
 export function createMeshEditHandles(mesh: EditableMesh, mode: MeshEditMode): MeshEditHandle[] {
+  const verticesById = new Map(mesh.vertices.map((vertex) => [vertex.id, vertex]));
+
   if (mode === "vertex") {
+    const vertexNormals = new Map<string, Vec3[]>();
+
+    mesh.faces.forEach((face) => {
+      const vertices = getFaceVertices(mesh, face.id);
+
+      if (vertices.length < 3) {
+        return;
+      }
+
+      const faceNormal = computePolygonNormal(vertices.map((vertex) => vertex.position));
+
+      vertices.forEach((vertex) => {
+        const normals = vertexNormals.get(vertex.id) ?? [];
+
+        normals.push(faceNormal);
+        vertexNormals.set(vertex.id, normals);
+      });
+    });
+
     return mesh.vertices.map((vertex) => ({
       id: vertex.id,
+      normal: vertexNormals.has(vertex.id) ? normalizeVec3(averageVec3(vertexNormals.get(vertex.id)!)) : undefined,
       points: [vec3(vertex.position.x, vertex.position.y, vertex.position.z)],
       position: vec3(vertex.position.x, vertex.position.y, vertex.position.z),
       vertexIds: [vertex.id]
@@ -151,7 +173,7 @@ export function createMeshEditHandles(mesh: EditableMesh, mode: MeshEditMode): M
     return handles;
   }
 
-  const verticesById = new Map(mesh.vertices.map((vertex) => [vertex.id, vertex]));
+  const halfEdgesById = new Map(mesh.halfEdges.map((halfEdge) => [halfEdge.id, halfEdge]));
   const edgeNormals = new Map<string, Vec3[]>();
   const handles = new Map<string, MeshEditHandle>();
 
@@ -182,7 +204,7 @@ export function createMeshEditHandles(mesh: EditableMesh, mode: MeshEditMode): M
       return;
     }
 
-    const nextHalfEdge = mesh.halfEdges.find((candidate) => candidate.id === halfEdge.next);
+    const nextHalfEdge = halfEdgesById.get(halfEdge.next);
 
     if (!nextHalfEdge) {
       return;
@@ -373,13 +395,24 @@ export function createBrushEditHandles(brush: Brush, mode: MeshEditMode): BrushE
     }));
   }
 
-  return Array.from(topology.vertices.values()).map((vertex) => ({
-    faceIds: [...vertex.faceIds],
-    id: vertex.id,
-    points: [vec3(vertex.position.x, vertex.position.y, vertex.position.z)],
-    position: vec3(vertex.position.x, vertex.position.y, vertex.position.z),
-    vertexIds: [vertex.id]
-  }));
+  const faceNormalsById = new Map(
+    rebuilt.faces.map((face) => [face.id, vec3(face.normal.x, face.normal.y, face.normal.z)])
+  );
+
+  return Array.from(topology.vertices.values()).map((vertex) => {
+    const normals = vertex.faceIds
+      .map((faceId) => faceNormalsById.get(faceId))
+      .filter((normal): normal is Vec3 => Boolean(normal));
+
+    return {
+      faceIds: [...vertex.faceIds],
+      id: vertex.id,
+      normal: normals.length > 0 ? normalizeVec3(averageVec3(normals)) : undefined,
+      points: [vec3(vertex.position.x, vertex.position.y, vertex.position.z)],
+      position: vec3(vertex.position.x, vertex.position.y, vertex.position.z),
+      vertexIds: [vertex.id]
+    };
+  });
 }
 
 export function createBrushExtrudeHandles(brush: Brush): BrushExtrudeHandle[] {

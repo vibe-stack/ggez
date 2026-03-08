@@ -12,6 +12,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { ViewportCanvas } from "@/viewport/ViewportCanvas";
 import type { MeshEditMode } from "@/viewport/editing";
 import type { MeshEditToolbarActionRequest } from "@/viewport/types";
+import type { ViewportQuality } from "@/state/ui-store";
 import {
   getViewModePreset,
   viewportPaneDefinitions,
@@ -67,6 +68,7 @@ type EditorShellProps = {
   onSetSnapSize: (snapSize: GridSnapValue) => void;
   onSetTransformMode: (mode: "rotate" | "scale" | "translate") => void;
   onSetToolId: (toolId: ToolId) => void;
+  onToggleViewportQuality: () => void;
   onSetViewMode: (viewMode: ViewModeId) => void;
   onSplitBrushAtCoordinate: (nodeId: string, axis: TransformAxis, coordinate: number) => void;
   onPreviewNodeTransform: (nodeId: string, transform: Transform) => void;
@@ -84,6 +86,7 @@ type EditorShellProps = {
   transformMode: "rotate" | "scale" | "translate";
   tools: Array<{ id: ToolId; label: string }>;
   viewMode: ViewModeId;
+  viewportQuality: ViewportQuality;
   viewports: Record<ViewportPaneId, ViewportState>;
 };
 
@@ -134,6 +137,7 @@ export function EditorShell({
   onSetSnapSize,
   onSetTransformMode,
   onSetToolId,
+  onToggleViewportQuality,
   onSetViewMode,
   onSplitBrushAtCoordinate,
   onPreviewNodeTransform,
@@ -151,6 +155,7 @@ export function EditorShell({
   transformMode,
   tools,
   viewMode,
+  viewportQuality,
   viewports
 }: EditorShellProps) {
   const nodes = Array.from(editor.scene.nodes.values());
@@ -176,6 +181,7 @@ export function EditorShell({
       >
         <ViewportCanvas
           activeToolId={activeToolId}
+          dprScale={resolveViewportDprScale(viewportQuality)}
           isActiveViewport={activeViewportId === viewportId}
           meshEditMode={meshEditMode}
           meshEditToolbarAction={meshEditToolbarAction}
@@ -229,7 +235,9 @@ export function EditorShell({
           onLoadWhmap={onLoadWhmap}
           onRedo={onRedo}
           onSaveWhmap={onSaveWhmap}
+          onToggleViewportQuality={onToggleViewportQuality}
           onUndo={onUndo}
+          viewportQuality={viewportQuality}
         />
       </header>
 
@@ -307,6 +315,10 @@ export function EditorShell({
       </main>
     </div>
   );
+}
+
+function resolveViewportDprScale(quality: ViewportQuality) {
+  return quality;
 }
 
 function ViewportLayout({
