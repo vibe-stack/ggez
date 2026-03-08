@@ -2,6 +2,7 @@ import { searchForWorkspaceRoot, defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import tsconfigPaths from "vite-tsconfig-paths";
 import tailwindcss from "@tailwindcss/vite";
+import { createObjectGenerationApiPlugin } from "./server/object-generation-api";
 import { createTextureGenerationApiPlugin } from "./server/texture-generation-api";
 
 export default defineConfig(({ mode }) => {
@@ -16,6 +17,7 @@ export default defineConfig(({ mode }) => {
       react(),
       tsconfigPaths(),
       tailwindcss(),
+      createObjectGenerationApiPlugin(),
       createTextureGenerationApiPlugin()
     ],
     server: {

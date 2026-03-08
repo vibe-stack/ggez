@@ -82,7 +82,7 @@ import {
 import { composeTransformRotation, rebaseTransformPivot } from "@/viewport/utils/geometry";
 import { resolveViewportSnapSize } from "@/viewport/utils/snap";
 import { useEffect, useMemo, useRef, useState, type PointerEventHandler } from "react";
-import { Camera, Mesh, Object3D, Plane, Raycaster, Vector2, Vector3 } from "three";
+import { Camera, Object3D, Plane, Raycaster, Vector2, Vector3 } from "three";
 import type {
   ArcState,
   BevelState,
@@ -97,6 +97,7 @@ import type {
 
 export function ViewportCanvas({
   activeBrushShape,
+  aiModelPlacementArmed,
   activeToolId,
   dprScale,
   isActiveViewport,
@@ -107,6 +108,7 @@ export function ViewportCanvas({
   onCommitMeshTopology,
   onFocusNode,
   onPlaceAsset,
+  onPlaceAiModelPlaceholder,
   onPlaceBrush,
   onPlaceMeshNode,
   onPlacePrimitiveNode,
@@ -137,12 +139,13 @@ export function ViewportCanvas({
   viewport
 }: ViewportCanvasProps) {
   const cameraRef = useRef<Camera | null>(null);
+  const aiPlacementClickOriginRef = useRef<Vector2 | null>(null);
   const brushClickOriginRef = useRef<Vector2 | null>(null);
   const marqueeOriginRef = useRef<Vector2 | null>(null);
   const pointerPositionRef = useRef<Vector2 | null>(null);
   const selectionClickOriginRef = useRef<Vector2 | null>(null);
   const viewportRootRef = useRef<HTMLDivElement | null>(null);
-  const meshObjectsRef = useRef(new Map<string, Mesh>());
+  const meshObjectsRef = useRef(new Map<string, Object3D>());
   const raycasterRef = useRef(new Raycaster());
   const [brushEditHandleIds, setBrushEditHandleIds] = useState<string[]>([]);
   const [brushCreateState, setBrushCreateState] = useState<BrushCreateState | null>(null);
@@ -192,6 +195,7 @@ export function ViewportCanvas({
     }
 
     brushClickOriginRef.current = null;
+    aiPlacementClickOriginRef.current = null;
     marqueeOriginRef.current = null;
     selectionClickOriginRef.current = null;
     setMarquee(null);
@@ -356,7 +360,7 @@ export function ViewportCanvas({
     return selectedMeshNode ? meshEditSelectionIds : brushEditHandleIds;
   };
 
-  const handleMeshObjectChange = (nodeId: string, object: Mesh | null) => {
+  const handleMeshObjectChange = (nodeId: string, object: Object3D | null) => {
     if (object) {
       meshObjectsRef.current.set(nodeId, object);
       return;
@@ -380,7 +384,7 @@ export function ViewportCanvas({
 
     const selectedIds = Array.from(
       new Set(
-        raycasterRef.current.intersectObjects(objects, false)
+        raycasterRef.current.intersectObjects(objects, true)
           .map((intersection) => resolveNodeIdFromSceneObject(intersection.object))
           .filter((nodeId): nodeId is string => Boolean(nodeId))
       )
@@ -1731,6 +1735,34 @@ export function ViewportCanvas({
     setBrushCreateState(null);
   };
 
+  const handleAiModelPlacementClick = (clientX: number, clientY: number, bounds: DOMRect) => {
+    if (!cameraRef.current) {
+      return;
+    }
+
+    const constructionPlane = resolveViewportConstructionPlane(viewportPlane, viewport);
+    const hit = resolveBrushCreateSurfaceHit(
+      clientX,
+      clientY,
+      bounds,
+      cameraRef.current,
+      raycasterRef.current,
+      meshObjectsRef.current,
+      constructionPlane.point,
+      constructionPlane.normal
+    );
+
+    if (!hit) {
+      return;
+    }
+
+    onPlaceAiModelPlaceholder(
+      hit.kind === "plane" && viewport.grid.enabled
+        ? snapPointToViewportPlane(hit.point, viewportPlane, viewport, snapSize)
+        : hit.point
+    );
+  };
+
   const handlePointerDown: PointerEventHandler<HTMLDivElement> = (event) => {
     onActivateViewport(viewportId);
 
@@ -1746,6 +1778,11 @@ export function ViewportCanvas({
         : null;
 
     if (extrudeState || arcState || bevelState || faceCutState || faceSubdivisionState) {
+      return;
+    }
+
+    if (aiModelPlacementArmed && event.button === 0 && !event.shiftKey) {
+      aiPlacementClickOriginRef.current = new Vector2(event.clientX - bounds.left, event.clientY - bounds.top);
       return;
     }
 
@@ -1852,6 +1889,24 @@ export function ViewportCanvas({
       if (event.button === 0) {
         commitBevelPreview();
       }
+      return;
+    }
+
+    if (aiModelPlacementArmed) {
+      const origin = aiPlacementClickOriginRef.current;
+      aiPlacementClickOriginRef.current = null;
+
+      if (!origin) {
+        return;
+      }
+
+      const point = new Vector2(event.clientX - bounds.left, event.clientY - bounds.top);
+
+      if (point.distanceTo(origin) > 4) {
+        return;
+      }
+
+      handleAiModelPlacementClick(event.clientX, event.clientY, bounds);
       return;
     }
 
@@ -1986,6 +2041,7 @@ export function ViewportCanvas({
           }
 
           if (
+            aiModelPlacementArmed ||
             activeToolId === "brush" ||
             extrudeState ||
             arcState ||

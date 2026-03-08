@@ -1,5 +1,6 @@
 import type { BrushShape, EntityType, LightType, PrimitiveShape } from "@web-hammer/shared";
 import type { ComponentType, ReactNode } from "react";
+import { PackagePlus, Sparkles } from "lucide-react";
 import {
   AmbientLightIcon,
   ConePrimitiveIcon,
@@ -23,8 +24,10 @@ import type { ToolId } from "@web-hammer/tool-system";
 
 export function CreationToolBar({
   activeBrushShape,
+  aiModelPlacementActive,
   activeToolId,
   disabled = false,
+  onImportGlb,
   onPlaceEntity,
   onPlaceLight,
   onPlaceBlockoutOpenRoom,
@@ -32,11 +35,14 @@ export function CreationToolBar({
   onPlaceBlockoutRoom,
   onPlaceBlockoutStairs,
   onPlaceProp,
+  onStartAiModelPlacement,
   onSelectBrushShape
 }: {
   activeBrushShape: BrushShape;
+  aiModelPlacementActive: boolean;
   activeToolId: ToolId;
   disabled?: boolean;
+  onImportGlb: () => void;
   onPlaceEntity: (type: EntityType) => void;
   onPlaceLight: (type: LightType) => void;
   onPlaceBlockoutOpenRoom: () => void;
@@ -44,6 +50,7 @@ export function CreationToolBar({
   onPlaceBlockoutRoom: () => void;
   onPlaceBlockoutStairs: () => void;
   onPlaceProp: (shape: PrimitiveShape) => void;
+  onStartAiModelPlacement: () => void;
   onSelectBrushShape: (shape: BrushShape) => void;
 }) {
   return (
@@ -98,6 +105,17 @@ export function CreationToolBar({
         <CreationButton disabled={disabled} icon={CylinderPrimitiveIcon} label="Cylinder Prop" onClick={() => onPlaceProp("cylinder")} />
         <CreationButton disabled={disabled} icon={ConePrimitiveIcon} label="Cone Prop" onClick={() => onPlaceProp("cone")} />
         <CreationButton disabled={disabled} icon={SpherePrimitiveIcon} label="Sphere Prop" onClick={() => onPlaceProp("sphere")} />
+      </CreationGroup>
+
+      <CreationGroup label="Models">
+        <CreationButton disabled={disabled} icon={PackagePlus} label="Import GLB" onClick={onImportGlb} />
+        <CreationButton
+          active={aiModelPlacementActive}
+          disabled={disabled}
+          icon={Sparkles}
+          label="Generate 3D"
+          onClick={onStartAiModelPlacement}
+        />
       </CreationGroup>
 
       <CreationGroup label="Entities">

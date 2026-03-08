@@ -2,6 +2,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { BallCollider, CapsuleCollider, ConeCollider, CuboidCollider, CylinderCollider, Physics, RigidBody, TrimeshCollider, type RapierRigidBody } from "@react-three/rapier";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Box3,
   BoxGeometry,
   CapsuleGeometry,
   ConeGeometry,
@@ -17,6 +18,7 @@ import {
   Vector3,
   type BufferGeometry
 } from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { disableBvhRaycast, enableBvhRaycast, type DerivedEntityMarker, type DerivedLight, type DerivedRenderMesh, type DerivedRenderScene } from "@web-hammer/render-pipeline";
 import { createBlockoutTextureDataUri, resolveTransformPivot, toTuple } from "@web-hammer/shared";
 import { createIndexedGeometry } from "@/viewport/utils/geometry";
@@ -24,6 +26,8 @@ import type { ViewportRenderMode } from "@/viewport/viewports";
 import type { SceneSettings } from "@web-hammer/shared";
 
 const previewTextureCache = new Map<string, ReturnType<TextureLoader["load"]>>();
+const modelSceneCache = new Map<string, Object3D>();
+const gltfLoader = new GLTFLoader();
 
 export function ScenePreview({
   hiddenNodeIds = [],
@@ -41,7 +45,7 @@ export function ScenePreview({
   hiddenNodeIds?: string[];
   interactive: boolean;
   onFocusNode: (nodeId: string) => void;
-  onMeshObjectChange: (nodeId: string, object: Mesh | null) => void;
+  onMeshObjectChange: (nodeId: string, object: Object3D | null) => void;
   onSelectNode: (nodeIds: string[]) => void;
   physicsPlayback: "paused" | "running" | "stopped";
   physicsRevision: number;
@@ -477,35 +481,28 @@ function RenderStaticMesh({
   onFocusNode: (nodeId: string) => void;
   onHoverEnd: () => void;
   onHoverStart: (nodeId: string) => void;
-  onMeshObjectChange: (nodeId: string, object: Mesh | null) => void;
+  onMeshObjectChange: (nodeId: string, object: Object3D | null) => void;
   onSelectNodes: (nodeIds: string[]) => void;
   renderMode: ViewportRenderMode;
   selected: boolean;
 }) {
-  if (!mesh.surface && !mesh.primitive) {
+  if (!mesh.surface && !mesh.primitive && !mesh.modelPath) {
     return null;
   }
 
   return (
-    <group
-      name={`node:${mesh.nodeId}`}
-      position={toTuple(mesh.position)}
-      rotation={toTuple(mesh.rotation)}
-      scale={toTuple(mesh.scale)}
-    >
-      <RenderMeshBody
-        hovered={hovered}
-        interactive={interactive}
-        mesh={mesh}
-        onFocusNode={onFocusNode}
-        onHoverEnd={onHoverEnd}
-        onHoverStart={onHoverStart}
-        onMeshObjectChange={onMeshObjectChange}
-        onSelectNodes={onSelectNodes}
-        renderMode={renderMode}
-        selected={selected}
-      />
-    </group>
+    <RenderNodeRoot
+      hovered={hovered}
+      interactive={interactive}
+      mesh={mesh}
+      onFocusNode={onFocusNode}
+      onHoverEnd={onHoverEnd}
+      onHoverStart={onHoverStart}
+      onMeshObjectChange={onMeshObjectChange}
+      onSelectNodes={onSelectNodes}
+      renderMode={renderMode}
+      selected={selected}
+    />
   );
 }
 
@@ -527,7 +524,7 @@ function PhysicsPropMesh({
   onFocusNode: (nodeId: string) => void;
   onHoverEnd: () => void;
   onHoverStart: (nodeId: string) => void;
-  onMeshObjectChange: (nodeId: string, object: Mesh | null) => void;
+  onMeshObjectChange: (nodeId: string, object: Object3D | null) => void;
   onSelectNodes: (nodeIds: string[]) => void;
   renderMode: ViewportRenderMode;
   selected: boolean;
@@ -561,20 +558,125 @@ function PhysicsPropMesh({
         <TrimeshPhysicsCollider colliderProps={colliderProps} mesh={mesh} />
       )}
       <group scale={toTuple(mesh.scale)}>
-        <RenderMeshBody
+        <RenderNodeBody
           hovered={hovered}
           interactive={interactive}
           mesh={mesh}
           onFocusNode={onFocusNode}
           onHoverEnd={onHoverEnd}
           onHoverStart={onHoverStart}
-          onMeshObjectChange={onMeshObjectChange}
           onSelectNodes={onSelectNodes}
           renderMode={renderMode}
           selected={selected}
         />
       </group>
+      <object3D
+        name={`node:${mesh.nodeId}`}
+        ref={(object) => {
+          onMeshObjectChange(mesh.nodeId, object);
+        }}
+      />
     </RigidBody>
+  );
+}
+
+function RenderNodeRoot({
+  hovered,
+  interactive,
+  mesh,
+  onFocusNode,
+  onHoverEnd,
+  onHoverStart,
+  onMeshObjectChange,
+  onSelectNodes,
+  renderMode,
+  selected
+}: {
+  hovered: boolean;
+  interactive: boolean;
+  mesh: DerivedRenderMesh;
+  onFocusNode: (nodeId: string) => void;
+  onHoverEnd: () => void;
+  onHoverStart: (nodeId: string) => void;
+  onMeshObjectChange: (nodeId: string, object: Object3D | null) => void;
+  onSelectNodes: (nodeIds: string[]) => void;
+  renderMode: ViewportRenderMode;
+  selected: boolean;
+}) {
+  return (
+    <group
+      name={`node:${mesh.nodeId}`}
+      position={toTuple(mesh.position)}
+      rotation={toTuple(mesh.rotation)}
+      scale={toTuple(mesh.scale)}
+      ref={(object) => {
+        onMeshObjectChange(mesh.nodeId, object);
+      }}
+    >
+      <RenderNodeBody
+        hovered={hovered}
+        interactive={interactive}
+        mesh={mesh}
+        onFocusNode={onFocusNode}
+        onHoverEnd={onHoverEnd}
+        onHoverStart={onHoverStart}
+        onSelectNodes={onSelectNodes}
+        renderMode={renderMode}
+        selected={selected}
+      />
+    </group>
+  );
+}
+
+function RenderNodeBody({
+  hovered,
+  interactive,
+  mesh,
+  onFocusNode,
+  onHoverEnd,
+  onHoverStart,
+  onSelectNodes,
+  renderMode,
+  selected
+}: {
+  hovered: boolean;
+  interactive: boolean;
+  mesh: DerivedRenderMesh;
+  onFocusNode: (nodeId: string) => void;
+  onHoverEnd: () => void;
+  onHoverStart: (nodeId: string) => void;
+  onSelectNodes: (nodeIds: string[]) => void;
+  renderMode: ViewportRenderMode;
+  selected: boolean;
+}) {
+  if (mesh.modelPath) {
+    return (
+      <RenderModelBody
+        hovered={hovered}
+        interactive={interactive}
+        mesh={mesh}
+        onFocusNode={onFocusNode}
+        onHoverEnd={onHoverEnd}
+        onHoverStart={onHoverStart}
+        onSelectNodes={onSelectNodes}
+        renderMode={renderMode}
+        selected={selected}
+      />
+    );
+  }
+
+  return (
+    <RenderMeshBody
+      hovered={hovered}
+      interactive={interactive}
+      mesh={mesh}
+      onFocusNode={onFocusNode}
+      onHoverEnd={onHoverEnd}
+      onHoverStart={onHoverStart}
+      onSelectNodes={onSelectNodes}
+      renderMode={renderMode}
+      selected={selected}
+    />
   );
 }
 
@@ -645,7 +747,6 @@ function RenderMeshBody({
   onFocusNode,
   onHoverEnd,
   onHoverStart,
-  onMeshObjectChange,
   onSelectNodes,
   renderMode,
   selected
@@ -656,7 +757,6 @@ function RenderMeshBody({
   onFocusNode: (nodeId: string) => void;
   onHoverEnd: () => void;
   onHoverStart: (nodeId: string) => void;
-  onMeshObjectChange: (nodeId: string, object: Mesh | null) => void;
   onSelectNodes: (nodeIds: string[]) => void;
   renderMode: ViewportRenderMode;
   selected: boolean;
@@ -746,10 +846,7 @@ function RenderMeshBody({
           event.stopPropagation();
           onHoverStart(mesh.nodeId);
         }}
-        ref={(object) => {
-          setMeshObject(object);
-          onMeshObjectChange(mesh.nodeId, object);
-        }}
+        ref={setMeshObject}
         receiveShadow={renderMode === "lit"}
       >
         <primitive attach="geometry" object={geometry} />
@@ -764,6 +861,170 @@ function RenderMeshBody({
       </mesh>
     </group>
   );
+}
+
+function RenderModelBody({
+  hovered,
+  interactive,
+  mesh,
+  onFocusNode,
+  onHoverEnd,
+  onHoverStart,
+  onSelectNodes,
+  renderMode,
+  selected
+}: {
+  hovered: boolean;
+  interactive: boolean;
+  mesh: DerivedRenderMesh;
+  onFocusNode: (nodeId: string) => void;
+  onHoverEnd: () => void;
+  onHoverStart: (nodeId: string) => void;
+  onSelectNodes: (nodeIds: string[]) => void;
+  renderMode: ViewportRenderMode;
+  selected: boolean;
+}) {
+  const loadedScene = useLoadedModelScene(mesh.modelPath);
+  const loadedBounds = useMemo(
+    () => (loadedScene ? computeModelBounds(loadedScene) : undefined),
+    [loadedScene]
+  );
+  const modelScene = useMemo(() => {
+    if (!loadedScene) {
+      return undefined;
+    }
+
+    const clone = loadedScene.clone(true);
+    clone.traverse((child) => {
+      if (child instanceof Mesh) {
+        child.castShadow = renderMode === "lit";
+        child.receiveShadow = renderMode === "lit";
+      }
+    });
+    return clone;
+  }, [loadedScene, renderMode]);
+  const modelBounds = loadedBounds ?? (mesh.modelSize && mesh.modelCenter
+    ? {
+        center: mesh.modelCenter,
+        size: mesh.modelSize
+      }
+    : undefined);
+  const center = modelBounds?.center ?? mesh.modelCenter ?? { x: 0, y: 0, z: 0 };
+
+  return (
+    <group
+      onClick={(event) => {
+        if (!interactive) {
+          return;
+        }
+
+        event.stopPropagation();
+        onSelectNodes([mesh.nodeId]);
+      }}
+      onDoubleClick={(event) => {
+        if (!interactive) {
+          return;
+        }
+
+        event.stopPropagation();
+        onFocusNode(mesh.nodeId);
+      }}
+      onPointerOut={(event) => {
+        if (!interactive) {
+          return;
+        }
+
+        event.stopPropagation();
+        onHoverEnd();
+      }}
+      onPointerOver={(event) => {
+        if (!interactive) {
+          return;
+        }
+
+        event.stopPropagation();
+        onHoverStart(mesh.nodeId);
+      }}
+    >
+      {modelScene ? (
+        <primitive object={modelScene} position={[-center.x, -center.y, -center.z]} />
+      ) : (
+        <mesh castShadow={renderMode === "lit"} receiveShadow={renderMode === "lit"}>
+          <boxGeometry args={toTuple(mesh.modelSize ?? { x: 1.4, y: 1.4, z: 1.4 })} />
+          <meshStandardMaterial color={mesh.material.color} metalness={0.08} roughness={0.72} />
+        </mesh>
+      )}
+      {renderMode === "wireframe" || selected || hovered ? (
+        <mesh position={[-center.x, -center.y, -center.z]}>
+          <boxGeometry args={toTuple(modelBounds?.size ?? mesh.modelSize ?? { x: 1.4, y: 1.4, z: 1.4 })} />
+          <meshBasicMaterial
+            color={selected ? "#f97316" : hovered ? "#67e8f9" : "#94a3b8"}
+            depthWrite={false}
+            opacity={renderMode === "wireframe" ? 1 : 0.85}
+            toneMapped={false}
+            transparent={renderMode !== "wireframe"}
+            wireframe
+          />
+        </mesh>
+      ) : null}
+    </group>
+  );
+}
+
+function useLoadedModelScene(path?: string) {
+  const [scene, setScene] = useState<Object3D>();
+
+  useEffect(() => {
+    if (!path) {
+      setScene(undefined);
+      return;
+    }
+
+    const cachedScene = modelSceneCache.get(path);
+
+    if (cachedScene) {
+      setScene(cachedScene);
+      return;
+    }
+
+    let cancelled = false;
+
+    void gltfLoader.loadAsync(path)
+      .then((gltf) => {
+        if (cancelled) {
+          return;
+        }
+
+        modelSceneCache.set(path, gltf.scene);
+        setScene(gltf.scene);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setScene(undefined);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [path]);
+
+  return scene;
+}
+
+function computeModelBounds(scene: Object3D) {
+  const box = new Box3().setFromObject(scene);
+  const size = box.getSize(new Vector3());
+  const center = box.getCenter(new Vector3());
+
+  return {
+    center: { x: center.x, y: center.y, z: center.z },
+    size: {
+      x: Math.max(size.x, 0.001),
+      y: Math.max(size.y, 0.001),
+      z: Math.max(size.z, 0.001)
+    }
+  };
 }
 
 function RenderLightNode({

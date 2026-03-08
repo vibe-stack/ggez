@@ -1,5 +1,5 @@
 import { resolveTransformPivot, type GeometryNode, type Vec3 } from "@web-hammer/shared";
-import { Box3, Camera, Euler, Mesh, Vector2, Vector3 } from "three";
+import { Box3, Camera, Euler, Object3D, Vector2, Vector3 } from "three";
 
 export type ScreenRect = {
   height: number;
@@ -21,7 +21,7 @@ export function createScreenRect(origin: Vector2, current: Vector2): ScreenRect 
 }
 
 export function intersectsSelectionRect(
-  object: Mesh,
+  object: Object3D,
   camera: Camera,
   viewportBounds: DOMRect,
   selectionRect: ScreenRect

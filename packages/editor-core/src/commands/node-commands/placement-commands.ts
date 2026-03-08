@@ -15,22 +15,26 @@ import { createDuplicateNodeId } from "./helpers";
 
 export function createPlaceModelNodeCommand(
   scene: SceneDocument,
-  position: Vec3,
+  positionOrTransform: Vec3 | Transform,
   model: Pick<ModelNode, "data" | "name">
 ): {
   command: Command;
   nodeId: string;
 } {
   const nodeId = createDuplicateNodeId(scene, "node:model:placed");
+  const transform =
+    "position" in positionOrTransform
+      ? structuredClone(positionOrTransform)
+      : {
+          position: positionOrTransform,
+          rotation: vec3(0, 0, 0),
+          scale: vec3(1, 1, 1)
+        };
   const node: ModelNode = {
     id: nodeId,
     kind: "model",
     name: model.name,
-    transform: {
-      position,
-      rotation: vec3(0, 0, 0),
-      scale: vec3(1, 1, 1)
-    },
+    transform,
     data: structuredClone(model.data)
   };
 

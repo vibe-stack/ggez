@@ -17,6 +17,7 @@ import type { PrimitiveNodeData, PrimitiveShape } from "@web-hammer/shared";
 import type { ToolId } from "@web-hammer/tool-system";
 import type { WorkerJob } from "@web-hammer/workers";
 import type { ReactNode } from "react";
+import { AiModelPromptBar } from "@/components/editor-shell/AiModelPromptBar";
 import { EditorMenuBar } from "@/components/editor-shell/EditorMenuBar";
 import { InspectorSidebar } from "@/components/editor-shell/InspectorSidebar";
 import { SpatialAnalysisPanel } from "@/components/editor-shell/SpatialAnalysisPanel";
@@ -37,6 +38,11 @@ import { cn } from "@/lib/utils";
 
 type EditorShellProps = {
   activeBrushShape: BrushShape;
+  aiModelPlacementActive: boolean;
+  aiModelPlacementArmed: boolean;
+  aiModelPrompt: string;
+  aiModelPromptBusy: boolean;
+  aiModelPromptError?: string;
   activeRightPanel: RightPanelId;
   activeToolId: ToolId;
   activeViewportId: ViewportPaneId;
@@ -62,6 +68,7 @@ type EditorShellProps = {
   onFocusNode: (nodeId: string) => void;
   onDeleteMaterial: (materialId: string) => void;
   onDeleteTexture: (textureId: string) => void;
+  onCancelAiModelPlacement: () => void;
   onLoadWhmap: () => void;
   onInvertSelectionNormals: () => void;
   onPausePhysics: () => void;
@@ -74,7 +81,10 @@ type EditorShellProps = {
   onPlaceBlockoutStairs: () => void;
   onMeshInflate: (factor: number) => void;
   onMirrorSelection: (axis: TransformAxis) => void;
+  onGenerateAiModel: () => void;
+  onImportGlb: () => void;
   onPlaceAsset: (position: { x: number; y: number; z: number }) => void;
+  onPlaceAiModelPlaceholder: (position: { x: number; y: number; z: number }) => void;
   onPlaceBrush: (brush: Brush, transform: Transform) => void;
   onPlaceMeshNode: (mesh: EditableMesh, transform: Transform, name: string) => void;
   onPlacePrimitiveNode: (data: PrimitiveNodeData, transform: Transform, name: string) => void;
@@ -88,6 +98,7 @@ type EditorShellProps = {
   onSelectAsset: (assetId: string) => void;
   onSelectMaterialFaces: (faceIds: string[]) => void;
   onSelectMaterial: (materialId: string) => void;
+  onStartAiModelPlacement: () => void;
   onSetUvOffset: (scope: "faces" | "object", faceIds: string[], uvOffset: Vec2) => void;
   onSetUvScale: (scope: "faces" | "object", faceIds: string[], uvScale: Vec2) => void;
   onSelectNodes: (nodeIds: string[]) => void;
@@ -109,6 +120,7 @@ type EditorShellProps = {
   onUpdateEntityTransform: (entityId: string, transform: Transform, beforeTransform?: Transform) => void;
   onUpdateMeshData: (nodeId: string, mesh: EditableMesh, beforeMesh?: EditableMesh) => void;
   onUpdateNodeData: (nodeId: string, data: PrimitiveNodeData | LightNodeData) => void;
+  onUpdateAiModelPrompt: (prompt: string) => void;
   onUpdateSceneSettings: (settings: SceneSettings, beforeSettings?: SceneSettings) => void;
   onUpdateViewport: (viewportId: ViewportPaneId, viewport: ViewportState) => void;
   onUpsertMaterial: (material: Material) => void;
@@ -132,6 +144,11 @@ type EditorShellProps = {
 
 export function EditorShell({
   activeBrushShape,
+  aiModelPlacementActive,
+  aiModelPlacementArmed,
+  aiModelPrompt,
+  aiModelPromptBusy,
+  aiModelPromptError,
   activeRightPanel,
   activeToolId,
   activeViewportId,
@@ -157,6 +174,7 @@ export function EditorShell({
   onFocusNode,
   onDeleteMaterial,
   onDeleteTexture,
+  onCancelAiModelPlacement,
   onLoadWhmap,
   onInvertSelectionNormals,
   onPausePhysics,
@@ -169,7 +187,10 @@ export function EditorShell({
   onPlaceBlockoutStairs,
   onMeshInflate,
   onMirrorSelection,
+  onGenerateAiModel,
+  onImportGlb,
   onPlaceAsset,
+  onPlaceAiModelPlaceholder,
   onPlaceBrush,
   onPlaceMeshNode,
   onPlacePrimitiveNode,
@@ -183,6 +204,7 @@ export function EditorShell({
   onSelectAsset,
   onSelectMaterialFaces,
   onSelectMaterial,
+  onStartAiModelPlacement,
   onSetUvOffset,
   onSetUvScale,
   onSelectNodes,
@@ -203,6 +225,7 @@ export function EditorShell({
   onUpdateEntityProperties,
   onUpdateEntityTransform,
   onUpdateNodeData,
+  onUpdateAiModelPrompt,
   onUpdateSceneSettings,
   onUpdateViewport,
   onUpsertMaterial,
@@ -253,6 +276,7 @@ export function EditorShell({
       >
         <ViewportCanvas
           activeBrushShape={activeBrushShape}
+          aiModelPlacementArmed={aiModelPlacementArmed}
           activeToolId={activeToolId}
           dprScale={resolveViewportDprScale(viewportQuality)}
           isActiveViewport={activeViewportId === viewportId}
@@ -263,6 +287,7 @@ export function EditorShell({
           onCommitMeshTopology={onCommitMeshTopology}
           onFocusNode={onFocusNode}
           onPlaceAsset={onPlaceAsset}
+          onPlaceAiModelPlaceholder={onPlaceAiModelPlaceholder}
           onPlaceBrush={onPlaceBrush}
           onPlaceMeshNode={onPlaceMeshNode}
           onPlacePrimitiveNode={onPlacePrimitiveNode}
@@ -329,6 +354,7 @@ export function EditorShell({
 
         <ToolPalette
           activeBrushShape={activeBrushShape}
+          aiModelPlacementActive={aiModelPlacementActive || aiModelPlacementArmed}
           activeToolId={activeToolId}
           currentSnapSize={activeViewport.grid.snapSize}
           gridSnapValues={gridSnapValues}
@@ -338,6 +364,7 @@ export function EditorShell({
           onPausePhysics={onPausePhysics}
           onMeshEditToolbarAction={onMeshEditToolbarAction}
           onMeshInflate={onMeshInflate}
+          onImportGlb={onImportGlb}
           onPlaceEntity={onPlaceEntity}
           onPlaceLight={onPlaceLight}
           onPlaceBlockoutOpenRoom={onPlaceBlockoutOpenRoom}
@@ -347,6 +374,7 @@ export function EditorShell({
           onPlaceProp={onPlaceProp}
           onPlayPhysics={onPlayPhysics}
           onRaiseTop={() => onExtrudeSelection("y", 1)}
+          onStartAiModelPlacement={onStartAiModelPlacement}
           onSelectBrushShape={(shape) => {
             onSetActiveBrushShape(shape);
             onSetToolId("brush");
@@ -365,6 +393,17 @@ export function EditorShell({
           tools={tools}
           transformMode={transformMode}
           viewMode={viewMode}
+        />
+
+        <AiModelPromptBar
+          active={aiModelPlacementActive}
+          armed={aiModelPlacementArmed}
+          busy={aiModelPromptBusy}
+          error={aiModelPromptError}
+          onCancel={onCancelAiModelPlacement}
+          onChangePrompt={onUpdateAiModelPrompt}
+          onSubmit={onGenerateAiModel}
+          prompt={aiModelPrompt}
         />
 
         {/* <SpatialAnalysisPanel analysis={analysis} /> */}

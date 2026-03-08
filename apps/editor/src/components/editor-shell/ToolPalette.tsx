@@ -13,6 +13,7 @@ import type { ViewModeId } from "@/viewport/viewports";
 
 type ToolPaletteProps = {
   activeBrushShape: BrushShape;
+  aiModelPlacementActive: boolean;
   activeToolId: ToolId;
   currentSnapSize: GridSnapValue;
   gridSnapValues: readonly GridSnapValue[];
@@ -22,6 +23,7 @@ type ToolPaletteProps = {
   onLowerTop: () => void;
   onPausePhysics: () => void;
   onMeshInflate: (factor: number) => void;
+  onImportGlb: () => void;
   onPlaceEntity: (type: EntityType) => void;
   onPlaceLight: (type: LightType) => void;
   onPlaceBlockoutOpenRoom: () => void;
@@ -31,6 +33,7 @@ type ToolPaletteProps = {
   onPlaceProp: (shape: PrimitiveShape) => void;
   onPlayPhysics: () => void;
   onRaiseTop: () => void;
+  onStartAiModelPlacement: () => void;
   onSelectBrushShape: (shape: BrushShape) => void;
   onSetMeshEditMode: (mode: MeshEditMode) => void;
   onSetSnapEnabled: (enabled: boolean) => void;
@@ -50,6 +53,7 @@ type ToolPaletteProps = {
 
 export function ToolPalette({
   activeBrushShape,
+  aiModelPlacementActive,
   activeToolId,
   currentSnapSize,
   gridSnapValues,
@@ -59,6 +63,7 @@ export function ToolPalette({
   onLowerTop,
   onPausePhysics,
   onMeshInflate,
+  onImportGlb,
   onPlaceEntity,
   onPlaceLight,
   onPlaceBlockoutOpenRoom,
@@ -68,6 +73,7 @@ export function ToolPalette({
   onPlaceProp,
   onPlayPhysics,
   onRaiseTop,
+  onStartAiModelPlacement,
   onSelectBrushShape,
   onSetMeshEditMode,
   onSetSnapEnabled,
@@ -102,8 +108,10 @@ export function ToolPalette({
           >
             <CreationToolBar
               activeBrushShape={activeBrushShape}
+              aiModelPlacementActive={aiModelPlacementActive}
               activeToolId={activeToolId}
               disabled={physicsPlayback !== "stopped"}
+              onImportGlb={onImportGlb}
               onPlaceEntity={onPlaceEntity}
               onPlaceLight={onPlaceLight}
               onPlaceBlockoutOpenRoom={onPlaceBlockoutOpenRoom}
@@ -111,6 +119,7 @@ export function ToolPalette({
               onPlaceBlockoutRoom={onPlaceBlockoutRoom}
               onPlaceBlockoutStairs={onPlaceBlockoutStairs}
               onPlaceProp={onPlaceProp}
+              onStartAiModelPlacement={onStartAiModelPlacement}
               onSelectBrushShape={onSelectBrushShape}
             />
           </motion.div>

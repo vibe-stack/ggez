@@ -82,6 +82,10 @@ export type DerivedRenderMesh = {
   primitiveRole?: PrimitiveRole;
   rotation: Vec3;
   scale: Vec3;
+  modelAssetId?: AssetID;
+  modelCenter?: Vec3;
+  modelPath?: string;
+  modelSize?: Vec3;
   primitive?: RenderPrimitive;
   surface?: DerivedSurfaceGeometry;
   material: RenderMaterial;
@@ -120,7 +124,17 @@ export function createDerivedRenderMesh(
         : undefined,
     rotation: node.transform.rotation,
     scale: node.transform.scale,
-    primitive: resolveNodePrimitive(node),
+    modelAssetId: isModelNode(node) ? node.data.assetId : undefined,
+    modelCenter: isModelNode(node)
+      ? resolveModelVec3Metadata(assetsById.get(node.data.assetId), "nativeCenter")
+      : undefined,
+    modelPath: isModelNode(node)
+      ? assetsById.get(node.data.assetId)?.path ?? node.data.path
+      : undefined,
+    modelSize: isModelNode(node)
+      ? resolveModelVec3Metadata(assetsById.get(node.data.assetId), "nativeSize")
+      : undefined,
+    primitive: resolveNodePrimitive(node, assetsById),
     surface: surfaceResult?.surface,
     material: surfaceResult?.materials[0] ?? {
       category: appearance.category,
@@ -244,14 +258,19 @@ function getRenderAppearance(
   };
 }
 
-function resolveNodePrimitive(node: GeometryNode): RenderPrimitive | undefined {
+function resolveNodePrimitive(
+  node: GeometryNode,
+  assetsById: Map<AssetID, Asset>
+): RenderPrimitive | undefined {
   if (isModelNode(node)) {
+    const modelSize = resolveModelVec3Metadata(
+      assetsById.get(node.data.assetId),
+      "nativeSize"
+    );
+
     return {
-      kind: "cylinder",
-      radiusTop: 0.65,
-      radiusBottom: 0.65,
-      height: 2.2,
-      radialSegments: 12
+      kind: "box",
+      size: modelSize ?? vec3(1.4, 1.4, 1.4)
     };
   }
 
@@ -294,6 +313,25 @@ function resolveNodePrimitive(node: GeometryNode): RenderPrimitive | undefined {
     default:
       return undefined;
   }
+}
+
+function resolveModelVec3Metadata(
+  asset: Asset | undefined,
+  keyPrefix: "nativeCenter" | "nativeSize"
+) {
+  if (!asset) {
+    return undefined;
+  }
+
+  const x = asset.metadata[`${keyPrefix}X`];
+  const y = asset.metadata[`${keyPrefix}Y`];
+  const z = asset.metadata[`${keyPrefix}Z`];
+
+  if (typeof x !== "number" || typeof y !== "number" || typeof z !== "number") {
+    return undefined;
+  }
+
+  return vec3(x, y, z);
 }
 
 function createBrushSurface(

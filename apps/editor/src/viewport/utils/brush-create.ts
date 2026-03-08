@@ -11,7 +11,7 @@ import type { BrushCreateBasis } from "@/viewport/types";
 import {
   Camera,
   Euler,
-  Mesh,
+  Object3D,
   Plane,
   Raycaster,
   Vector2,
@@ -24,7 +24,7 @@ export function resolveBrushCreateSurfaceHit(
   viewportBounds: DOMRect,
   camera: Camera,
   raycaster: Raycaster,
-  meshObjects: Map<string, Mesh>,
+  meshObjects: Map<string, Object3D>,
   fallbackPlanePoint: Vec3,
   fallbackPlaneNormal: Vec3
 ): { kind: "plane" | "surface"; normal: Vec3; point: Vec3 } | undefined {
@@ -34,7 +34,7 @@ export function resolveBrushCreateSurfaceHit(
   );
   raycaster.setFromCamera(ndc, camera);
 
-  const hit = raycaster.intersectObjects(Array.from(meshObjects.values()), false)[0];
+  const hit = raycaster.intersectObjects(Array.from(meshObjects.values()), true)[0];
 
   if (hit) {
     const worldNormal = hit.face

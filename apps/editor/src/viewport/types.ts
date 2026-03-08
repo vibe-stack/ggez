@@ -34,6 +34,7 @@ export type MeshEditToolbarActionRequest = {
 
 export type ViewportCanvasProps = {
   activeBrushShape: BrushShape;
+  aiModelPlacementArmed: boolean;
   activeToolId: ToolId;
   dprScale: number;
   isActiveViewport: boolean;
@@ -44,6 +45,7 @@ export type ViewportCanvasProps = {
   onCommitMeshTopology: (nodeId: string, mesh: EditableMesh) => void;
   onFocusNode: (nodeId: string) => void;
   onPlaceAsset: (position: { x: number; y: number; z: number }) => void;
+  onPlaceAiModelPlaceholder: (position: Vec3) => void;
   onPlaceBrush: (brush: Brush, transform: Transform) => void;
   onPlaceMeshNode: (mesh: EditableMesh, transform: Transform, name: string) => void;
   onPlacePrimitiveNode: (data: PrimitiveNodeData, transform: Transform, name: string) => void;

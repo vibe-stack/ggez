@@ -5,6 +5,7 @@ import {
   axisDelta,
   createAssignMaterialCommand,
   createDeleteMaterialCommand,
+  createUpsertAssetCommand,
   createDeleteTextureCommand,
   createDeleteSelectionCommand,
   createExtrudeBrushNodesCommand,
@@ -46,10 +47,12 @@ import {
   isBrushNode,
   isLightNode,
   isMeshNode,
+  isModelNode,
   isPrimitiveNode,
   makeTransform,
   type Material,
   type MeshNode,
+  type ModelNode,
   type PrimitiveNodeData,
   snapVec3,
   vec2,
@@ -89,6 +92,15 @@ import {
   createPrimitiveNodeLabel
 } from "@/lib/authoring";
 import { convertPrimitiveNodeToMeshNode } from "@/lib/primitive-to-mesh";
+import { createObjectGenerator } from "@/lib/object-generation";
+import {
+  analyzeModelSource,
+  createAiModelPlaceholder,
+  createModelAsset,
+  readFileAsDataUrl,
+  resolveModelFitScale,
+  resolvePrimitiveNodeBounds
+} from "@/lib/model-assets";
 import {
   focusViewportOnPoint,
   resolveVisibleViewportPaneIds,
@@ -99,8 +111,16 @@ import {
 
 export function App() {
   const [editor] = useState(() => createEditorCore(createSeedSceneDocument()));
+  const [objectGenerator] = useState(() => createObjectGenerator());
   const [activeToolId, setActiveToolId] = useState<ToolId>(defaultToolId);
   const [activeBrushShape, setActiveBrushShape] = useState<BrushShape>("cube");
+  const [aiModelPlacementArmed, setAiModelPlacementArmed] = useState(false);
+  const [aiModelDraft, setAiModelDraft] = useState<{
+    error?: string;
+    generating: boolean;
+    nodeId: string;
+    prompt: string;
+  } | null>(null);
   const [meshEditMode, setMeshEditMode] = useState<MeshEditMode>("vertex");
   const [meshEditToolbarAction, setMeshEditToolbarAction] = useState<MeshEditToolbarActionRequest>();
   const [physicsPlayback, setPhysicsPlayback] = useState<"paused" | "running" | "stopped">("stopped");
@@ -111,6 +131,7 @@ export function App() {
   const [workerJobs, setWorkerJobs] = useState<WorkerJob[]>([]);
   const [revision, setRevision] = useState(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const glbImportInputRef = useRef<HTMLInputElement | null>(null);
   const ui = useSnapshot(uiStore);
   const toolSession = useMemo(() => createToolSession(activeToolId), [activeToolId]);
   const { downloadTextFile, exportJobs, runWorkerRequest } = useExportWorker();
@@ -125,6 +146,21 @@ export function App() {
   useEditorSubscriptions(editor, setRevision);
 
   useEffect(() => workerManager.subscribe(setWorkerJobs), [workerManager]);
+
+  useEffect(() => {
+    if (!aiModelDraft) {
+      return;
+    }
+
+    const node = editor.scene.getNode(aiModelDraft.nodeId);
+
+    if (node && !isModelNode(node)) {
+      return;
+    }
+
+    setAiModelDraft(null);
+    setAiModelPlacementArmed(false);
+  }, [aiModelDraft, editor, revision]);
 
   const handleSelectNodes = (nodeIds: string[]) => {
     if (physicsPlayback !== "stopped") {
@@ -552,6 +588,56 @@ export function App() {
     enqueueWorkerJob("Asset placement", { task: "triangulation", worker: "geometryWorker" }, 650);
   };
 
+  const handleImportGlb = () => {
+    glbImportInputRef.current?.click();
+  };
+
+  const handleGlbFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const bounds = await analyzeModelSource(dataUrl);
+      const name = file.name.replace(/\.[^.]+$/, "") || "Imported Model";
+      const asset = createModelAsset({
+        center: bounds.center,
+        name,
+        path: dataUrl,
+        size: bounds.size,
+        source: "import"
+      });
+      const fitScale = resolveModelFitScale(vec3(2, 2, 2), bounds);
+      const target = resolvePlacementTarget();
+      const { command, nodeId } = createPlaceModelNodeCommand(
+        editor.scene,
+        {
+          position: vec3(target.x, target.y + 1, target.z),
+          rotation: vec3(0, 0, 0),
+          scale: vec3(fitScale, fitScale, fitScale)
+        },
+        {
+          data: {
+            assetId: asset.id,
+            path: asset.path
+          },
+          name
+        }
+      );
+
+      editor.execute(createUpsertAssetCommand(editor.scene, asset));
+      editor.execute(command);
+      editor.select([nodeId], "object");
+      uiStore.selectedAssetId = asset.id;
+      enqueueWorkerJob("GLB import", { task: "triangulation", worker: "geometryWorker" }, 650);
+    } finally {
+      event.target.value = "";
+    }
+  };
+
   const resolvePlacementPosition = (size: Vec3) => {
     const activeViewportState = resolveActiveViewportState();
     const snappedTarget = snapVec3(activeViewportState.camera.target, resolveViewportSnapSize(activeViewportState));
@@ -562,6 +648,145 @@ export function App() {
   const resolvePlacementTarget = () => {
     const activeViewportState = resolveActiveViewportState();
     return snapVec3(activeViewportState.camera.target, resolveViewportSnapSize(activeViewportState));
+  };
+
+  const handleArmAiModelPlacement = () => {
+    if (aiModelDraft?.nodeId && editor.scene.getNode(aiModelDraft.nodeId)) {
+      editor.select([aiModelDraft.nodeId], "object");
+      setActiveToolId("transform");
+      setTransformMode("scale");
+      setAiModelPlacementArmed(false);
+      return;
+    }
+
+    setAiModelPlacementArmed(true);
+    setAiModelDraft((current) =>
+      current
+        ? {
+            ...current,
+            error: undefined
+          }
+        : current
+    );
+    setActiveToolId("brush");
+  };
+
+  const handleCancelAiModelPlacement = () => {
+    setAiModelPlacementArmed(false);
+    setAiModelDraft(null);
+  };
+
+  const handleUpdateAiModelPrompt = (prompt: string) => {
+    setAiModelDraft((current) =>
+      current
+        ? {
+            ...current,
+            error: undefined,
+            prompt
+          }
+        : current
+    );
+  };
+
+  const handlePlaceAiModelPlaceholder = (position: Vec3) => {
+    const placeholder = createAiModelPlaceholder(position);
+    const { command, nodeId } = createPlacePrimitiveNodeCommand(editor.scene, placeholder.transform, {
+      data: placeholder.data,
+      name: placeholder.name
+    });
+
+    editor.execute(command);
+    editor.select([nodeId], "object");
+    setAiModelPlacementArmed(false);
+    setActiveToolId("transform");
+    setTransformMode("scale");
+    setAiModelDraft((current) => ({
+      error: undefined,
+      generating: false,
+      nodeId,
+      prompt: current?.prompt ?? ""
+    }));
+    enqueueWorkerJob("AI proxy placement", { task: "triangulation", worker: "geometryWorker" }, 500);
+  };
+
+  const handleGenerateAiModel = async () => {
+    if (!aiModelDraft || aiModelDraft.generating || aiModelDraft.prompt.trim().length === 0) {
+      return;
+    }
+
+    const node = editor.scene.getNode(aiModelDraft.nodeId);
+
+    if (!node || !isPrimitiveNode(node)) {
+      setAiModelDraft((current) =>
+        current
+          ? {
+              ...current,
+              error: "Proxy cube is missing."
+            }
+          : current
+      );
+      return;
+    }
+
+    setAiModelDraft((current) =>
+      current
+        ? {
+            ...current,
+            error: undefined,
+            generating: true
+          }
+        : current
+    );
+
+    try {
+      const generated = await objectGenerator.generateModel({
+        prompt: aiModelDraft.prompt.trim()
+      });
+      const bounds = await analyzeModelSource(generated.dataUrl);
+      const asset = createModelAsset({
+        center: bounds.center,
+        name: generated.name,
+        path: generated.dataUrl,
+        prompt: generated.prompt,
+        size: bounds.size,
+        source: "ai"
+      });
+      const targetBounds = resolvePrimitiveNodeBounds(node) ?? vec3(2, 2, 2);
+      const fitScale = resolveModelFitScale(targetBounds, bounds);
+      const replacement: ModelNode = {
+        id: node.id,
+        kind: "model",
+        name: generated.name,
+        transform: {
+          ...structuredClone(node.transform),
+          scale: vec3(fitScale, fitScale, fitScale)
+        },
+        data: {
+          assetId: asset.id,
+          path: asset.path
+        }
+      };
+
+      editor.execute(createUpsertAssetCommand(editor.scene, asset));
+      editor.execute(createReplaceNodesCommand(editor.scene, [replacement], "generate ai model"));
+      editor.select([replacement.id], "object");
+      uiStore.selectedAssetId = asset.id;
+      enqueueWorkerJob("AI model generation", { task: "triangulation", worker: "geometryWorker" }, 700);
+      setAiModelDraft(null);
+    } catch (error) {
+      setAiModelDraft((current) =>
+        current
+          ? {
+              ...current,
+              error: error instanceof Error ? error.message : "Failed to generate model.",
+              generating: false
+            }
+          : current
+      );
+      return;
+    }
+
+    setAiModelPlacementArmed(false);
   };
 
   const handlePlaceBlockoutPlatform = () => {
@@ -1022,6 +1247,11 @@ export function App() {
         activeRightPanel={ui.rightPanel}
         activeToolId={toolSession.toolId}
         activeBrushShape={activeBrushShape}
+        aiModelPlacementActive={Boolean(aiModelDraft)}
+        aiModelPlacementArmed={aiModelPlacementArmed}
+        aiModelPrompt={aiModelDraft?.prompt ?? ""}
+        aiModelPromptBusy={aiModelDraft?.generating ?? false}
+        aiModelPromptError={aiModelDraft?.error}
         activeViewportId={ui.activeViewportId}
         canRedo={editor.commands.canRedo()}
         canUndo={editor.commands.canUndo()}
@@ -1043,12 +1273,16 @@ export function App() {
         onExportGltf={handleExportGltf}
         onExtrudeSelection={handleExtrudeSelection}
         onFocusNode={handleFocusNode}
+        onGenerateAiModel={handleGenerateAiModel}
+        onImportGlb={handleImportGlb}
         onLoadWhmap={handleLoadWhmap}
         onPausePhysics={handlePausePhysics}
         onMeshEditToolbarAction={handleMeshEditToolbarAction}
         onMeshInflate={handleMeshInflate}
         onMirrorSelection={handleMirrorSelection}
+        onCancelAiModelPlacement={handleCancelAiModelPlacement}
         onPlaceAsset={handlePlaceAsset}
+        onPlaceAiModelPlaceholder={handlePlaceAiModelPlaceholder}
         onPlaceBrush={handlePlaceBrush}
         onPlaceMeshNode={handlePlaceMeshNode}
         onPlaceBlockoutOpenRoom={() => handlePlaceBlockoutRoom(["south"])}
@@ -1069,6 +1303,7 @@ export function App() {
         onSelectAsset={handleSelectAsset}
         onSelectMaterialFaces={setSelectedMaterialFaceIds}
         onSelectMaterial={handleSelectMaterial}
+        onStartAiModelPlacement={handleArmAiModelPlacement}
         onSetUvOffset={handleSetMaterialUvOffset}
         onSetUvScale={handleSetMaterialUvScale}
         onSelectNodes={handleSelectNodes}
@@ -1088,6 +1323,7 @@ export function App() {
         onUpdateEntityProperties={handleUpdateEntityProperties}
         onUpdateEntityTransform={handleUpdateEntityTransform}
         onUpdateNodeData={handleUpdateNodeData}
+        onUpdateAiModelPrompt={handleUpdateAiModelPrompt}
         onUpdateSceneSettings={handleUpdateSceneSettings}
         onUpdateViewport={handleUpdateViewport}
         onUpsertMaterial={handleUpsertMaterial}
@@ -1116,6 +1352,13 @@ export function App() {
         hidden
         onChange={handleWhmapFileChange}
         ref={fileInputRef}
+        type="file"
+      />
+      <input
+        accept=".glb,model/gltf-binary"
+        hidden
+        onChange={handleGlbFileChange}
+        ref={glbImportInputRef}
         type="file"
       />
     </>
