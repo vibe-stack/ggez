@@ -303,6 +303,7 @@ function createBrushSurface(
       materialId: face.materialId,
       normal: face.normal,
       triangleIndices: face.triangleIndices,
+      uvOffset: face.uvOffset,
       uvScale: face.uvScale,
       vertices: face.vertices.map((vertex) => vertex.position)
     })),
@@ -328,6 +329,7 @@ function createEditableMeshSurface(
       materialId: face.materialId,
       normal: triangulated.normal,
       triangleIndices: triangulated.indices,
+      uvOffset: face.uvOffset,
       uvScale: face.uvScale,
       vertices: getFaceVertices(node, face.id).map((vertex) => vertex.position)
     };
@@ -336,12 +338,14 @@ function createEditableMeshSurface(
     materialId?: MaterialID;
     normal: Vec3;
     triangleIndices: number[];
+    uvOffset?: Vec2;
     uvScale?: Vec2;
     vertices: Vec3[];
   }> = mappedFaces.filter((face) => face !== undefined) as Array<{
     materialId?: MaterialID;
     normal: Vec3;
     triangleIndices: number[];
+    uvOffset?: Vec2;
     uvScale?: Vec2;
     vertices: Vec3[];
   }>;
@@ -358,6 +362,7 @@ function buildDerivedSurface(
     materialId?: MaterialID;
     normal: Vec3;
     triangleIndices: number[];
+    uvOffset?: Vec2;
     uvScale?: Vec2;
     vertices: Vec3[];
   }>,
@@ -389,7 +394,7 @@ function buildDerivedSurface(
       positions.push(vertex.x, vertex.y, vertex.z);
     });
 
-    const faceUvs = projectPlanarUvs(face.vertices, face.normal, face.uvScale);
+    const faceUvs = projectPlanarUvs(face.vertices, face.normal, face.uvScale, face.uvOffset);
     uvs.push(...faceUvs);
 
     const groupStart = indices.length;
@@ -438,15 +443,17 @@ function resolveRenderMaterial(
   };
 }
 
-function projectPlanarUvs(vertices: Vec3[], normal: Vec3, uvScale?: Vec2) {
+function projectPlanarUvs(vertices: Vec3[], normal: Vec3, uvScale?: Vec2, uvOffset?: Vec2) {
   const basis = createFacePlaneBasis(normal);
   const origin = vertices[0] ?? vec3(0, 0, 0);
   const scaleX = Math.abs(uvScale?.x ?? 1) <= 0.0001 ? 1 : uvScale?.x ?? 1;
   const scaleY = Math.abs(uvScale?.y ?? 1) <= 0.0001 ? 1 : uvScale?.y ?? 1;
+  const offsetX = uvOffset?.x ?? 0;
+  const offsetY = uvOffset?.y ?? 0;
 
   return vertices.flatMap((vertex) => {
     const offset = subVec3(vertex, origin);
-    return [dotVec3(offset, basis.u) * scaleX, dotVec3(offset, basis.v) * scaleY];
+    return [dotVec3(offset, basis.u) * scaleX + offsetX, dotVec3(offset, basis.v) * scaleY + offsetY];
   });
 }
 

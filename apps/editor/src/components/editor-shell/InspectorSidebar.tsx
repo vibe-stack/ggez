@@ -49,6 +49,7 @@ type InspectorSidebarProps = {
   onSelectAsset: (assetId: string) => void;
   onSelectMaterial: (materialId: string) => void;
   onSelectNodes: (nodeIds: string[]) => void;
+  onSetUvOffset: (scope: "faces" | "object", faceIds: string[], uvOffset: { x: number; y: number }) => void;
   onSetUvScale: (scope: "faces" | "object", faceIds: string[], uvScale: { x: number; y: number }) => void;
   onTranslateSelection: (axis: "x" | "y" | "z", direction: -1 | 1) => void;
   onUpsertMaterial: (material: Material) => void;
@@ -90,6 +91,7 @@ export function InspectorSidebar({
   onSelectAsset,
   onSelectMaterial,
   onSelectNodes,
+  onSetUvOffset,
   onSetUvScale,
   onTranslateSelection,
   onUpsertMaterial,
@@ -138,7 +140,6 @@ export function InspectorSidebar({
     setDraftPlayerSettings(structuredClone(sceneSettings.player));
   }, [sceneSettings]);
 
-  const selectedAsset = assets.find((asset) => asset.id === selectedAssetId);
   const selectedIsBrush = selectedNode?.kind === "brush";
   const selectedIsMesh = selectedNode?.kind === "mesh";
   const selectedPrimitive = selectedNode && isPrimitiveNode(selectedNode) ? selectedNode : undefined;
@@ -248,35 +249,6 @@ export function InspectorSidebar({
                   selectedNodeId={selectedNodeId}
                 />
               </div>
-              <ScrollArea className="max-h-72 pr-1">
-                <div className="space-y-4 px-1 pb-1">
-                  <ToolSection title="Assets">
-                    <div className="space-y-1">
-                      {assets.map((asset) => (
-                        <button
-                          className={cn(
-                            "flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left text-[12px] text-foreground/62 transition-colors hover:bg-white/5 hover:text-foreground",
-                            selectedAssetId === asset.id && "bg-emerald-500/14 text-emerald-200"
-                          )}
-                          key={asset.id}
-                          onClick={() => onSelectAsset(asset.id)}
-                          type="button"
-                        >
-                          <span className="truncate font-medium">{asset.id.split(":").at(-1)}</span>
-                          <span className="ml-2 text-[10px] text-foreground/35">{asset.type}</span>
-                        </button>
-                      ))}
-                    </div>
-                    <Button
-                      onClick={() => onPlaceAsset({ x: viewportTarget.x, y: 0, z: viewportTarget.z })}
-                      size="xs"
-                      variant="ghost"
-                    >
-                      Place {selectedAsset?.id.split(":").at(-1) ?? "asset"}
-                    </Button>
-                  </ToolSection>
-                </div>
-              </ScrollArea>
             </div>
           </TabsContent>
 
@@ -642,6 +614,7 @@ export function InspectorSidebar({
               onApplyMaterial={onApplyMaterial}
               onDeleteMaterial={onDeleteMaterial}
               onSelectMaterial={onSelectMaterial}
+              onSetUvOffset={onSetUvOffset}
               onSetUvScale={onSetUvScale}
               onUpsertMaterial={onUpsertMaterial}
               selectedFaceIds={activeToolId === "mesh-edit" && meshEditMode === "face" ? selectedFaceIds : []}
@@ -927,7 +900,12 @@ function BooleanField({
   return (
     <div className="flex items-center justify-between gap-3 rounded-xl bg-white/3 px-3 py-2">
       <span className="text-xs text-foreground/72">{label}</span>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} size="sm" />
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] font-medium tracking-[0.16em] text-foreground/36 uppercase">
+          {checked ? "On" : "Off"}
+        </span>
+        <Switch checked={checked} onCheckedChange={onCheckedChange} />
+      </div>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import type { GridSnapValue } from "@web-hammer/render-pipeline";
 import type { EntityType, LightType, PrimitiveShape } from "@web-hammer/shared";
 import type { ToolId } from "@web-hammer/tool-system";
+import { AnimatePresence, motion } from "motion/react";
 import { CreationToolBar } from "@/components/editor-shell/CreationToolBar";
 import { MeshEditToolBars } from "@/components/editor-shell/MeshEditToolBars";
 import { PhysicsPlaybackControl } from "@/components/editor-shell/PhysicsPlaybackControl";
@@ -83,38 +84,58 @@ export function ToolPalette({
         <SnapControl currentSnapSize={currentSnapSize} gridSnapValues={gridSnapValues} onSetSnapEnabled={onSetSnapEnabled} onSetSnapSize={onSetSnapSize} snapEnabled={snapEnabled} />
         <PhysicsPlaybackControl mode={physicsPlayback} onPause={onPausePhysics} onPlay={onPlayPhysics} onStop={onStopPhysics} />
       </div>
-      <CreationToolBar
-        activeBrushShape={activeBrushShape}
-        activeToolId={activeToolId}
-        disabled={physicsPlayback !== "stopped"}
-        onPlaceEntity={onPlaceEntity}
-        onPlaceLight={onPlaceLight}
-        onPlaceProp={onPlaceProp}
-        onSelectBrushShape={onSelectBrushShape}
-      />
-      {activeToolId === "mesh-edit" ? (
-        <MeshEditToolBars
-          onArc={() => onMeshEditToolbarAction("arc")}
-          onBevel={() => onMeshEditToolbarAction("bevel")}
-          onCut={() => onMeshEditToolbarAction("cut")}
-          onDelete={() => onMeshEditToolbarAction("delete")}
-          onExtrude={() => onMeshEditToolbarAction("extrude")}
-          meshEditMode={meshEditMode}
-          onFillFace={() => onMeshEditToolbarAction("fill-face")}
-          onDeflate={() => onMeshInflate(0.9)}
-          onInflate={() => onMeshInflate(1.1)}
-          onInvertNormals={() => onMeshEditToolbarAction("invert-normals")}
-          onLowerTop={onLowerTop}
-          onMerge={() => onMeshEditToolbarAction("merge")}
-          onRaiseTop={onRaiseTop}
-          onSetMeshEditMode={onSetMeshEditMode}
-          onSubdivide={() => onMeshEditToolbarAction("subdivide")}
-          onSetTransformMode={onSetTransformMode}
-          selectedGeometry={selectedGeometry}
-          selectedMesh={selectedMesh}
-          transformMode={transformMode}
-        />
-      ) : null}
+      <AnimatePresence initial={false}>
+        {activeToolId === "brush" ? (
+          <motion.div
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.97 }}
+            initial={{ opacity: 0, y: -10, scale: 0.97 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+          >
+            <CreationToolBar
+              activeBrushShape={activeBrushShape}
+              activeToolId={activeToolId}
+              disabled={physicsPlayback !== "stopped"}
+              onPlaceEntity={onPlaceEntity}
+              onPlaceLight={onPlaceLight}
+              onPlaceProp={onPlaceProp}
+              onSelectBrushShape={onSelectBrushShape}
+            />
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+      <AnimatePresence initial={false}>
+        {activeToolId === "mesh-edit" ? (
+          <motion.div
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.97 }}
+            initial={{ opacity: 0, y: -10, scale: 0.97 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+          >
+            <MeshEditToolBars
+              onArc={() => onMeshEditToolbarAction("arc")}
+              onBevel={() => onMeshEditToolbarAction("bevel")}
+              onCut={() => onMeshEditToolbarAction("cut")}
+              onDelete={() => onMeshEditToolbarAction("delete")}
+              onExtrude={() => onMeshEditToolbarAction("extrude")}
+              meshEditMode={meshEditMode}
+              onFillFace={() => onMeshEditToolbarAction("fill-face")}
+              onDeflate={() => onMeshInflate(0.9)}
+              onInflate={() => onMeshInflate(1.1)}
+              onInvertNormals={() => onMeshEditToolbarAction("invert-normals")}
+              onLowerTop={onLowerTop}
+              onMerge={() => onMeshEditToolbarAction("merge")}
+              onRaiseTop={onRaiseTop}
+              onSetMeshEditMode={onSetMeshEditMode}
+              onSubdivide={() => onMeshEditToolbarAction("subdivide")}
+              onSetTransformMode={onSetTransformMode}
+              selectedGeometry={selectedGeometry}
+              selectedMesh={selectedMesh}
+              transformMode={transformMode}
+            />
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }

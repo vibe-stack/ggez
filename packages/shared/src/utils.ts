@@ -168,8 +168,8 @@ export function createDefaultSceneSettings(): SceneSettings {
       runningSpeed: 7.5
     },
     world: {
-      ambientColor: "#9ec5f8",
-      ambientIntensity: 0.45,
+      ambientColor: "#ffffff",
+      ambientIntensity: 0.4,
       gravity: vec3(0, -9.81, 0),
       physicsEnabled: true
     }

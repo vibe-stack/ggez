@@ -197,7 +197,14 @@ export function createSeedSceneDocument(): SceneDocument {
         { normal: vec3(0, 0, 1), distance: 4 },
         { normal: vec3(0, 0, -1), distance: 4 }
       ],
-      faces: []
+      faces: [
+        { id: "face:brush:blockout-room:0", materialId: "material:blockout:concrete", plane: { normal: vec3(1, 0, 0), distance: 4 }, vertexIds: [] },
+        { id: "face:brush:blockout-room:1", materialId: "material:blockout:concrete", plane: { normal: vec3(-1, 0, 0), distance: 4 }, vertexIds: [] },
+        { id: "face:brush:blockout-room:2", materialId: "material:blockout:concrete", plane: { normal: vec3(0, 1, 0), distance: 1.5 }, vertexIds: [] },
+        { id: "face:brush:blockout-room:3", materialId: "material:blockout:concrete", plane: { normal: vec3(0, -1, 0), distance: 1.5 }, vertexIds: [] },
+        { id: "face:brush:blockout-room:4", materialId: "material:blockout:concrete", plane: { normal: vec3(0, 0, 1), distance: 4 }, vertexIds: [] },
+        { id: "face:brush:blockout-room:5", materialId: "material:blockout:concrete", plane: { normal: vec3(0, 0, -1), distance: 4 }, vertexIds: [] }
+      ]
     }
   };
 

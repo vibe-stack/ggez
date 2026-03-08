@@ -23,6 +23,8 @@ import { createIndexedGeometry } from "@/viewport/utils/geometry";
 import type { ViewportRenderMode } from "@/viewport/viewports";
 import type { SceneSettings } from "@web-hammer/shared";
 
+const previewTextureCache = new Map<string, ReturnType<TextureLoader["load"]>>();
+
 export function ScenePreview({
   hiddenNodeIds = [],
   interactive,
@@ -262,7 +264,7 @@ function RuntimePlayer({
 
   useEffect(() => {
     const domElement = gl.domElement;
-    const canLookAround = sceneSettings.player.cameraMode !== "top-down";
+    const canLookAround = true;
 
     const handleCanvasClick = () => {
       if (!canLookAround || physicsPlayback !== "running" || document.pointerLockElement === domElement) {
@@ -280,8 +282,8 @@ function RuntimePlayer({
       yawRef.current -= event.movementX * 0.0024;
       pitchRef.current = clampNumber(
         pitchRef.current - event.movementY * 0.0018,
-        sceneSettings.player.cameraMode === "fps" ? -1.35 : -1.05,
-        sceneSettings.player.cameraMode === "fps" ? 1.35 : 0.4
+        sceneSettings.player.cameraMode === "fps" ? -1.35 : -1.25,
+        sceneSettings.player.cameraMode === "fps" ? 1.35 : sceneSettings.player.cameraMode === "top-down" ? -0.12 : 0.4
       );
     };
 
@@ -322,7 +324,7 @@ function RuntimePlayer({
       : sceneSettings.player.movementSpeed;
     const moveInputX = (keyState.has("KeyD") || keyState.has("ArrowRight") ? 1 : 0) - (keyState.has("KeyA") || keyState.has("ArrowLeft") ? 1 : 0);
     const moveInputZ = (keyState.has("KeyW") || keyState.has("ArrowUp") ? 1 : 0) - (keyState.has("KeyS") || keyState.has("ArrowDown") ? 1 : 0);
-    const viewDirection = resolveViewDirection(yawRef.current, sceneSettings.player.cameraMode === "top-down" ? -0.78 : pitchRef.current, directionRef.current);
+    const viewDirection = resolveViewDirection(yawRef.current, pitchRef.current, directionRef.current);
     const forwardDirection = forwardRef.current.set(viewDirection.x, 0, viewDirection.z);
     const rightDirection = rightRef.current;
     const moveDirection = moveRef.current.set(0, 0, 0);
@@ -409,7 +411,7 @@ function RuntimePlayer({
       camera.position.lerp(nextCameraPosition, 1 - Math.exp(-delta * 10));
       camera.lookAt(eyePosition);
     } else {
-      const topDownDirection = resolveViewDirection(yawRef.current, -0.78, orbitDirectionRef.current);
+      const topDownDirection = resolveViewDirection(yawRef.current, pitchRef.current, orbitDirectionRef.current);
       const followDistance = Math.max(8, standingHeight * 5.2);
 
       nextCameraPosition.copy(eyePosition).addScaledVector(topDownDirection, -followDistance);
@@ -1064,14 +1066,17 @@ function createPreviewMaterial(spec: DerivedRenderMesh["material"], selected: bo
 }
 
 function disposePreviewMaterial(material: MeshStandardMaterial) {
-  material.map?.dispose();
-  material.normalMap?.dispose();
-  material.metalnessMap?.dispose();
-  material.roughnessMap?.dispose();
   material.dispose();
 }
 
 function loadTexture(source: string, isColor: boolean) {
+  const cacheKey = `${isColor ? "color" : "data"}:${source}`;
+  const cached = previewTextureCache.get(cacheKey);
+
+  if (cached) {
+    return cached;
+  }
+
   const texture = new TextureLoader().load(source);
   texture.wrapS = RepeatWrapping;
   texture.wrapT = RepeatWrapping;
@@ -1079,6 +1084,8 @@ function loadTexture(source: string, isColor: boolean) {
   if (isColor) {
     texture.colorSpace = SRGBColorSpace;
   }
+
+  previewTextureCache.set(cacheKey, texture);
 
   return texture;
 }

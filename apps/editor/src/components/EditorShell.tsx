@@ -78,6 +78,7 @@ type EditorShellProps = {
   onSelectAsset: (assetId: string) => void;
   onSelectMaterialFaces: (faceIds: string[]) => void;
   onSelectMaterial: (materialId: string) => void;
+  onSetUvOffset: (scope: "faces" | "object", faceIds: string[], uvOffset: Vec2) => void;
   onSetUvScale: (scope: "faces" | "object", faceIds: string[], uvScale: Vec2) => void;
   onSelectNodes: (nodeIds: string[]) => void;
   onSetActiveBrushShape: (shape: PrimitiveShape) => void;
@@ -162,6 +163,7 @@ export function EditorShell({
   onSelectAsset,
   onSelectMaterialFaces,
   onSelectMaterial,
+  onSetUvOffset,
   onSetUvScale,
   onSelectNodes,
   onSetActiveBrushShape,
@@ -356,6 +358,7 @@ export function EditorShell({
           onSelectAsset={onSelectAsset}
           onSelectMaterial={onSelectMaterial}
           onSelectNodes={onSelectNodes}
+          onSetUvOffset={onSetUvOffset}
           onSetUvScale={onSetUvScale}
           onTranslateSelection={onTranslateSelection}
           onUpsertMaterial={onUpsertMaterial}

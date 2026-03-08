@@ -20,6 +20,7 @@ import {
   type Material,
   type Vec2,
 } from "@web-hammer/shared";
+import { AnimatePresence, motion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { DragInput } from "@/components/ui/drag-input";
 import { Input } from "@/components/ui/input";
@@ -35,6 +36,11 @@ type MaterialLibraryPanelProps = {
   ) => void;
   onDeleteMaterial: (materialId: string) => void;
   onSelectMaterial: (materialId: string) => void;
+  onSetUvOffset: (
+    scope: "faces" | "object",
+    faceIds: string[],
+    uvOffset: Vec2,
+  ) => void;
   onSetUvScale: (
     scope: "faces" | "object",
     faceIds: string[],
@@ -58,15 +64,17 @@ export function MaterialLibraryPanel({
   onApplyMaterial,
   onDeleteMaterial,
   onSelectMaterial,
+  onSetUvOffset,
   onSetUvScale,
   onUpsertMaterial,
   selectedFaceIds,
   selectedMaterialId,
   selectedNode,
 }: MaterialLibraryPanelProps) {
+  const [activeMaterialId, setActiveMaterialId] = useState(selectedMaterialId);
   const selectedMaterial = useMemo(
-    () => materials.find((material) => material.id === selectedMaterialId),
-    [materials, selectedMaterialId],
+    () => materials.find((material) => material.id === activeMaterialId),
+    [activeMaterialId, materials],
   );
   const flatMaterials = useMemo(
     () =>
@@ -97,6 +105,7 @@ export function MaterialLibraryPanel({
   >(null);
   const [scope, setScope] = useState<"faces" | "object">("object");
   const [uvDraft, setUvDraft] = useState<Vec2>(() => vec2(1, 1));
+  const [uvOffsetDraft, setUvOffsetDraft] = useState<Vec2>(() => vec2(0, 0));
   const [uvLocked, setUvLocked] = useState(true);
   const fileInputsRef = useRef<Record<string, HTMLInputElement | null>>({});
   const materialFaces =
@@ -118,10 +127,17 @@ export function MaterialLibraryPanel({
   const targetUvScale =
     (canApplyToFaces ? selectedFaces[0]?.uvScale : materialFaces[0]?.uvScale) ??
     vec2(1, 1);
+  const targetUvOffset =
+    (canApplyToFaces ? selectedFaces[0]?.uvOffset : materialFaces[0]?.uvOffset) ??
+    vec2(0, 0);
+
+  useEffect(() => {
+    setActiveMaterialId(selectedMaterialId);
+  }, [selectedMaterialId]);
 
   useEffect(() => {
     setDraftMaterial(createDraftMaterial(selectedMaterial));
-  }, [selectedMaterialId, selectedMaterial]);
+  }, [selectedMaterial]);
 
   useEffect(() => {
     if (scope === "faces" && !canApplyToFaces) {
@@ -144,6 +160,15 @@ export function MaterialLibraryPanel({
     selectedFaceIds.join("|"),
   ]);
 
+  useEffect(() => {
+    setUvOffsetDraft(vec2(targetUvOffset.x, targetUvOffset.y));
+  }, [
+    targetUvOffset.x,
+    targetUvOffset.y,
+    selectedNode?.id,
+    selectedFaceIds.join("|"),
+  ]);
+
   const applyUvAxis = (axis: "x" | "y", value: number) => {
     setUvDraft((current) => {
       if (uvLocked) {
@@ -152,6 +177,17 @@ export function MaterialLibraryPanel({
 
       return axis === "x" ? vec2(value, current.y) : vec2(current.x, value);
     });
+  };
+
+  const applyUvOffsetAxis = (axis: "x" | "y", value: number) => {
+    setUvOffsetDraft((current) =>
+      axis === "x" ? vec2(value, current.y) : vec2(current.x, value),
+    );
+  };
+
+  const selectMaterial = (materialId: string) => {
+    setActiveMaterialId(materialId);
+    onSelectMaterial(materialId);
   };
 
   const resolvedScope =
@@ -170,7 +206,7 @@ export function MaterialLibraryPanel({
     };
 
     onUpsertMaterial(material);
-    onSelectMaterial(material.id);
+    selectMaterial(material.id);
     setExpandedMaterialId(material.id);
   };
 
@@ -183,7 +219,7 @@ export function MaterialLibraryPanel({
       };
 
       onUpsertMaterial(material);
-      onSelectMaterial(material.id);
+      selectMaterial(material.id);
       setExpandedMaterialId(material.id);
       return;
     }
@@ -204,12 +240,13 @@ export function MaterialLibraryPanel({
   };
 
   const applyCurrentSelection = () => {
-    if (!selectedMaterial) {
+    if (!selectedMaterial || !activeMaterialId) {
       return;
     }
 
-    onApplyMaterial(selectedMaterial.id, resolvedScope, resolvedFaceIds);
+    onApplyMaterial(activeMaterialId, resolvedScope, resolvedFaceIds);
     onSetUvScale(resolvedScope, resolvedFaceIds, uvDraft);
+    onSetUvOffset(resolvedScope, resolvedFaceIds, uvOffsetDraft);
   };
 
   const beginNewMaterial = () => {
@@ -218,7 +255,7 @@ export function MaterialLibraryPanel({
   };
 
   const beginEditMaterial = (material: Material) => {
-    onSelectMaterial(material.id);
+    selectMaterial(material.id);
     setDraftMaterial(createDraftMaterial(material));
     setExpandedMaterialId(material.id);
   };
@@ -260,17 +297,19 @@ export function MaterialLibraryPanel({
             <PanelLabel>Flat</PanelLabel>
             <div className="grid grid-cols-5 gap-2">
               {flatMaterials.map((material) => (
-                <button
+                <motion.button
                   className={cn(
-                    "size-8 rounded-xl transition-transform hover:scale-[1.04]",
-                    selectedMaterialId === material.id &&
-                      "bg-white/10 shadow-[0_0_0_1px_rgba(255,255,255,0.18)]",
+                    "size-8 rounded-xl",
+                    activeMaterialId === material.id &&
+                      "shadow-[0_0_0_1.5px_rgba(16,185,129,0.96),0_0_0_4px_rgba(16,185,129,0.12)]",
                   )}
                   key={material.id}
-                  onClick={() => onSelectMaterial(material.id)}
+                  onClick={() => selectMaterial(material.id)}
                   style={{ backgroundColor: material.color }}
                   title={material.name}
                   type="button"
+                  whileHover={{ scale: 1.06, y: -1 }}
+                  whileTap={{ scale: 0.96 }}
                 />
               ))}
             </div>
@@ -280,14 +319,14 @@ export function MaterialLibraryPanel({
             <PanelLabel>Blockout</PanelLabel>
             <div className="flex flex-wrap gap-2">
               {blockoutMaterials.map((material) => (
-                <button
+                <motion.button
                   className={cn(
-                    "size-8 rounded-xl bg-white/4 bg-cover bg-center transition-transform hover:scale-[1.04]",
-                    selectedMaterialId === material.id &&
-                      "bg-white/10 shadow-[0_0_0_1px_rgba(255,255,255,0.18)]",
+                    "size-8 rounded-xl bg-white/4 bg-cover bg-center",
+                    activeMaterialId === material.id &&
+                      "shadow-[0_0_0_1.5px_rgba(16,185,129,0.96),0_0_0_4px_rgba(16,185,129,0.12)]",
                   )}
                   key={material.id}
-                  onClick={() => onSelectMaterial(material.id)}
+                  onClick={() => selectMaterial(material.id)}
                   style={{
                     backgroundColor: material.color,
                     backgroundImage: `url(${createBlockoutTextureDataUri(material.color, material.edgeColor ?? "#f5f2ea", material.edgeThickness ?? 0.018)})`,
@@ -296,6 +335,8 @@ export function MaterialLibraryPanel({
                   }}
                   title={material.name}
                   type="button"
+                  whileHover={{ scale: 1.06, y: -1 }}
+                  whileTap={{ scale: 0.96 }}
                 />
               ))}
             </div>
@@ -316,14 +357,17 @@ export function MaterialLibraryPanel({
             </div>
             <div className="space-y-1.5">
               {customMaterials.map((material) => (
-                <div className="space-y-2" key={material.id}>
-                  <button
+                <motion.div className="space-y-2" key={material.id} layout>
+                  <motion.button
                     className={cn(
                       "flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-left transition-colors hover:bg-white/5",
-                      selectedMaterialId === material.id && "bg-white/8",
+                      activeMaterialId === material.id &&
+                        "bg-white/8 shadow-[0_0_0_1.5px_rgba(16,185,129,0.9),0_0_0_4px_rgba(16,185,129,0.1)]",
                     )}
-                    onClick={() => onSelectMaterial(material.id)}
+                    onClick={() => selectMaterial(material.id)}
                     type="button"
+                    whileHover={{ y: -1 }}
+                    whileTap={{ scale: 0.992 }}
                   >
                     <div
                       className="size-8 shrink-0 rounded-xl bg-[#121619] bg-cover bg-center"
@@ -355,20 +399,30 @@ export function MaterialLibraryPanel({
                     >
                       <Pencil />
                     </Button>
-                  </button>
+                  </motion.button>
 
-                  {expandedMaterialId === material.id ? (
-                    <MaterialEditorForm
-                      draftMaterial={draftMaterial}
-                      fileInputsRef={fileInputsRef}
-                      isNew={false}
-                      onChangeDraft={setDraftMaterial}
-                      onDelete={() => onDeleteMaterial(material.id)}
-                      onSave={updateSelectedMaterial}
-                      onSaveAsNew={saveAsNewMaterial}
-                    />
-                  ) : null}
-                </div>
+                  <AnimatePresence initial={false}>
+                    {expandedMaterialId === material.id ? (
+                      <motion.div
+                        animate={{ height: "auto", opacity: 1, y: 0 }}
+                        className="overflow-hidden"
+                        exit={{ height: 0, opacity: 0, y: -8 }}
+                        initial={{ height: 0, opacity: 0, y: -8 }}
+                        transition={{ duration: 0.18, ease: "easeOut" }}
+                      >
+                        <MaterialEditorForm
+                          draftMaterial={draftMaterial}
+                          fileInputsRef={fileInputsRef}
+                          isNew={false}
+                          onChangeDraft={setDraftMaterial}
+                          onDelete={() => onDeleteMaterial(material.id)}
+                          onSave={updateSelectedMaterial}
+                          onSaveAsNew={saveAsNewMaterial}
+                        />
+                      </motion.div>
+                    ) : null}
+                  </AnimatePresence>
+                </motion.div>
               ))}
               {customMaterials.length === 0 && expandedMaterialId !== "new" ? (
                 <div className="px-2 py-3 text-[11px] text-foreground/40">
@@ -376,17 +430,27 @@ export function MaterialLibraryPanel({
                 </div>
               ) : null}
 
-              {expandedMaterialId === "new" ? (
-                <MaterialEditorForm
-                  draftMaterial={draftMaterial}
-                  fileInputsRef={fileInputsRef}
-                  isNew
-                  onChangeDraft={setDraftMaterial}
-                  onDelete={() => setExpandedMaterialId(null)}
-                  onSave={updateSelectedMaterial}
-                  onSaveAsNew={saveAsNewMaterial}
-                />
-              ) : null}
+              <AnimatePresence initial={false}>
+                {expandedMaterialId === "new" ? (
+                  <motion.div
+                    animate={{ height: "auto", opacity: 1, y: 0 }}
+                    className="overflow-hidden"
+                    exit={{ height: 0, opacity: 0, y: -8 }}
+                    initial={{ height: 0, opacity: 0, y: -8 }}
+                    transition={{ duration: 0.18, ease: "easeOut" }}
+                  >
+                    <MaterialEditorForm
+                      draftMaterial={draftMaterial}
+                      fileInputsRef={fileInputsRef}
+                      isNew
+                      onChangeDraft={setDraftMaterial}
+                      onDelete={() => setExpandedMaterialId(null)}
+                      onSave={updateSelectedMaterial}
+                      onSaveAsNew={saveAsNewMaterial}
+                    />
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
             </div>
           </div>
 
@@ -403,25 +467,53 @@ export function MaterialLibraryPanel({
                 {uvLocked ? <Lock /> : <Unlock />}
               </Button>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <DragInput
-                compact
-                label="U"
-                min={0.05}
-                onChange={(value) => applyUvAxis("x", value)}
-                precision={2}
-                step={0.05}
-                value={uvDraft.x}
-              />
-              <DragInput
-                compact
-                label="V"
-                min={0.05}
-                onChange={(value) => applyUvAxis("y", value)}
-                precision={2}
-                step={0.05}
-                value={uvDraft.y}
-              />
+            <div className="space-y-2">
+              <div className="px-0.5 text-[10px] font-medium tracking-[0.16em] text-foreground/34 uppercase">
+                Scale
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <DragInput
+                  compact
+                  label="U"
+                  min={0.05}
+                  onChange={(value) => applyUvAxis("x", value)}
+                  precision={2}
+                  step={0.05}
+                  value={uvDraft.x}
+                />
+                <DragInput
+                  compact
+                  label="V"
+                  min={0.05}
+                  onChange={(value) => applyUvAxis("y", value)}
+                  precision={2}
+                  step={0.05}
+                  value={uvDraft.y}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="px-0.5 text-[10px] font-medium tracking-[0.16em] text-foreground/34 uppercase">
+                Offset
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <DragInput
+                  compact
+                  label="U"
+                  onChange={(value) => applyUvOffsetAxis("x", value)}
+                  precision={2}
+                  step={0.05}
+                  value={uvOffsetDraft.x}
+                />
+                <DragInput
+                  compact
+                  label="V"
+                  onChange={(value) => applyUvOffsetAxis("y", value)}
+                  precision={2}
+                  step={0.05}
+                  value={uvOffsetDraft.y}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -471,7 +563,7 @@ function MaterialEditorForm({
   onSaveAsNew: () => void;
 }) {
   return (
-    <div className="space-y-3 rounded-2xl bg-white/[0.04] p-3">
+    <div className="space-y-3 rounded-2xl bg-white/4 p-3">
       <div className="flex items-end gap-2">
         <div className="flex-1 space-y-1">
           <PanelLabel>Name</PanelLabel>

@@ -42,6 +42,7 @@ export type Face = {
   plane: Plane;
   vertexIds: VertexID[];
   materialId?: MaterialID;
+  uvOffset?: Vec2;
   uvScale?: Vec2;
 };
 
@@ -68,6 +69,7 @@ export type EditableMeshFace = {
   id: FaceID;
   halfEdge: HalfEdgeID;
   materialId?: MaterialID;
+  uvOffset?: Vec2;
   uvScale?: Vec2;
 };
 

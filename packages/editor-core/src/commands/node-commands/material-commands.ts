@@ -160,6 +160,21 @@ export function createSetUvScaleCommand(
   return createFaceMutationCommand("set uv scale", snapshots);
 }
 
+export function createSetUvOffsetCommand(
+  scene: SceneDocument,
+  targets: MaterialTarget[],
+  uvOffset: Vec2
+): Command {
+  const snapshots = targets
+    .map((target) => buildFaceMutationSnapshot(scene, target, (face) => ({
+      ...face,
+      uvOffset: { x: uvOffset.x, y: uvOffset.y }
+    })))
+    .filter((snapshot): snapshot is FaceMutationSnapshot => Boolean(snapshot));
+
+  return createFaceMutationCommand("set uv offset", snapshots);
+}
+
 type FaceMutationSnapshot =
   | {
       before: Face[];
@@ -185,11 +200,13 @@ function buildFaceMutationSnapshot(
   const faceSet = target.faceIds ? new Set(target.faceIds) : undefined;
 
   if (node && isBrushNode(node)) {
+    const sourceFaces = resolveBrushFaces(node.data.faces, node.data.planes, target.nodeId);
+
     return {
       before: structuredClone(node.data.faces),
       faceIds: target.faceIds,
       kind: "brush",
-      next: node.data.faces.map((face) =>
+      next: sourceFaces.map((face) =>
         !faceSet || faceSet.has(face.id) ? (mutate(face) as Face) : structuredClone(face)
       ),
       nodeId: target.nodeId
@@ -209,6 +226,21 @@ function buildFaceMutationSnapshot(
   }
 
   return undefined;
+}
+
+function resolveBrushFaces(existingFaces: Face[], planes: Brush["planes"], nodeId: string): Face[] {
+  if (existingFaces.length >= planes.length) {
+    return existingFaces;
+  }
+
+  return planes.map((plane, index) => ({
+    id: existingFaces[index]?.id ?? `face:${nodeId}:${index}`,
+    materialId: existingFaces[index]?.materialId,
+    plane,
+    uvOffset: existingFaces[index]?.uvOffset,
+    uvScale: existingFaces[index]?.uvScale,
+    vertexIds: existingFaces[index]?.vertexIds ?? []
+  }));
 }
 
 function createFaceMutationCommand(label: string, snapshots: FaceMutationSnapshot[]): Command {

@@ -19,7 +19,7 @@ export const uiStore = proxy<UiStore>({
   activeViewportId: "perspective",
   rightPanel: "scene",
   selectedAssetId: "asset:model:crate",
-  selectedMaterialId: "material:blockout:orange",
+  selectedMaterialId: "material:blockout:concrete",
   viewMode: "3d-only",
   viewportQuality: 0.5,
   viewports: createEditorViewports()

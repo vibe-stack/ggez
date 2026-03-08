@@ -434,6 +434,7 @@ async function buildExportGeometry(
     faceMaterialId?: string;
     normal: Vec3;
     triangleIndices: number[];
+    uvOffset?: Vec2;
     uvScale?: Vec2;
     vertices: Vec3[];
   }) => {
@@ -446,7 +447,7 @@ async function buildExportGeometry(
       uvs: []
     };
     const vertexOffset = primitive.positions.length / 3;
-    const uvs = projectPlanarUvs(params.vertices, params.normal, params.uvScale);
+    const uvs = projectPlanarUvs(params.vertices, params.normal, params.uvScale, params.uvOffset);
 
     params.vertices.forEach((vertex) => {
       primitive.positions.push(vertex.x, vertex.y, vertex.z);
@@ -471,6 +472,7 @@ async function buildExportGeometry(
         faceMaterialId: face.materialId,
         normal: face.normal,
         triangleIndices: face.triangleIndices,
+        uvOffset: face.uvOffset,
         uvScale: face.uvScale,
         vertices: face.vertices.map((vertex) => vertex.position)
       });
@@ -489,6 +491,7 @@ async function buildExportGeometry(
         faceMaterialId: face.materialId,
         normal: triangulated.normal,
         triangleIndices: triangulated.indices,
+        uvOffset: face.uvOffset,
         uvScale: face.uvScale,
         vertices: getFaceVertices(node.data, face.id).map((vertex) => vertex.position)
       });
@@ -642,15 +645,17 @@ function ensureGltfTexture(
   return textureIndex;
 }
 
-function projectPlanarUvs(vertices: Vec3[], normal: Vec3, uvScale?: Vec2) {
+function projectPlanarUvs(vertices: Vec3[], normal: Vec3, uvScale?: Vec2, uvOffset?: Vec2) {
   const basis = createFacePlaneBasis(normal);
   const origin = vertices[0] ?? vec3(0, 0, 0);
   const scaleX = Math.abs(uvScale?.x ?? 1) <= 0.0001 ? 1 : uvScale?.x ?? 1;
   const scaleY = Math.abs(uvScale?.y ?? 1) <= 0.0001 ? 1 : uvScale?.y ?? 1;
+  const offsetX = uvOffset?.x ?? 0;
+  const offsetY = uvOffset?.y ?? 0;
 
   return vertices.flatMap((vertex) => {
     const offset = subVec3(vertex, origin);
-    return [dotVec3(offset, basis.u) * scaleX, 1 - dotVec3(offset, basis.v) * scaleY];
+    return [dotVec3(offset, basis.u) * scaleX + offsetX, 1 - dotVec3(offset, basis.v) * scaleY + offsetY];
   });
 }
 

@@ -22,6 +22,7 @@ import {
   createPlaceBrushNodeCommand,
   createPlaceModelNodeCommand,
   createSeedSceneDocument,
+  createSetUvOffsetCommand,
   createSetUvScaleCommand,
   createSplitBrushNodeAtCoordinateCommand,
   createSplitBrushNodesCommand,
@@ -671,6 +672,20 @@ export function App() {
     enqueueWorkerJob("UV update", { task: "triangulation", worker: "geometryWorker" }, 450);
   };
 
+  const handleSetMaterialUvOffset = (scope: "faces" | "object", faceIds: string[], uvOffset: Vec2) => {
+    if (editor.selection.ids.length === 0) {
+      return;
+    }
+
+    const targets =
+      scope === "faces" && faceIds.length > 0
+        ? editor.selection.ids.slice(0, 1).map((nodeId) => ({ faceIds, nodeId }))
+        : editor.selection.ids.map((nodeId) => ({ nodeId }));
+
+    editor.execute(createSetUvOffsetCommand(editor.scene, targets, vec2(uvOffset.x, uvOffset.y)));
+    enqueueWorkerJob("UV update", { task: "triangulation", worker: "geometryWorker" }, 450);
+  };
+
   const handleUpsertMaterial = (material: Material) => {
     editor.execute(createUpsertMaterialCommand(editor.scene, material));
     uiStore.selectedMaterialId = material.id;
@@ -897,6 +912,7 @@ export function App() {
         onSelectAsset={handleSelectAsset}
         onSelectMaterialFaces={setSelectedMaterialFaceIds}
         onSelectMaterial={handleSelectMaterial}
+        onSetUvOffset={handleSetMaterialUvOffset}
         onSetUvScale={handleSetMaterialUvScale}
         onSelectNodes={handleSelectNodes}
         onSetMeshEditMode={setMeshEditMode}
