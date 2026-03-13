@@ -6,6 +6,7 @@ import type {
   LightNode,
   MeshNode,
   ModelNode,
+  ScenePathDefinition,
   NodeID,
   PrimitiveNode,
   SceneSettings,
@@ -300,6 +301,7 @@ export function resolveSceneGraph(
 export function createDefaultSceneSettings(): SceneSettings {
   return {
     events: [],
+    paths: [],
     player: {
       cameraMode: "fps",
       canCrouch: true,
@@ -330,6 +332,7 @@ export function normalizeSceneSettings(settings?: Partial<SceneSettings> | Scene
     ...defaults,
     ...settings,
     events: normalizeSceneEvents(settings?.events),
+    paths: normalizeScenePaths(settings?.paths),
     player: {
       ...defaults.player,
       ...(settings?.player ?? {})
@@ -357,6 +360,23 @@ function normalizeSceneEvents(events?: SceneSettings["events"]): NonNullable<Sce
   return (events ?? []).map((eventDefinition) => ({
     ...eventDefinition,
     custom: eventDefinition.custom ?? true
+  }));
+}
+
+function normalizeScenePaths(paths?: SceneSettings["paths"]): NonNullable<SceneSettings["paths"]> {
+  return (paths ?? []).map((pathDefinition, index) => ({
+    id: pathDefinition.id?.trim() || `path_${index + 1}`,
+    loop: pathDefinition.loop ?? false,
+    name: pathDefinition.name?.trim() || `Path ${index + 1}`,
+    points: normalizeScenePathPoints(pathDefinition.points)
+  }));
+}
+
+function normalizeScenePathPoints(points?: ScenePathDefinition["points"]): ScenePathDefinition["points"] {
+  return (points ?? []).map((point) => ({
+    x: clampFiniteNumber(point?.x, 0),
+    y: clampFiniteNumber(point?.y, 0),
+    z: clampFiniteNumber(point?.z, 0)
   }));
 }
 

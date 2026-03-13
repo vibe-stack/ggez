@@ -115,4 +115,67 @@ describe("exportEngineBundle", () => {
 
     expect(bundle.manifest.settings.events?.[0]?.name).toBe("mission.updated");
   });
+
+  test("preserves node hooks in exported manifests", async () => {
+    const snapshot: SceneDocumentSnapshot = {
+      assets: [],
+      entities: [],
+      layers: [],
+      materials: [],
+      nodes: [
+        {
+          data: {},
+          hooks: [
+            {
+              config: {
+                shape: "box",
+                size: vec3(3, 1, 3)
+              },
+              enabled: true,
+              id: "hook:trigger:platform",
+              type: "trigger_volume"
+            },
+            {
+              actions: [
+                {
+                  event: "path.start",
+                  target: "node:platform",
+                  type: "emit"
+                }
+              ],
+              enabled: true,
+              id: "hook:sequence:platform",
+              trigger: {
+                event: "trigger.enter",
+                fromEntity: "node:platform"
+              },
+              type: "sequence"
+            },
+            {
+              config: {
+                active: false,
+                pathId: "sample:platform-route",
+                speed: 1.5
+              },
+              enabled: true,
+              id: "hook:path:platform",
+              type: "path_mover"
+            }
+          ],
+          id: "node:platform",
+          kind: "group",
+          name: "Platform",
+          transform: makeTransform(vec3(0, 0, 0))
+        }
+      ],
+      settings,
+      textures: []
+    };
+
+    const bundle = await exportEngineBundle(snapshot);
+    const platform = bundle.manifest.nodes.find((node) => node.id === "node:platform");
+
+    expect(platform?.hooks).toHaveLength(3);
+    expect(platform?.hooks?.map((hook) => hook.type)).toEqual(["trigger_volume", "sequence", "path_mover"]);
+  });
 });

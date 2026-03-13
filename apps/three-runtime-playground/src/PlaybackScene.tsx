@@ -58,6 +58,7 @@ export function PlaybackScene({
   cameraMode,
   gameplayRuntime,
   onNodeObjectChange,
+  onNodePhysicsBodyChange,
   onPlayerActorChange,
   physicsPlayback,
   physicsRevision,
@@ -68,7 +69,8 @@ export function PlaybackScene({
   cameraMode: "fps" | "third-person" | "top-down";
   gameplayRuntime?: GameplayRuntime;
   onNodeObjectChange?: (nodeId: string, object: Object3D | null) => void;
-  onPlayerActorChange?: (actor: { id: string; position: Vec3; tags: string[] } | null) => void;
+  onNodePhysicsBodyChange?: (nodeId: string, body: RapierRigidBody | null) => void;
+  onPlayerActorChange?: (actor: { height?: number; id: string; position: Vec3; radius?: number; tags: string[] } | null) => void;
   physicsPlayback: "paused" | "running" | "stopped";
   physicsRevision: number;
   renderScene: DerivedRenderScene;
@@ -89,7 +91,7 @@ export function PlaybackScene({
   );
 
   return (
-    <Canvas camera={{ far: 2000, fov: 60, near: 0.1, position: [18, 12, 18] }} shadows>
+    <Canvas dpr={0.5} camera={{ far: 2000, fov: 60, near: 0.1, position: [18, 12, 18] }} shadows>
       <color args={[effectiveSettings.world.fogColor]} attach="background" />
       <fog attach="fog" args={[effectiveSettings.world.fogColor, effectiveSettings.world.fogNear, effectiveSettings.world.fogFar]} />
       <ambientLight color={effectiveSettings.world.ambientColor} intensity={effectiveSettings.world.ambientIntensity} />
@@ -98,6 +100,7 @@ export function PlaybackScene({
       <group ref={worldRootRef}>
         <PlaybackWorld
           onNodeObjectChange={onNodeObjectChange}
+          onNodePhysicsBodyChange={onNodePhysicsBodyChange}
           onPlayerActorChange={onPlayerActorChange}
           physicsPlayback={physicsPlayback}
           physicsRevision={physicsRevision}
@@ -113,6 +116,7 @@ export function PlaybackScene({
 
 function PlaybackWorld({
   onNodeObjectChange,
+  onNodePhysicsBodyChange,
   onPlayerActorChange,
   physicsPlayback,
   physicsRevision,
@@ -121,7 +125,8 @@ function PlaybackWorld({
   sceneSettings
 }: {
   onNodeObjectChange?: (nodeId: string, object: Object3D | null) => void;
-  onPlayerActorChange?: (actor: { id: string; position: Vec3; tags: string[] } | null) => void;
+  onNodePhysicsBodyChange?: (nodeId: string, body: RapierRigidBody | null) => void;
+  onPlayerActorChange?: (actor: { height?: number; id: string; position: Vec3; radius?: number; tags: string[] } | null) => void;
   physicsPlayback: "paused" | "running" | "stopped";
   physicsRevision: number;
   renderScene: DerivedRenderScene;
@@ -149,10 +154,15 @@ function PlaybackWorld({
           timeStep={1 / 60}
         >
           {staticMeshes.map((mesh) => (
-            <StaticPhysicsCollider key={`collider:${mesh.nodeId}`} mesh={mesh} />
+            <StaticPhysicsCollider key={`collider:${mesh.nodeId}`} mesh={mesh} onNodePhysicsBodyChange={onNodePhysicsBodyChange} />
           ))}
           {physicsPropMeshes.map((mesh) => (
-            <PhysicsPropMesh key={`prop:${mesh.nodeId}`} mesh={mesh} resolveAssetPath={resolveAssetPath} />
+            <PhysicsPropMesh
+              key={`prop:${mesh.nodeId}`}
+              mesh={mesh}
+              onNodePhysicsBodyChange={onNodePhysicsBodyChange}
+              resolveAssetPath={resolveAssetPath}
+            />
           ))}
           {playerSpawn ? (
             <RuntimePlayer
@@ -228,7 +238,7 @@ function RuntimePlayer({
   sceneSettings,
   spawn
 }: {
-  onActorChange?: (actor: { id: string; position: Vec3; tags: string[] } | null) => void;
+  onActorChange?: (actor: { height?: number; id: string; position: Vec3; radius?: number; tags: string[] } | null) => void;
   physicsPlayback: "paused" | "running" | "stopped";
   sceneSettings: SceneSettings;
   spawn: DerivedEntityMarker;
@@ -237,6 +247,7 @@ function RuntimePlayer({
   const keyStateRef = useRef(new Set<string>());
   const jumpQueuedRef = useRef(false);
   const groundedColliderHandlesRef = useRef(new Set<number>());
+  const groundedBodiesRef = useRef(new Map<number, RapierRigidBody>());
   const yawRef = useRef(spawn.rotation.y);
   const pitchRef = useRef(sceneSettings.player.cameraMode === "fps" ? 0 : -0.2);
   const eyeAnchorRef = useRef<Object3D | null>(null);
@@ -295,6 +306,7 @@ function RuntimePlayer({
       keyStateRef.current.clear();
       jumpQueuedRef.current = false;
       groundedColliderHandlesRef.current.clear();
+      groundedBodiesRef.current.clear();
     };
 
     window.addEventListener("keydown", handleKeyDown);
@@ -365,6 +377,8 @@ function RuntimePlayer({
     const running = physicsPlayback === "running";
     const translation = body.translation();
     const linearVelocity = body.linvel();
+    const supportBody = groundedBodiesRef.current.values().next().value;
+    const supportVelocity = supportBody?.linvel();
     const keyState = keyStateRef.current;
     const crouching = running && sceneSettings.player.canCrouch && (keyState.has("ControlLeft") || keyState.has("ControlRight") || keyState.has("KeyC"));
     const currentHeight = crouchHeight && crouching ? crouchHeight : standingHeight;
@@ -394,9 +408,9 @@ function RuntimePlayer({
 
       body.setLinvel(
         {
-          x: moveDirection.x,
+          x: moveDirection.x + (supportVelocity?.x ?? 0),
           y: linearVelocity.y,
-          z: moveDirection.z
+          z: moveDirection.z + (supportVelocity?.z ?? 0)
         },
         true
       );
@@ -410,13 +424,14 @@ function RuntimePlayer({
 
           body.setLinvel(
             {
-              x: moveDirection.x,
+              x: moveDirection.x + (supportVelocity?.x ?? 0),
               y: Math.sqrt(2 * gravityMagnitude * sceneSettings.player.jumpHeight),
-              z: moveDirection.z
+              z: moveDirection.z + (supportVelocity?.z ?? 0)
             },
             true
           );
           groundedColliderHandlesRef.current.clear();
+          groundedBodiesRef.current.clear();
         }
 
         jumpQueuedRef.current = false;
@@ -467,8 +482,10 @@ function RuntimePlayer({
     }
 
     onActorChange?.({
+      height: currentHeight,
       id: "player",
       position: vec3(translation.x, translation.y, translation.z),
+      radius: colliderRadius,
       tags: ["player"]
     });
   });
@@ -487,8 +504,17 @@ function RuntimePlayer({
       <CapsuleCollider args={[capsuleHalfHeight, colliderRadius]} friction={0} restitution={0} />
       <CuboidCollider
         args={[colliderRadius * 0.72, 0.05, colliderRadius * 0.72]}
-        onIntersectionEnter={(payload) => groundedColliderHandlesRef.current.add(payload.other.collider.handle)}
-        onIntersectionExit={(payload) => groundedColliderHandlesRef.current.delete(payload.other.collider.handle)}
+        onIntersectionEnter={(payload) => {
+          groundedColliderHandlesRef.current.add(payload.other.collider.handle);
+
+          if (payload.other.rigidBody) {
+            groundedBodiesRef.current.set(payload.other.collider.handle, payload.other.rigidBody);
+          }
+        }}
+        onIntersectionExit={(payload) => {
+          groundedColliderHandlesRef.current.delete(payload.other.collider.handle);
+          groundedBodiesRef.current.delete(payload.other.collider.handle);
+        }}
         position={[0, -(footOffset + 0.04), 0]}
         sensor
       />
@@ -534,13 +560,29 @@ function RenderStaticMesh({
   );
 }
 
-function PhysicsPropMesh({ mesh, resolveAssetPath }: { mesh: DerivedRenderMesh; resolveAssetPath: AssetPathResolver }) {
+function PhysicsPropMesh({
+  mesh,
+  onNodePhysicsBodyChange,
+  resolveAssetPath
+}: {
+  mesh: DerivedRenderMesh;
+  onNodePhysicsBodyChange?: (nodeId: string, body: RapierRigidBody | null) => void;
+  resolveAssetPath: AssetPathResolver;
+}) {
   const physics = mesh.physics;
   const colliderProps = useMemo(() => resolvePhysicsColliderProps(mesh.physics), [mesh.physics]);
+  const bodyRef = useRef<RapierRigidBody | null>(null);
 
   if (!physics) {
     return null;
   }
+
+  useEffect(() => {
+    onNodePhysicsBodyChange?.(mesh.nodeId, bodyRef.current);
+    return () => {
+      onNodePhysicsBodyChange?.(mesh.nodeId, null);
+    };
+  }, [mesh.nodeId, onNodePhysicsBodyChange]);
 
   const useTrimeshCollider = physics.colliderShape === "trimesh" || !mesh.primitive;
 
@@ -555,6 +597,7 @@ function PhysicsPropMesh({ mesh, resolveAssetPath }: { mesh: DerivedRenderMesh; 
       lockRotations={physics.lockRotations}
       lockTranslations={physics.lockTranslations}
       position={toTuple(mesh.position)}
+      ref={bodyRef}
       rotation={toTuple(mesh.rotation)}
       type={physics.bodyType}
     >
@@ -574,9 +617,24 @@ function RenderNodeBody({ mesh, resolveAssetPath }: { mesh: DerivedRenderMesh; r
   return <RenderMeshBody mesh={mesh} resolveAssetPath={resolveAssetPath} />;
 }
 
-function StaticPhysicsCollider({ mesh }: { mesh: DerivedRenderMesh }) {
+function StaticPhysicsCollider({
+  mesh,
+  onNodePhysicsBodyChange
+}: {
+  mesh: DerivedRenderMesh;
+  onNodePhysicsBodyChange?: (nodeId: string, body: RapierRigidBody | null) => void;
+}) {
+  const bodyRef = useRef<RapierRigidBody | null>(null);
+
+  useEffect(() => {
+    onNodePhysicsBodyChange?.(mesh.nodeId, bodyRef.current);
+    return () => {
+      onNodePhysicsBodyChange?.(mesh.nodeId, null);
+    };
+  }, [mesh.nodeId, onNodePhysicsBodyChange]);
+
   return (
-    <RigidBody colliders={false} position={toTuple(mesh.position)} rotation={toTuple(mesh.rotation)} type="fixed">
+    <RigidBody colliders={false} position={toTuple(mesh.position)} ref={bodyRef} rotation={toTuple(mesh.rotation)} type="kinematicPosition">
       <TrimeshPhysicsCollider mesh={mesh} />
     </RigidBody>
   );

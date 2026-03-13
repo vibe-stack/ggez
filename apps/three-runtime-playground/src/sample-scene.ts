@@ -365,6 +365,31 @@ export function createSampleScene(): WebHammerEngineScene {
       }
     ],
     settings: {
+      paths: [
+        {
+          id: "sample:spire-loop",
+          loop: true,
+          name: "Spire Loop",
+          points: [
+            { x: -2.8, y: 0, z: -1.5 },
+            { x: -1.25, y: 0, z: -0.4 },
+            { x: -2.8, y: 0, z: 0.95 },
+            { x: -4.35, y: 0, z: -0.4 },
+            { x: -2.8, y: 0, z: -1.5 }
+          ]
+        },
+        {
+          id: "sample:platform-route",
+          loop: false,
+          name: "Platform Route",
+          points: [
+            { x: 1.6, y: 0.45, z: 3.8 },
+            { x: 1.6, y: 1.3, z: 1.8 },
+            { x: 4.2, y: 1.3, z: 1.8 },
+            { x: 4.2, y: 0.45, z: 3.8 }
+          ]
+        }
+      ],
       player: {
         cameraMode: "third-person",
         canCrouch: true,

@@ -470,6 +470,11 @@ export function createPathMoverSystemDefinition(resolvePath: GameplayPathResolve
               const nextState = ensurePathState(context, target.targetId, target.hook.config);
 
               if (event.event === "path.start") {
+                if (nextState.active && !nextState.paused) {
+                  context.setLocalState(target.targetId, "path_mover:state", nextState);
+                  return;
+                }
+
                 nextState.active = true;
                 nextState.paused = false;
                 context.emitFromHookTarget(target, "path.started");
@@ -516,9 +521,19 @@ export function createPathMoverSystemDefinition(resolvePath: GameplayPathResolve
               }
 
               const speed = Math.max(0.001, readNumber(target.hook.config.speed, 0.1));
+              const loopEnabled = readBoolean(target.hook.config.loop, path.loop ?? false);
+              const pingPong = loopEnabled && readBoolean(target.hook.config.reverse, false);
               state.progress += deltaSeconds * speed * state.direction;
 
-              if (readBoolean(target.hook.config.loop, path.loop ?? false)) {
+              if (pingPong) {
+                if (state.progress >= 1) {
+                  state.progress = 1;
+                  state.direction = -1;
+                } else if (state.progress <= 0) {
+                  state.progress = 0;
+                  state.direction = 1;
+                }
+              } else if (loopEnabled) {
                 state.progress = wrapProgress(state.progress);
               } else if (state.progress >= 1 || state.progress <= 0) {
                 state.progress = clampProgress(state.progress);
@@ -531,7 +546,7 @@ export function createPathMoverSystemDefinition(resolvePath: GameplayPathResolve
 
               context.setTargetLocalTransform(target.targetId, {
                 ...baseTransform,
-                position: path.sample(state.progress)
+                position: addVec3Values(baseTransform.position, subVec3Values(path.sample(state.progress), path.sample(0)))
               });
               context.setLocalState(target.targetId, "path_mover:state", state);
             });
@@ -565,6 +580,29 @@ export function createWaypointPath(points: Vec3[], loop = false): GameplayPathDe
         start.z + (end.z - start.z) * alpha
       );
     }
+  };
+}
+
+export function createScenePathResolver(paths: Array<{ id: string; loop?: boolean; points: Vec3[] }> = []): GameplayPathResolver {
+  const pathsById = new Map(
+    paths.map((pathDefinition) => [
+      pathDefinition.id,
+      createWaypointPath(pathDefinition.points, pathDefinition.loop ?? false)
+    ] as const)
+  );
+
+  return (target) => {
+    if (target.hook.type !== "path_mover") {
+      return undefined;
+    }
+
+    const pathId = readString(target.hook.config.pathId, "");
+
+    if (!pathId) {
+      return undefined;
+    }
+
+    return pathsById.get(pathId);
   };
 }
 
@@ -622,14 +660,16 @@ function matchesTriggerFilters(actor: GameplayActor, config: GameplayObject) {
 
 function isActorInsideTrigger(actor: GameplayActor, config: GameplayObject, transform: Transform) {
   const shape = readString(config.shape, "box");
+  const actorRadius = Math.max(0, actor.radius ?? 0);
+  const actorHalfHeight = Math.max(0, (actor.height ?? actor.radius ?? 0) * 0.5);
 
   if (shape === "sphere") {
-    const radius = Math.max(0.001, readNumber(config.radius, 1)) * maxScaleComponent(transform.scale);
+    const radius = Math.max(0.001, readNumber(config.radius, 1)) * maxScaleComponent(transform.scale) + actorRadius;
     return distanceSquared(actor.position, transform.position) <= radius * radius;
   }
 
   if (shape === "capsule") {
-    const radius = Math.max(0.001, readNumber(config.radius, 0.5)) * Math.max(transform.scale.x, transform.scale.z);
+    const radius = Math.max(0.001, readNumber(config.radius, 0.5)) * Math.max(transform.scale.x, transform.scale.z) + actorRadius;
     const height = Math.max(radius * 2, readNumber(config.height, radius * 2) * transform.scale.y);
     const segmentHalf = Math.max(0, height * 0.5 - radius);
     const start = vec3(transform.position.x, transform.position.y - segmentHalf, transform.position.z);
@@ -640,9 +680,9 @@ function isActorInsideTrigger(actor: GameplayActor, config: GameplayObject, tran
 
   const size = readVec3(config.size, vec3(1, 1, 1));
   const halfExtents = vec3(
-    Math.abs(size.x * transform.scale.x) * 0.5,
-    Math.abs(size.y * transform.scale.y) * 0.5,
-    Math.abs(size.z * transform.scale.z) * 0.5
+    Math.abs(size.x * transform.scale.x) * 0.5 + actorRadius,
+    Math.abs(size.y * transform.scale.y) * 0.5 + actorHalfHeight,
+    Math.abs(size.z * transform.scale.z) * 0.5 + actorRadius
   );
 
   return (
@@ -801,11 +841,14 @@ function ensurePathState(context: GameplayRuntimeSystemContext, targetId: string
     };
   }
 
+  const reverse = readBoolean(config.reverse, false);
+  const loop = readBoolean(config.loop, false);
+
   return {
     active: readBoolean(config.active, false),
-    direction: readBoolean(config.reverse, false) ? -1 as const : 1 as const,
+    direction: reverse && !loop ? -1 as const : 1 as const,
     paused: false,
-    progress: 0
+    progress: reverse && !loop ? 1 : 0
   };
 }
 
@@ -824,6 +867,14 @@ function interpolateVec3(from: Vec3, to: Vec3, progress: number): Vec3 {
     from.y + (to.y - from.y) * progress,
     from.z + (to.z - from.z) * progress
   );
+}
+
+function addVec3Values(left: Vec3, right: Vec3): Vec3 {
+  return vec3(left.x + right.x, left.y + right.y, left.z + right.z);
+}
+
+function subVec3Values(left: Vec3, right: Vec3): Vec3 {
+  return vec3(left.x - right.x, left.y - right.y, left.z - right.z);
 }
 
 function distanceSquared(left: Vec3, right: Vec3) {

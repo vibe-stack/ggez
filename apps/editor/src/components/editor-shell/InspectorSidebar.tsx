@@ -25,7 +25,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FloatingPanel } from "@/components/editor-shell/FloatingPanel";
-import { EventsPanel, HooksPanel } from "@/components/editor-shell/GameplayPanels";
+import { EventsPanel, HooksPanel, PathsPanel } from "@/components/editor-shell/GameplayPanels";
 import { MaterialLibraryPanel } from "@/components/editor-shell/MaterialLibraryPanel";
 import { SceneHierarchyPanel } from "@/components/editor-shell/SceneHierarchyPanel";
 import { rebaseTransformPivot } from "@/viewport/utils/geometry";
@@ -54,7 +54,9 @@ type InspectorSidebarProps = {
   onPlaceAsset: (position: Vec3) => void;
   onSelectAsset: (assetId: string) => void;
   onSelectMaterial: (materialId: string) => void;
+  onSelectScenePath: (pathId: string | undefined) => void;
   onSelectNodes: (nodeIds: string[]) => void;
+  onSetToolId: (toolId: ToolId) => void;
   onSetUvOffset: (scope: "faces" | "object", faceIds: string[], uvOffset: { x: number; y: number }) => void;
   onSetUvScale: (scope: "faces" | "object", faceIds: string[], uvScale: { x: number; y: number }) => void;
   onTranslateSelection: (axis: "x" | "y" | "z", direction: -1 | 1) => void;
@@ -69,6 +71,7 @@ type InspectorSidebarProps = {
   onUpdateNodeTransform: (nodeId: string, transform: Transform, beforeTransform?: Transform) => void;
   onUpdateSceneSettings: (settings: SceneSettings, beforeSettings?: SceneSettings) => void;
   sceneSettings: SceneSettings;
+  selectedScenePathId?: string;
   selectionEnabled: boolean;
   selectedAssetId: string;
   selectedEntity?: Entity;
@@ -106,7 +109,9 @@ export function InspectorSidebar({
   onPlaceAsset,
   onSelectAsset,
   onSelectMaterial,
+  onSelectScenePath,
   onSelectNodes,
+  onSetToolId,
   onSetUvOffset,
   onSetUvScale,
   onTranslateSelection,
@@ -121,6 +126,7 @@ export function InspectorSidebar({
   onUpdateNodeTransform,
   onUpdateSceneSettings,
   sceneSettings,
+  selectedScenePathId,
   selectionEnabled,
   selectedAssetId,
   selectedEntity,
@@ -135,6 +141,7 @@ export function InspectorSidebar({
   const [draftTransform, setDraftTransform] = useState<Transform | undefined>(() =>
     selectedTarget ? structuredClone(selectedTarget.transform) : undefined
   );
+  const [sceneSection, setSceneSection] = useState<"hierarchy" | "paths">("hierarchy");
   const [draftWorldSettings, setDraftWorldSettings] = useState(() => structuredClone(sceneSettings.world));
   const [draftPlayerSettings, setDraftPlayerSettings] = useState(() => structuredClone(sceneSettings.player));
 
@@ -274,16 +281,47 @@ export function InspectorSidebar({
 
           <TabsContent className="min-h-0 flex-1 px-3 pb-3" value="scene">
             <div className="flex h-full min-h-0 flex-col gap-3">
-              <div className="min-h-0 flex-1">
-                <SceneHierarchyPanel
-                  entities={entities}
-                  interactive={selectionEnabled}
-                  nodes={nodes}
-                  onFocusNode={onFocusNode}
-                  onSelectNodes={onSelectNodes}
-                  selectedNodeId={selectedNodeId}
-                />
+              <div className="grid grid-cols-2 gap-1.5 px-1">
+                <Button
+                  className={cn(sceneSection === "hierarchy" && "bg-emerald-500/18 text-emerald-200")}
+                  onClick={() => setSceneSection("hierarchy")}
+                  size="xs"
+                  variant="ghost"
+                >
+                  Hierarchy
+                </Button>
+                <Button
+                  className={cn(sceneSection === "paths" && "bg-emerald-500/18 text-emerald-200")}
+                  onClick={() => setSceneSection("paths")}
+                  size="xs"
+                  variant="ghost"
+                >
+                  Paths
+                </Button>
               </div>
+              {sceneSection === "hierarchy" ? (
+                <div className="min-h-0 flex-1">
+                  <SceneHierarchyPanel
+                    entities={entities}
+                    interactive={selectionEnabled}
+                    nodes={nodes}
+                    onFocusNode={onFocusNode}
+                    onSelectNodes={onSelectNodes}
+                    selectedNodeId={selectedNodeId}
+                  />
+                </div>
+              ) : (
+                <ScrollArea className="h-full pr-1">
+                  <PathsPanel
+                    activeToolId={activeToolId}
+                    onSelectScenePath={onSelectScenePath}
+                    onSetToolId={onSetToolId}
+                    onUpdateSceneSettings={onUpdateSceneSettings}
+                    sceneSettings={sceneSettings}
+                    selectedPathId={selectedScenePathId}
+                  />
+                </ScrollArea>
+              )}
             </div>
           </TabsContent>
 

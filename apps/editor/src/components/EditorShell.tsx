@@ -104,6 +104,7 @@ type EditorShellProps = {
   onSelectAsset: (assetId: string) => void;
   onSelectMaterialFaces: (faceIds: string[]) => void;
   onSelectMaterial: (materialId: string) => void;
+  onSelectScenePath: (pathId: string | undefined) => void;
   onStartAiModelPlacement: () => void;
   onSetUvOffset: (scope: "faces" | "object", faceIds: string[], uvOffset: Vec2) => void;
   onSetUvScale: (scope: "faces" | "object", faceIds: string[], uvScale: Vec2) => void;
@@ -141,6 +142,7 @@ type EditorShellProps = {
   physicsRevision: number;
   renderScene: DerivedRenderScene;
   sceneSettings: SceneSettings;
+  selectedScenePathId?: string;
   selectedAssetId: string;
   selectedFaceIds: string[];
   selectedMaterialId: string;
@@ -218,6 +220,7 @@ export function EditorShell({
   onSelectAsset,
   onSelectMaterialFaces,
   onSelectMaterial,
+  onSelectScenePath,
   onStartAiModelPlacement,
   onSetUvOffset,
   onSetUvScale,
@@ -255,6 +258,7 @@ export function EditorShell({
   physicsRevision,
   renderScene,
   sceneSettings,
+  selectedScenePathId,
   selectedAssetId,
   selectedFaceIds,
   selectedMaterialId,
@@ -317,18 +321,22 @@ export function EditorShell({
           onPreviewNodeTransform={onPreviewNodeTransform}
           onSculptModeChange={activeViewportId === viewportId ? onSculptModeChange : () => {}}
           onSelectMaterialFaces={onSelectMaterialFaces}
+          onSelectScenePath={onSelectScenePath}
           onSelectNodes={onSelectNodes}
+          onSetToolId={onSetToolId}
           onSplitBrushAtCoordinate={onSplitBrushAtCoordinate}
           onUpdateBrushData={onUpdateBrushData}
           onUpdateEntityTransform={onUpdateEntityTransform}
           onUpdateMeshData={onUpdateMeshData}
           onUpdateNodeTransform={onUpdateNodeTransform}
+          onUpdateSceneSettings={onUpdateSceneSettings}
           onViewportChange={onUpdateViewport}
           physicsPlayback={physicsPlayback}
           physicsRevision={physicsRevision}
           renderMode={definition.renderMode}
           renderScene={renderScene}
           sceneSettings={sceneSettings}
+          selectedScenePathId={selectedScenePathId}
           selectedEntity={selectedEntity}
           selectedNode={selectedNode}
           selectedNodeIds={selectedNodeIds}
@@ -454,7 +462,9 @@ export function EditorShell({
           onPlaceAsset={onPlaceAsset}
           onSelectAsset={onSelectAsset}
           onSelectMaterial={onSelectMaterial}
+          onSelectScenePath={onSelectScenePath}
           onSelectNodes={onSelectNodes}
+          onSetToolId={onSetToolId}
           onSetUvOffset={onSetUvOffset}
           onSetUvScale={onSetUvScale}
           onTranslateSelection={onTranslateSelection}
@@ -469,6 +479,7 @@ export function EditorShell({
           onUpdateSceneSettings={onUpdateSceneSettings}
           onUpdateNodeTransform={onUpdateNodeTransform}
           sceneSettings={sceneSettings}
+          selectedScenePathId={selectedScenePathId}
           selectionEnabled={selectionEnabled}
           selectedEntity={selectedEntity}
           selectedAssetId={selectedAssetId}

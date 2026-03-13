@@ -143,6 +143,7 @@ export function App() {
   const [sculptMode, setSculptMode] = useState<"deflate" | "inflate" | null>(null);
   const [sculptBrushRadius, setSculptBrushRadius] = useState(3);
   const [sculptBrushStrength, setSculptBrushStrength] = useState(0.2);
+  const [selectedScenePathId, setSelectedScenePathId] = useState<string>();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const glbImportInputRef = useRef<HTMLInputElement | null>(null);
   const renderSceneCacheRef = useRef(createDerivedRenderSceneCache());
@@ -180,6 +181,19 @@ export function App() {
     setAiModelDraft(null);
     setAiModelPlacementArmed(false);
   }, [aiModelDraft, editor, sceneRevision]);
+
+  useEffect(() => {
+    const scenePaths = editor.scene.settings.paths ?? [];
+
+    if (scenePaths.length === 0) {
+      setSelectedScenePathId(undefined);
+      return;
+    }
+
+    if (!selectedScenePathId || !scenePaths.some((pathDefinition) => pathDefinition.id === selectedScenePathId)) {
+      setSelectedScenePathId(scenePaths[0]?.id);
+    }
+  }, [editor, sceneRevision, selectedScenePathId]);
 
   const handleSelectNodes = (nodeIds: string[]) => {
     if (physicsPlayback !== "stopped") {
@@ -1412,6 +1426,7 @@ export function App() {
         onSelectAsset={handleSelectAsset}
         onSelectMaterialFaces={setSelectedMaterialFaceIds}
         onSelectMaterial={handleSelectMaterial}
+        onSelectScenePath={setSelectedScenePathId}
         onStartAiModelPlacement={handleArmAiModelPlacement}
         onSetUvOffset={handleSetMaterialUvOffset}
         onSetUvScale={handleSetMaterialUvScale}
@@ -1453,6 +1468,7 @@ export function App() {
         physicsRevision={physicsRevision}
         renderScene={renderScene}
         sceneSettings={editor.scene.settings}
+        selectedScenePathId={selectedScenePathId}
         selectedAssetId={ui.selectedAssetId}
         selectedFaceIds={selectedMaterialFaceIds}
         selectedMaterialId={ui.selectedMaterialId}

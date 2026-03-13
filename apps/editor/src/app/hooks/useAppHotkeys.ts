@@ -34,6 +34,8 @@ export function useAppHotkeys({
   setMeshEditMode,
   setTransformMode
 }: UseAppHotkeysOptions) {
+  const blocksSceneSelectionEdits = activeToolId === "mesh-edit" || activeToolId === "path-add" || activeToolId === "path-edit";
+
   useEffect(() => {
     if (!enabled) {
       return;
@@ -63,25 +65,25 @@ export function useAppHotkeys({
         return;
       }
 
-      if (modifier && event.key.toLowerCase() === "d") {
+      if (modifier && event.key.toLowerCase() === "d" && !blocksSceneSelectionEdits) {
         event.preventDefault();
         handleDuplicateSelection();
         return;
       }
 
-      if (modifier && event.key.toLowerCase() === "g" && activeToolId !== "mesh-edit") {
+      if (modifier && event.key.toLowerCase() === "g" && !blocksSceneSelectionEdits) {
         event.preventDefault();
         handleGroupSelection();
         return;
       }
 
-      if ((event.key === "Backspace" || event.key === "Delete") && activeToolId !== "mesh-edit") {
+      if ((event.key === "Backspace" || event.key === "Delete") && !blocksSceneSelectionEdits) {
         event.preventDefault();
         handleDeleteSelection();
         return;
       }
 
-      if (event.key.toLowerCase() === "n" && activeToolId !== "mesh-edit") {
+      if (event.key.toLowerCase() === "n" && !blocksSceneSelectionEdits) {
         event.preventDefault();
         handleInvertSelectionNormals();
         return;
@@ -117,7 +119,17 @@ export function useAppHotkeys({
         return;
       }
 
-      if (event.key.toLowerCase() === "+" && activeToolId !== "mesh-edit") {
+      if (event.key === "7") {
+        setActiveToolId("path-add");
+        return;
+      }
+
+      if (event.key === "8") {
+        setActiveToolId("path-edit");
+        return;
+      }
+
+      if (event.key.toLowerCase() === "+" && !blocksSceneSelectionEdits) {
         setActiveToolId("brush");
         return;
       }
@@ -190,6 +202,7 @@ export function useAppHotkeys({
     };
   }, [
     activeToolId,
+    blocksSceneSelectionEdits,
     editor,
     enabled,
     handleDeleteSelection,

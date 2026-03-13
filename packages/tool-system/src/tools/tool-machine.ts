@@ -1,6 +1,6 @@
 import { createMachine } from "xstate";
 
-export type ToolId = "select" | "transform" | "brush" | "clip" | "extrude" | "mesh-edit";
+export type ToolId = "select" | "transform" | "brush" | "clip" | "extrude" | "mesh-edit" | "path-add" | "path-edit";
 
 export const defaultToolId: ToolId = "select";
 

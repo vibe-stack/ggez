@@ -8,8 +8,10 @@ export type GameplayRuntimeScene = {
 };
 
 export type GameplayActor = {
+  height?: number;
   id: string;
   position: Vec3;
+  radius?: number;
   tags?: string[];
 };
 

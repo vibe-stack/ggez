@@ -1,12 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createGameplayRuntime,
-  createMoverSystemDefinition,
-  createOpenableSystemDefinition,
-  createPathMoverSystemDefinition,
-  createSequenceSystemDefinition,
-  createTriggerSystemDefinition,
-  createWaypointPath
 } from "@web-hammer/gameplay-runtime";
 import {
   createWebHammerBundleAssetResolver,
@@ -17,6 +11,7 @@ import {
 import { normalizeSceneSettings, type PlayerCameraMode } from "@web-hammer/shared";
 import { createPlaybackRenderScene } from "./adapter";
 import { createPlaybackGameplayHost } from "./gameplay-host";
+import { createPlaybackGameplaySystems } from "./gameplay-systems";
 import { PlaybackScene } from "./PlaybackScene";
 import { createSampleScene, resolveSampleAssetPath } from "./sample-scene";
 
@@ -46,61 +41,10 @@ export function App() {
   const normalizedSceneSettings = useMemo(() => normalizeSceneSettings(scene.settings), [scene.settings]);
 
   const renderScene = useMemo(() => createPlaybackRenderScene(scene), [scene]);
-  const gameplaySystems = useMemo(() => {
-    const systems = [];
-    const samplePaths = new Map([
-      [
-        SAMPLE_PATH_ID,
-        createWaypointPath(
-          [
-            { x: -2.8, y: 0, z: -1.5 },
-            { x: -1.25, y: 0, z: -0.4 },
-            { x: -2.8, y: 0, z: 0.95 },
-            { x: -4.35, y: 0, z: -0.4 },
-            { x: -2.8, y: 0, z: -1.5 }
-          ],
-          true
-        )
-      ],
-      [
-        SAMPLE_PLATFORM_ID,
-        createWaypointPath(
-          [
-            { x: 1.6, y: 0.45, z: 3.8 },
-            { x: 1.6, y: 1.3, z: 1.8 },
-            { x: 4.2, y: 1.3, z: 1.8 },
-            { x: 4.2, y: 0.45, z: 3.8 }
-          ]
-        )
-      ]
-    ]);
-
-    if (enabledSystems.trigger) {
-      systems.push(createTriggerSystemDefinition());
-    }
-
-    if (enabledSystems.sequence) {
-      systems.push(createSequenceSystemDefinition());
-    }
-
-    if (enabledSystems.openable) {
-      systems.push(createOpenableSystemDefinition());
-    }
-
-    if (enabledSystems.mover) {
-      systems.push(createMoverSystemDefinition());
-    }
-
-    if (enabledSystems.pathMover) {
-      systems.push(
-        createPathMoverSystemDefinition((target) =>
-          target.hook.type === "path_mover" ? samplePaths.get(target.targetId) : undefined
-        )
-      );
-    }
-
-    return systems;
-  }, [enabledSystems]);
+  const gameplaySystems = useMemo(
+    () => createPlaybackGameplaySystems(scene, enabledSystems),
+    [enabledSystems, scene]
+  );
   const gameplayRuntime = useMemo(
     () =>
       createGameplayRuntime({
@@ -113,7 +57,7 @@ export function App() {
       }),
     [gameplaySystems, scene.entities, scene.nodes]
   );
-  const handlePlayerActorChange = useCallback((actor: { id: string; position: { x: number; y: number; z: number }; tags: string[] } | null) => {
+  const handlePlayerActorChange = useCallback((actor: { height?: number; id: string; position: { x: number; y: number; z: number }; radius?: number; tags: string[] } | null) => {
     if (actor) {
       gameplayRuntime.updateActor(actor);
       return;
@@ -253,6 +197,7 @@ export function App() {
           cameraMode={cameraMode}
           gameplayRuntime={gameplayRuntime}
           onNodeObjectChange={gameplayHostRef.current.bindNodeObject}
+          onNodePhysicsBodyChange={gameplayHostRef.current.bindNodePhysicsBody}
           onPlayerActorChange={handlePlayerActorChange}
           physicsRevision={physicsRevision}
           physicsPlayback={physicsPlayback}

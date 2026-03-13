@@ -69,6 +69,10 @@ function shortcutForPrimaryTool(toolId: ToolId) {
       return "5";
     case "brush":
       return "6";
+    case "path-add":
+      return "7";
+    case "path-edit":
+      return "8";
     default:
       return undefined;
   }

@@ -194,6 +194,7 @@ async function buildEngineScene(snapshot: SceneDocumentSnapshot): Promise<WebHam
         if (isGroupNode(node)) {
           return {
             data: node.data,
+            hooks: node.hooks,
             id: node.id,
             kind: "group",
             metadata: node.metadata,
@@ -208,6 +209,7 @@ async function buildEngineScene(snapshot: SceneDocumentSnapshot): Promise<WebHam
           return {
             data: node.data,
             geometry: await buildExportGeometry(node, materialsById),
+            hooks: node.hooks,
             id: node.id,
             kind: "brush",
             metadata: node.metadata,
@@ -222,6 +224,7 @@ async function buildEngineScene(snapshot: SceneDocumentSnapshot): Promise<WebHam
           return {
             data: node.data,
             geometry: await buildExportGeometry(node, materialsById),
+            hooks: node.hooks,
             id: node.id,
             kind: "mesh",
             metadata: node.metadata,
@@ -236,6 +239,7 @@ async function buildEngineScene(snapshot: SceneDocumentSnapshot): Promise<WebHam
           return {
             data: node.data,
             geometry: await buildExportGeometry(node, materialsById),
+            hooks: node.hooks,
             id: node.id,
             kind: "primitive",
             metadata: node.metadata,
@@ -249,6 +253,7 @@ async function buildEngineScene(snapshot: SceneDocumentSnapshot): Promise<WebHam
         if (isModelNode(node)) {
           return {
             data: node.data,
+            hooks: node.hooks,
             id: node.id,
             kind: "model",
             metadata: node.metadata,

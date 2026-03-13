@@ -48,6 +48,9 @@ export type HookFieldDefinition =
       kind: "scalar";
     })
   | (HookFieldBase & {
+      kind: "scene-path";
+    })
+  | (HookFieldBase & {
       kind: "sequence-actions";
     })
   | (HookFieldBase & {
@@ -470,7 +473,7 @@ const hookDefinitionEntries: Array<HookDefinition & { defaultConfig: SceneHook["
     emits: ["path.started", "path.stopped", "path.completed", "path.node_reached"],
     fields: [
       {
-        kind: "text",
+        kind: "scene-path",
         label: "Path Id",
         path: "pathId",
         placeholder: "subway_line_01"
@@ -1015,15 +1018,43 @@ export function createGameplayEventDefinition(
   };
 }
 
-export function createSceneHook(type: string): SceneHook | undefined {
+export function createSceneHook(
+  type: string,
+  options?: {
+    defaultPathId?: string;
+    targetId?: string;
+  }
+): SceneHook | undefined {
   const definition = HOOK_DEFINITION_MAP.get(type);
 
   if (!definition) {
     return undefined;
   }
 
+  const config = structuredClone(definition.defaultConfig);
+
+  if (type === "path_mover" && options?.defaultPathId) {
+    config.pathId = options.defaultPathId;
+  }
+
+  if (type === "sequence" && options?.targetId) {
+    if (isGameplayObject(config.trigger)) {
+      config.trigger.fromEntity = options.targetId;
+    }
+
+    if (Array.isArray(config.actions) && isGameplayObject(config.actions[0]) && config.actions[0].type === "emit") {
+      config.actions[0].target = options.targetId;
+    }
+  }
+
+  if (type === "condition_listener" && options?.targetId) {
+    if (Array.isArray(config.actions) && isGameplayObject(config.actions[0]) && config.actions[0].type === "emit") {
+      config.actions[0].target = options.targetId;
+    }
+  }
+
   return {
-    config: structuredClone(definition.defaultConfig),
+    config,
     enabled: true,
     id: createGameplayId(`hook:${type}`),
     type
@@ -1187,18 +1218,18 @@ export function toVec3Tuple(value: GameplayValue | undefined, fallback: [number,
   ];
 }
 
-export function createEmptyEventCondition(): GameplayObject {
+export function createEmptyEventCondition(defaultFromEntity = ""): GameplayObject {
   return {
     event: "trigger.enter",
-    fromEntity: ""
+    fromEntity: defaultFromEntity
   };
 }
 
-export function createEmptySequenceAction(): GameplayObject {
+export function createEmptySequenceAction(defaultTarget = "", defaultEvent = "open.requested"): GameplayObject {
   return {
-    event: "open.requested",
+    event: defaultEvent,
     payload: null,
-    target: "",
+    target: defaultTarget,
     type: "emit"
   };
 }

@@ -235,6 +235,30 @@ export function CubePrimitiveIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function PathAddIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg fill="none" viewBox="0 0 24 24" {...props}>
+      <path d="M6.5 17.5 11 8.5l6.5 7" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+      <circle cx="6.5" cy="17.5" r="1.8" fill="currentColor" />
+      <circle cx="11" cy="8.5" r="1.8" fill="currentColor" />
+      <circle cx="17.5" cy="15.5" r="1.8" fill="currentColor" />
+      <path d="M18.5 5.5v5M16 8h5" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+export function PathEditIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg fill="none" viewBox="0 0 24 24" {...props}>
+      <path d="M5.5 17.5 10 9l6.5 6.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+      <circle cx="5.5" cy="17.5" r="1.8" fill="currentColor" />
+      <circle cx="10" cy="9" r="1.8" fill="currentColor" />
+      <circle cx="16.5" cy="15.5" r="1.8" fill="currentColor" />
+      <path d="m15.7 6.3 2-2a1.6 1.6 0 0 1 2.3 2.3l-2 2-2.8.5.5-2.8Z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
 export function CrateIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg fill="none" viewBox="0 0 24 24" {...props}>
@@ -352,7 +376,7 @@ export function toolIconFor(toolId: ToolId) {
     case "select":
       return MousePointer2;
     case "transform":
-      return Move3d;
+      return TridentIcon;
     case "brush":
       return BrushCreateIcon;
     case "clip":
@@ -361,8 +385,12 @@ export function toolIconFor(toolId: ToolId) {
       return ExtrudeIcon;
     case "mesh-edit":
       return MeshEditToolIcon;
+    case "path-add":
+      return PathAddIcon;
+    case "path-edit":
+      return PathEditIcon;
     default:
-      return MousePointer2;
+      return Grid3X3;
   }
 }
 

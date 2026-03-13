@@ -73,7 +73,7 @@ describe("gameplay runtime", () => {
     expect(events).toContain("open.completed");
   });
 
-  test("moves active path movers with consumer-provided paths", () => {
+  test("moves active path movers relative to the authored start transform", () => {
     const node: GeometryNode = {
       data: {},
       hooks: [
@@ -91,7 +91,7 @@ describe("gameplay runtime", () => {
       id: "node:mover",
       kind: "group",
       name: "Mover",
-      transform: makeTransform(vec3(0, 0, 0))
+      transform: makeTransform(vec3(0, 3, 10))
     };
     const runtime = createGameplayRuntime({
       systems: [
@@ -110,7 +110,51 @@ describe("gameplay runtime", () => {
     runtime.start();
     runtime.update(0.25);
 
-    expect(runtime.getNodeWorldTransform(node.id)?.position.z).toBeCloseTo(1, 4);
+    expect(runtime.getNodeWorldTransform(node.id)?.position.y).toBeCloseTo(3, 4);
+    expect(runtime.getNodeWorldTransform(node.id)?.position.z).toBeCloseTo(11, 4);
+  });
+
+  test("ping-pongs path movers when loop and reverse are both enabled", () => {
+    const node: GeometryNode = {
+      data: {},
+      hooks: [
+        {
+          config: {
+            active: true,
+            loop: true,
+            pathId: "sample:path",
+            reverse: true,
+            speed: 1
+          },
+          id: "hook:path",
+          type: "path_mover"
+        }
+      ],
+      id: "node:pingpong",
+      kind: "group",
+      name: "PingPong",
+      transform: makeTransform(vec3(0, 0, 0))
+    };
+    const runtime = createGameplayRuntime({
+      systems: [
+        createPathMoverSystemDefinition((target) =>
+          target.targetId === node.id
+            ? createWaypointPath([vec3(0, 0, 0), vec3(0, 0, 4)], true)
+            : undefined
+        )
+      ],
+      scene: {
+        entities: [],
+        nodes: [node]
+      }
+    });
+
+    runtime.start();
+    runtime.update(1);
+    expect(runtime.getNodeWorldTransform(node.id)?.position.z).toBeCloseTo(4, 4);
+
+    runtime.update(0.25);
+    expect(runtime.getNodeWorldTransform(node.id)?.position.z).toBeCloseTo(3, 4);
   });
 
   test("processes queued micro-phases in order within a frame", () => {
@@ -203,6 +247,51 @@ describe("gameplay runtime", () => {
 
     expect(events).toContain("trigger.enter");
     expect(events).toContain("trigger.exit");
+  });
+
+  test("treats actor extents as overlap for platform-sized triggers", () => {
+    const node: GeometryNode = {
+      data: {},
+      hooks: [
+        {
+          config: {
+            filters: ["player"],
+            fireOnce: true,
+            shape: "box",
+            size: [2.6, 1.4, 2.6]
+          },
+          id: "hook:trigger",
+          type: "trigger_volume"
+        }
+      ],
+      id: "node:platform",
+      kind: "group",
+      name: "Platform",
+      transform: makeTransform(vec3(1.6, 0.45, 3.8))
+    };
+    const runtime = createGameplayRuntime({
+      scene: {
+        entities: [],
+        nodes: [node]
+      },
+      systems: [createTriggerSystemDefinition()]
+    });
+    const events: string[] = [];
+
+    runtime.onEvent((event) => {
+      events.push(event.event);
+    });
+    runtime.start();
+    runtime.updateActor({
+      height: 1.8,
+      id: "player",
+      position: vec3(1.6, 1.35, 3.8),
+      radius: 0.32,
+      tags: ["player"]
+    });
+    runtime.update(0);
+
+    expect(events).toContain("trigger.enter");
   });
 
   test("starts a path mover from a trigger-driven sequence", () => {

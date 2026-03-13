@@ -31,6 +31,7 @@ import {
   toTuple,
   subVec3,
   vec3,
+  type ScenePathDefinition,
   type EditableMesh,
   type Vec3
 } from "@web-hammer/shared";
@@ -146,19 +147,23 @@ export function ViewportCanvas({
   onPreviewMeshData,
   onPreviewNodeTransform,
   onSculptModeChange,
+  onSelectScenePath,
   onSelectMaterialFaces,
   onSelectNodes,
+  onSetToolId,
   onSplitBrushAtCoordinate,
   onUpdateBrushData,
   onUpdateEntityTransform,
   onUpdateMeshData,
   onUpdateNodeTransform,
+  onUpdateSceneSettings,
   onViewportChange,
   physicsPlayback,
   physicsRevision,
   renderMode,
   renderScene,
   sceneSettings,
+  selectedScenePathId,
   selectedEntity,
   selectedNode,
   selectedNodeIds,
@@ -172,6 +177,7 @@ export function ViewportCanvas({
   const aiPlacementClickOriginRef = useRef<Vector2 | null>(null);
   const brushClickOriginRef = useRef<Vector2 | null>(null);
   const marqueeOriginRef = useRef<Vector2 | null>(null);
+  const pathToolClickOriginRef = useRef<Vector2 | null>(null);
   const pointerPositionRef = useRef<Vector2 | null>(null);
   const selectionClickOriginRef = useRef<Vector2 | null>(null);
   const viewportRootRef = useRef<HTMLDivElement | null>(null);
@@ -184,6 +190,16 @@ export function ViewportCanvas({
   const [extrudeState, setExtrudeState] = useState<ExtrudeGestureState | null>(null);
   const [faceCutState, setFaceCutState] = useState<{ faceId: string } | null>(null);
   const [faceSubdivisionState, setFaceSubdivisionState] = useState<FaceSubdivisionState | null>(null);
+  const [pathAddSessionId, setPathAddSessionId] = useState<string | null>(null);
+  const [pathDragState, setPathDragState] = useState<{
+    beforeSettings: ViewportCanvasProps["sceneSettings"];
+    pathId: string;
+    plane: Plane;
+    pointIndex: number;
+    startPoint: Vec3;
+  } | null>(null);
+  const [pathPreviewPaths, setPathPreviewPaths] = useState<ScenePathDefinition[] | null>(null);
+  const [selectedPathPointIndex, setSelectedPathPointIndex] = useState<number | null>(null);
   const [sculptState, setSculptState] = useState<SculptBrushState | null>(null);
   const snapSize = resolveViewportSnapSize(viewport);
   const editorInteractionEnabled = physicsPlayback === "stopped";
@@ -191,6 +207,7 @@ export function ViewportCanvas({
   const [transformDragging, setTransformDragging] = useState(false);
   const [marquee, setMarquee] = useState<MarqueeState | null>(null);
   const extrudeStateRef = useRef<ExtrudeGestureState | null>(null);
+  const pathPreviewPathsRef = useRef<ScenePathDefinition[] | null>(null);
   const sculptStateRef = useRef<SculptBrushState | null>(null);
   const previewFrameRef = useRef<number | null>(null);
   const sculptStrokeFrameRef = useRef<number | null>(null);
@@ -203,6 +220,7 @@ export function ViewportCanvas({
   const lastMeshEditActionRef = useRef<LastMeshEditAction | null>(null);
   const previewBrushDataRef = useRef(onPreviewBrushData);
   extrudeStateRef.current = extrudeState;
+  pathPreviewPathsRef.current = pathPreviewPaths;
   sculptStateRef.current = sculptState;
   previewBrushDataRef.current = onPreviewBrushData;
 
@@ -262,6 +280,11 @@ export function ViewportCanvas({
     setFaceCutState(null);
     setFaceSubdivisionState(null);
     setExtrudeState(null);
+    setPathAddSessionId(null);
+    setPathDragState(null);
+    pathPreviewPathsRef.current = null;
+    setPathPreviewPaths(null);
+    setSelectedPathPointIndex(null);
     setSculptState(null);
     setTransformDragging(false);
   }, [activeToolId, meshEditMode, selectedNode?.id, selectedNode?.kind]);
@@ -280,7 +303,11 @@ export function ViewportCanvas({
     brushClickOriginRef.current = null;
     aiPlacementClickOriginRef.current = null;
     marqueeOriginRef.current = null;
+    pathToolClickOriginRef.current = null;
     selectionClickOriginRef.current = null;
+    setPathDragState(null);
+    pathPreviewPathsRef.current = null;
+    setPathPreviewPaths(null);
     sculptStateRef.current = null;
     setSculptState(null);
     setMarquee(null);
@@ -288,8 +315,89 @@ export function ViewportCanvas({
   }, [editorInteractionEnabled]);
 
   useEffect(() => {
+    const scenePaths = sceneSettings.paths ?? [];
+
+    if (!selectedScenePathId || !scenePaths.some((pathDefinition) => pathDefinition.id === selectedScenePathId)) {
+      setSelectedPathPointIndex(null);
+      return;
+    }
+
+    const selectedPath = scenePaths.find((pathDefinition) => pathDefinition.id === selectedScenePathId);
+
+    if (!selectedPath || selectedPathPointIndex === null || selectedPathPointIndex < selectedPath.points.length) {
+      return;
+    }
+
+    setSelectedPathPointIndex(selectedPath.points.length > 0 ? selectedPath.points.length - 1 : null);
+  }, [sceneSettings.paths, selectedPathPointIndex, selectedScenePathId]);
+
+  useEffect(() => {
     setBrushCreateState((current) => (current && current.shape !== activeBrushShape ? null : current));
   }, [activeBrushShape]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (activeToolId === "path-add" && event.key === "Enter") {
+        event.preventDefault();
+        setPathAddSessionId(null);
+        onSetToolId("path-edit");
+        return;
+      }
+
+      if (event.key === "Escape" && (activeToolId === "path-add" || activeToolId === "path-edit")) {
+        event.preventDefault();
+        setPathAddSessionId(null);
+        setPathDragState(null);
+        pathPreviewPathsRef.current = null;
+        setPathPreviewPaths(null);
+        setSelectedPathPointIndex(null);
+        return;
+      }
+
+      if (activeToolId !== "path-edit" || selectedScenePathId === undefined || selectedPathPointIndex === null) {
+        return;
+      }
+
+      if (event.key !== "Backspace" && event.key !== "Delete") {
+        return;
+      }
+
+      const scenePaths = sceneSettings.paths ?? [];
+      const selectedPath = scenePaths.find((pathDefinition) => pathDefinition.id === selectedScenePathId);
+
+      if (!selectedPath) {
+        return;
+      }
+
+      event.preventDefault();
+
+      const nextPaths = scenePaths.map((pathDefinition) =>
+        pathDefinition.id === selectedScenePathId
+          ? {
+              ...pathDefinition,
+              points: pathDefinition.points.filter((_, index) => index !== selectedPathPointIndex)
+            }
+          : pathDefinition
+      );
+
+      onUpdateSceneSettings(
+        {
+          ...sceneSettings,
+          paths: nextPaths
+        },
+        sceneSettings
+      );
+      setSelectedPathPointIndex(
+        selectedPath.points.length <= 1 ? null : Math.max(0, Math.min(selectedPathPointIndex - 1, selectedPath.points.length - 2))
+      );
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [activeToolId, onSetToolId, onUpdateSceneSettings, sceneSettings, selectedPathPointIndex, selectedScenePathId]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -385,6 +493,10 @@ export function ViewportCanvas({
     ...node,
     transform: renderScene.nodeTransforms.get(node.id) ?? node.transform
   }));
+  const pathDefinitions = pathPreviewPaths ?? (sceneSettings.paths ?? []);
+  const selectedPath = selectedScenePathId
+    ? pathDefinitions.find((pathDefinition) => pathDefinition.id === selectedScenePathId)
+    : undefined;
 
   useEffect(() => {
     if (!isActiveViewport) {
@@ -482,6 +594,204 @@ export function ViewportCanvas({
     }
 
     meshObjectsRef.current.delete(nodeId);
+  };
+
+  const resolvePathCanvasPoint = (bounds: DOMRect, clientX: number, clientY: number) => {
+    if (!cameraRef.current) {
+      return undefined;
+    }
+
+    const constructionPlane = resolveViewportConstructionPlane(viewportPlane, viewport);
+    const hit = resolveBrushCreateSurfaceHit(
+      clientX,
+      clientY,
+      bounds,
+      cameraRef.current,
+      raycasterRef.current,
+      meshObjectsRef.current,
+      constructionPlane.point,
+      constructionPlane.normal
+    );
+
+    if (!hit) {
+      return undefined;
+    }
+
+    return hit.kind === "plane" && viewport.grid.enabled
+      ? snapPointToViewportPlane(hit.point, viewportPlane, viewport, snapSize)
+      : hit.point;
+  };
+
+  const resolvePathPointHit = (bounds: DOMRect, clientX: number, clientY: number) => {
+    if (!cameraRef.current) {
+      return undefined;
+    }
+
+    return findPathPointHit(pathDefinitions, clientX, clientY, bounds, cameraRef.current);
+  };
+
+  const resolvePathSegmentHit = (bounds: DOMRect, clientX: number, clientY: number) => {
+    if (!cameraRef.current) {
+      return undefined;
+    }
+
+    return findPathSegmentHit(pathDefinitions, clientX, clientY, bounds, cameraRef.current, selectedScenePathId);
+  };
+
+  const buildPathDragPlane = (point: Vec3) => {
+    if (!cameraRef.current) {
+      return undefined;
+    }
+
+    if (viewport.projection === "orthographic") {
+      const constructionPlane = resolveViewportConstructionPlane(viewportPlane, viewport);
+
+      return new Plane().setFromNormalAndCoplanarPoint(
+        new Vector3(constructionPlane.normal.x, constructionPlane.normal.y, constructionPlane.normal.z),
+        new Vector3(point.x, point.y, point.z)
+      );
+    }
+
+    const cameraDirection = cameraRef.current.getWorldDirection(new Vector3()).normalize();
+    return new Plane().setFromNormalAndCoplanarPoint(cameraDirection, new Vector3(point.x, point.y, point.z));
+  };
+
+  const updatePathPreviewPoint = (dragState: NonNullable<typeof pathDragState>, clientX: number, clientY: number, bounds: DOMRect) => {
+    if (!cameraRef.current) {
+      return;
+    }
+
+    const projected = projectPointerToThreePlane(clientX, clientY, bounds, cameraRef.current, raycasterRef.current, dragState.plane);
+
+    if (!projected) {
+      return;
+    }
+
+    const rawPoint = vec3(projected.x, projected.y, projected.z);
+    const nextPoint = snapPathEditorPoint(rawPoint, viewportPlane, viewport, snapSize);
+    const nextPaths = updateScenePathPoint(pathDefinitions, dragState.pathId, dragState.pointIndex, nextPoint);
+    pathPreviewPathsRef.current = nextPaths;
+    setPathPreviewPaths(nextPaths);
+  };
+
+  const commitPathPreview = (dragState: NonNullable<typeof pathDragState>) => {
+    const nextPaths = pathPreviewPathsRef.current ?? pathDefinitions;
+    const nextPoint = nextPaths.find((pathDefinition) => pathDefinition.id === dragState.pathId)?.points[dragState.pointIndex];
+
+    if (nextPoint && !vec3ApproximatelyEqual(nextPoint, dragState.startPoint)) {
+      onUpdateSceneSettings(
+        {
+          ...sceneSettings,
+          paths: nextPaths
+        },
+        dragState.beforeSettings
+      );
+    }
+
+    setPathDragState(null);
+    pathPreviewPathsRef.current = null;
+    setPathPreviewPaths(null);
+    setTransformDragging(false);
+  };
+
+  const startPathPointDrag = (pathId: string, pointIndex: number, point: Vec3) => {
+    const plane = buildPathDragPlane(point);
+
+    if (!plane) {
+      return false;
+    }
+
+    onSelectScenePath(pathId);
+    setSelectedPathPointIndex(pointIndex);
+    setPathDragState({
+      beforeSettings: structuredClone(sceneSettings),
+      pathId,
+      plane,
+      pointIndex,
+      startPoint: structuredClone(point)
+    });
+    setTransformDragging(true);
+    return true;
+  };
+
+  const handlePathAddClick = (bounds: DOMRect, clientX: number, clientY: number) => {
+    const point = resolvePathCanvasPoint(bounds, clientX, clientY);
+
+    if (!point) {
+      return;
+    }
+
+    const currentPaths = sceneSettings.paths ?? [];
+
+    if (!pathAddSessionId || !currentPaths.some((pathDefinition) => pathDefinition.id === pathAddSessionId)) {
+      const nextPath = createNextScenePathDefinition(currentPaths);
+
+      nextPath.points = [point];
+      onUpdateSceneSettings(
+        {
+          ...sceneSettings,
+          paths: [...currentPaths, nextPath]
+        },
+        sceneSettings
+      );
+      onSelectScenePath(nextPath.id);
+      setSelectedPathPointIndex(0);
+      setPathAddSessionId(nextPath.id);
+      return;
+    }
+
+    const nextPaths = appendScenePathPoint(currentPaths, pathAddSessionId, point);
+    const nextPath = nextPaths.find((pathDefinition) => pathDefinition.id === pathAddSessionId);
+
+    onUpdateSceneSettings(
+      {
+        ...sceneSettings,
+        paths: nextPaths
+      },
+      sceneSettings
+    );
+    onSelectScenePath(pathAddSessionId);
+    setSelectedPathPointIndex((nextPath?.points.length ?? 1) - 1);
+  };
+
+  const handlePathEditClick = (bounds: DOMRect, clientX: number, clientY: number) => {
+    const pointHit = resolvePathPointHit(bounds, clientX, clientY);
+
+    if (pointHit) {
+      onSelectScenePath(pointHit.pathId);
+      setSelectedPathPointIndex(pointHit.pointIndex);
+      return;
+    }
+
+    const segmentHit = resolvePathSegmentHit(bounds, clientX, clientY);
+
+    if (!segmentHit) {
+      setSelectedPathPointIndex(null);
+      return;
+    }
+
+    if (segmentHit.pathId !== selectedScenePathId) {
+      onSelectScenePath(segmentHit.pathId);
+      setSelectedPathPointIndex(null);
+      return;
+    }
+
+    const point = resolvePathCanvasPoint(bounds, clientX, clientY);
+
+    if (!point) {
+      return;
+    }
+
+    const nextPaths = insertScenePathPoint(pathDefinitions, segmentHit.pathId, segmentHit.insertIndex, point);
+
+    onUpdateSceneSettings(
+      {
+        ...sceneSettings,
+        paths: nextPaths
+      },
+      sceneSettings
+    );
+    setSelectedPathPointIndex(segmentHit.insertIndex);
   };
 
   const resolveSelectedMeshSurfaceHit = (bounds: DOMRect, clientX: number, clientY: number): SculptBrushHit | undefined => {
@@ -2192,6 +2502,23 @@ export function ViewportCanvas({
       return;
     }
 
+    if ((activeToolId === "path-add" || activeToolId === "path-edit") && event.button === 0 && !event.shiftKey) {
+      pathToolClickOriginRef.current = new Vector2(event.clientX - bounds.left, event.clientY - bounds.top);
+
+      if (activeToolId === "path-edit") {
+        const pointHit = resolvePathPointHit(bounds, event.clientX, event.clientY);
+        const pathPoint = pointHit
+          ? pathDefinitions.find((pathDefinition) => pathDefinition.id === pointHit.pathId)?.points[pointHit.pointIndex]
+          : undefined;
+
+        if (pointHit && pathPoint) {
+          startPathPointDrag(pointHit.pathId, pointHit.pointIndex, pathPoint);
+        }
+      }
+
+      return;
+    }
+
     if (activeToolId === "mesh-edit" && sculptState && selectedMeshNode && event.button === 0 && !event.shiftKey) {
       if (beginSculptStroke(bounds, event.clientX, event.clientY)) {
         return;
@@ -2249,6 +2576,15 @@ export function ViewportCanvas({
       if (brushCreateState) {
         updateBrushCreatePreview(event.clientX, event.clientY, bounds);
       }
+      return;
+    }
+
+    if (pathDragState) {
+      updatePathPreviewPoint(pathDragState, event.clientX, event.clientY, bounds);
+      return;
+    }
+
+    if (activeToolId === "path-add" || activeToolId === "path-edit") {
       return;
     }
 
@@ -2358,6 +2694,14 @@ export function ViewportCanvas({
       return;
     }
 
+    if (pathDragState) {
+      if (event.button === 0) {
+        pathToolClickOriginRef.current = null;
+        commitPathPreview(pathDragState);
+      }
+      return;
+    }
+
     if (aiModelPlacementArmed) {
       const origin = aiPlacementClickOriginRef.current;
       aiPlacementClickOriginRef.current = null;
@@ -2391,6 +2735,28 @@ export function ViewportCanvas({
       }
 
       handleBrushCreateClick(event.clientX, event.clientY, bounds);
+      return;
+    }
+
+    if (activeToolId === "path-add" || activeToolId === "path-edit") {
+      const origin = pathToolClickOriginRef.current;
+      pathToolClickOriginRef.current = null;
+
+      if (!origin) {
+        return;
+      }
+
+      const point = new Vector2(event.clientX - bounds.left, event.clientY - bounds.top);
+
+      if (point.distanceTo(origin) > 4) {
+        return;
+      }
+
+      if (activeToolId === "path-add") {
+        handlePathAddClick(bounds, event.clientX, event.clientY);
+      } else {
+        handlePathEditClick(bounds, event.clientX, event.clientY);
+      }
       return;
     }
 
@@ -2509,6 +2875,8 @@ export function ViewportCanvas({
           if (
             aiModelPlacementArmed ||
             activeToolId === "brush" ||
+            activeToolId === "path-add" ||
+            activeToolId === "path-edit" ||
             extrudeState ||
             sculptState ||
             arcState ||
@@ -2579,17 +2947,27 @@ export function ViewportCanvas({
               ? [selectedNode.id]
               : []
           }
-          interactive={activeToolId !== "brush" && activeToolId !== "mesh-edit" && viewport.projection === "perspective" && editorInteractionEnabled}
+          interactive={activeToolId !== "brush" && activeToolId !== "mesh-edit" && activeToolId !== "path-add" && activeToolId !== "path-edit" && viewport.projection === "perspective" && editorInteractionEnabled}
           onFocusNode={onFocusNode}
           onMeshObjectChange={handleMeshObjectChange}
           onSelectNode={onSelectNodes}
+          pathDefinitions={pathDefinitions}
           physicsPlayback={physicsPlayback}
           physicsRevision={physicsRevision}
           renderMode={renderMode}
           renderScene={renderScene}
           sceneSettings={sceneSettings}
+          selectedHookNodes={selectedNodes}
+          selectedPathId={selectedScenePathId}
           selectedNodeIds={selectedNodeIds}
         />
+        {editorInteractionEnabled && isActiveViewport && selectedPath && selectedPathPointIndex !== null ? (
+          <SelectedPathPointOverlay
+            pathId={selectedPath.id}
+            point={selectedPath.points[selectedPathPointIndex]}
+            visible={Boolean(selectedPath.points[selectedPathPointIndex])}
+          />
+        ) : null}
         {editorInteractionEnabled && isActiveViewport && arcState && selectedDisplayNode ? <EditableMeshPreviewOverlay mesh={arcState.previewMesh} node={selectedDisplayNode} /> : null}
         {editorInteractionEnabled && isActiveViewport && bevelState && selectedDisplayNode ? <EditableMeshPreviewOverlay mesh={bevelState.previewMesh} node={selectedDisplayNode} /> : null}
         {editorInteractionEnabled && isActiveViewport && (extrudeState?.kind === "mesh" || extrudeState?.kind === "brush-mesh") && selectedDisplayNode ? (
@@ -2813,6 +3191,241 @@ function snapPointToViewportPlane(
     default:
       return vec3(snapValue(point.x, snapSize), viewport.grid.elevation, snapValue(point.z, snapSize));
   }
+}
+
+function snapPathEditorPoint(
+  point: Vec3,
+  viewportPlane: ViewportCanvasProps["viewportPlane"],
+  viewport: ViewportCanvasProps["viewport"],
+  snapSize: number
+) {
+  if (!viewport.grid.enabled) {
+    return point;
+  }
+
+  switch (viewport.projection) {
+    case "orthographic":
+      return snapPointToViewportPlane(point, viewportPlane, viewport, snapSize);
+    default:
+      return vec3(
+        snapValue(point.x, snapSize),
+        snapValue(point.y, snapSize),
+        snapValue(point.z, snapSize)
+      );
+  }
+}
+
+function SelectedPathPointOverlay({
+  pathId,
+  point,
+  visible
+}: {
+  pathId: string;
+  point?: Vec3;
+  visible: boolean;
+}) {
+  if (!visible || !point) {
+    return null;
+  }
+
+  return (
+    <group name={`path-selection:${pathId}`}>
+      <mesh position={[point.x, point.y, point.z]} raycast={() => null}>
+        <sphereGeometry args={[0.18, 14, 14]} />
+        <meshBasicMaterial color="#f97316" transparent opacity={0.95} />
+      </mesh>
+      <mesh position={[point.x, point.y, point.z]} raycast={() => null}>
+        <sphereGeometry args={[0.28, 14, 14]} />
+        <meshBasicMaterial color="#fdba74" transparent opacity={0.18} />
+      </mesh>
+    </group>
+  );
+}
+
+function createNextScenePathDefinition(paths: ScenePathDefinition[]): ScenePathDefinition {
+  let index = paths.length + 1;
+  let id = `path_${index}`;
+
+  while (paths.some((pathDefinition) => pathDefinition.id === id)) {
+    index += 1;
+    id = `path_${index}`;
+  }
+
+  return {
+    id,
+    loop: false,
+    name: `Path ${index}`,
+    points: []
+  };
+}
+
+function appendScenePathPoint(paths: ScenePathDefinition[], pathId: string, point: Vec3) {
+  return paths.map((pathDefinition) =>
+    pathDefinition.id === pathId
+      ? {
+          ...pathDefinition,
+          points: [...pathDefinition.points, point]
+        }
+      : pathDefinition
+  );
+}
+
+function insertScenePathPoint(paths: ScenePathDefinition[], pathId: string, insertIndex: number, point: Vec3) {
+  return paths.map((pathDefinition) =>
+    pathDefinition.id === pathId
+      ? {
+          ...pathDefinition,
+          points: [
+            ...pathDefinition.points.slice(0, insertIndex),
+            point,
+            ...pathDefinition.points.slice(insertIndex)
+          ]
+        }
+      : pathDefinition
+  );
+}
+
+function updateScenePathPoint(paths: ScenePathDefinition[], pathId: string, pointIndex: number, point: Vec3) {
+  return paths.map((pathDefinition) =>
+    pathDefinition.id === pathId
+      ? {
+          ...pathDefinition,
+          points: pathDefinition.points.map((entry, index) => (index === pointIndex ? point : entry))
+        }
+      : pathDefinition
+  );
+}
+
+function findPathPointHit(
+  paths: ScenePathDefinition[],
+  clientX: number,
+  clientY: number,
+  bounds: DOMRect,
+  camera: Camera
+) {
+  let bestHit: { distance: number; pathId: string; pointIndex: number } | undefined;
+  const pointerX = clientX - bounds.left;
+  const pointerY = clientY - bounds.top;
+
+  paths.forEach((pathDefinition) => {
+    pathDefinition.points.forEach((point, pointIndex) => {
+      const projected = projectWorldPointToScreen(point, camera, bounds);
+      const distance = Math.hypot(projected.x - pointerX, projected.y - pointerY);
+
+      if (distance > 14 || (bestHit && bestHit.distance <= distance)) {
+        return;
+      }
+
+      bestHit = {
+        distance,
+        pathId: pathDefinition.id,
+        pointIndex
+      };
+    });
+  });
+
+  return bestHit;
+}
+
+function findPathSegmentHit(
+  paths: ScenePathDefinition[],
+  clientX: number,
+  clientY: number,
+  bounds: DOMRect,
+  camera: Camera,
+  selectedPathId?: string
+) {
+  let bestHit: { distance: number; insertIndex: number; pathId: string } | undefined;
+  const pointer = { x: clientX - bounds.left, y: clientY - bounds.top };
+
+  const orderedPaths = selectedPathId
+    ? [
+        ...paths.filter((pathDefinition) => pathDefinition.id === selectedPathId),
+        ...paths.filter((pathDefinition) => pathDefinition.id !== selectedPathId)
+      ]
+    : paths;
+
+  orderedPaths.forEach((pathDefinition) => {
+    const segments = buildPathSegments(pathDefinition);
+
+    segments.forEach((segment) => {
+      const start = projectWorldPointToScreen(segment.start, camera, bounds);
+      const end = projectWorldPointToScreen(segment.end, camera, bounds);
+      const distance = distanceToScreenSegment(
+        pointer,
+        start,
+        end
+      );
+
+      if (distance > 10 || (bestHit && bestHit.distance <= distance)) {
+        return;
+      }
+
+      bestHit = {
+        distance,
+        insertIndex: segment.insertIndex,
+        pathId: pathDefinition.id
+      };
+    });
+  });
+
+  return bestHit;
+}
+
+function buildPathSegments(pathDefinition: ScenePathDefinition) {
+  const segments: Array<{ end: Vec3; insertIndex: number; start: Vec3 }> = [];
+  const points = pathDefinition.points;
+
+  for (let index = 0; index < points.length - 1; index += 1) {
+    segments.push({
+      end: points[index + 1],
+      insertIndex: index + 1,
+      start: points[index]
+    });
+  }
+
+  if (pathDefinition.loop && points.length > 2) {
+    segments.push({
+      end: points[0],
+      insertIndex: points.length,
+      start: points[points.length - 1]
+    });
+  }
+
+  return segments;
+}
+
+function projectWorldPointToScreen(point: Vec3, camera: Camera, bounds: DOMRect) {
+  const projected = new Vector3(point.x, point.y, point.z).project(camera);
+
+  return {
+    x: ((projected.x + 1) * 0.5) * bounds.width,
+    y: ((1 - projected.y) * 0.5) * bounds.height
+  };
+}
+
+function distanceToScreenSegment(point: { x: number; y: number }, start: { x: number; y: number }, end: { x: number; y: number }) {
+  const deltaX = end.x - start.x;
+  const deltaY = end.y - start.y;
+  const lengthSquared = deltaX * deltaX + deltaY * deltaY;
+
+  if (lengthSquared <= 0.0001) {
+    return Math.hypot(point.x - start.x, point.y - start.y);
+  }
+
+  const t = Math.max(0, Math.min(1, ((point.x - start.x) * deltaX + (point.y - start.y) * deltaY) / lengthSquared));
+  const projectedX = start.x + deltaX * t;
+  const projectedY = start.y + deltaY * t;
+
+  return Math.hypot(point.x - projectedX, point.y - projectedY);
+}
+
+function vec3ApproximatelyEqual(left: Vec3, right: Vec3, epsilon = 0.0001) {
+  return (
+    Math.abs(left.x - right.x) <= epsilon &&
+    Math.abs(left.y - right.y) <= epsilon &&
+    Math.abs(left.z - right.z) <= epsilon
+  );
 }
 
 function SculptBrushOverlay({

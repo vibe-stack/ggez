@@ -257,6 +257,13 @@ export type SceneEventDefinition = {
   scope?: "entity-local" | "player" | "world" | "global" | "mission" | "custom";
 };
 
+export type ScenePathDefinition = {
+  id: string;
+  loop?: boolean;
+  name: string;
+  points: Vec3[];
+};
+
 export type PlayerSettings = {
   cameraMode: PlayerCameraMode;
   canCrouch: boolean;
@@ -281,6 +288,7 @@ export type WorldSettings = {
 
 export type SceneSettings = {
   events?: SceneEventDefinition[];
+  paths?: ScenePathDefinition[];
   player: PlayerSettings;
   world: WorldSettings;
 };

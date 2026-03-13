@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
-import type { Entity, GameplayObject, GameplayValue, GeometryNode, SceneEventDefinition, SceneHook, SceneSettings } from "@web-hammer/shared";
+import { type Entity, type GameplayObject, type GameplayValue, type GeometryNode, type SceneEventDefinition, type SceneHook, type ScenePathDefinition, type SceneSettings } from "@web-hammer/shared";
 import { CircleHelp, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
+import type { ToolId } from "@web-hammer/tool-system";
 import { Button } from "@/components/ui/button";
 import { DragInput } from "@/components/ui/drag-input";
 import { Input } from "@/components/ui/input";
@@ -48,6 +49,15 @@ type EventsPanelProps = {
   sceneSettings: SceneSettings;
 };
 
+type PathsPanelProps = {
+  activeToolId: ToolId;
+  onSelectScenePath: (pathId: string | undefined) => void;
+  onSetToolId: (toolId: ToolId) => void;
+  onUpdateSceneSettings: (settings: SceneSettings, beforeSettings?: SceneSettings) => void;
+  sceneSettings: SceneSettings;
+  selectedPathId?: string;
+};
+
 type TargetOption = {
   label: string;
   value: string;
@@ -79,6 +89,7 @@ export function HooksPanel({
     () => resolveGameplayEvents(sceneSettings.events ?? []),
     [sceneSettings.events]
   );
+  const scenePaths = sceneSettings.paths ?? [];
   const targetOptions = useMemo<TargetOption[]>(
     () => [
       ...nodes.map((node) => ({
@@ -154,7 +165,10 @@ export function HooksPanel({
           <Button
             className="shrink-0"
             onClick={() => {
-              const nextHook = createSceneHook(nextHookType);
+              const nextHook = createSceneHook(nextHookType, {
+                defaultPathId: scenePaths[0]?.id,
+                targetId: selectedTarget.id
+              });
 
               if (!nextHook) {
                 return;
@@ -203,6 +217,8 @@ export function HooksPanel({
                             config: setGameplayValue(currentHook.config, field.path, value)
                           }))
                         }
+                        scenePaths={scenePaths}
+                        targetId={selectedTarget.id}
                         targetOptions={targetOptions}
                       />
                     ))}
@@ -418,6 +434,128 @@ export function EventsPanel({ onUpdateSceneSettings, sceneSettings }: EventsPane
   );
 }
 
+export function PathsPanel({
+  activeToolId,
+  onSelectScenePath,
+  onSetToolId,
+  onUpdateSceneSettings,
+  sceneSettings,
+  selectedPathId
+}: PathsPanelProps) {
+  const paths = sceneSettings.paths ?? [];
+  const selectedPath = paths.find((pathDefinition) => pathDefinition.id === selectedPathId) ?? paths[0];
+
+  const commitPaths = (nextPaths: ScenePathDefinition[]) => {
+    onUpdateSceneSettings(
+      {
+        ...sceneSettings,
+        paths: nextPaths
+      },
+      sceneSettings
+    );
+
+    if (nextPaths.length === 0) {
+      onSelectScenePath(undefined);
+      return;
+    }
+
+    if (!selectedPathId || !nextPaths.some((pathDefinition) => pathDefinition.id === selectedPathId)) {
+      onSelectScenePath(nextPaths[0]?.id);
+    }
+  };
+
+  return (
+    <div className="space-y-3 px-1 pb-1">
+      <div className={cn(PANEL_SURFACE_CLASS, "px-3 py-3")}>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium text-foreground">Paths</div>
+            <div className="text-[11px] text-foreground/44">Scene-level waypoint routes for `path_mover` hooks.</div>
+          </div>
+          <InfoPopover
+            description="Paths are authored once at the scene level, then referenced by path movers using a path id."
+            title="Paths"
+          />
+        </div>
+        <div className="mt-3 flex flex-wrap justify-end gap-2">
+          <Button
+            className={cn(activeToolId === "path-add" && "bg-emerald-500/18 text-emerald-200")}
+            onClick={() => onSetToolId("path-add")}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            <Plus className="size-3.5" />
+            Add In Viewport
+          </Button>
+          <Button
+            className={cn(activeToolId === "path-edit" && "bg-emerald-500/18 text-emerald-200")}
+            disabled={!selectedPath}
+            onClick={() => onSetToolId("path-edit")}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            Edit Selected
+          </Button>
+          <Button
+            disabled={!selectedPath}
+            onClick={() => {
+              if (!selectedPath) {
+                return;
+              }
+
+              commitPaths(paths.filter((pathDefinition) => pathDefinition.id !== selectedPath.id));
+            }}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            <Trash2 className="size-3.5" />
+            Delete Selected
+          </Button>
+        </div>
+      </div>
+
+      {paths.length === 0 ? <EmptyState title="No Paths" /> : null}
+
+      {paths.length > 0 ? (
+        <div className={cn(PANEL_SURFACE_CLASS, "space-y-2 p-2")}>
+          <div className="px-1 text-[11px] text-foreground/48">
+            Select a path here, then use the viewport tools to add or edit waypoints.
+          </div>
+          <div className="space-y-1.5">
+            {paths.map((pathDefinition) => (
+              <button
+                className={cn(
+                  "flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left transition hover:bg-white/4",
+                  selectedPath?.id === pathDefinition.id && "bg-emerald-500/12 text-emerald-200"
+                )}
+                key={pathDefinition.id}
+                onClick={() => onSelectScenePath(pathDefinition.id)}
+                type="button"
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-xs font-medium">{pathDefinition.name}</div>
+                  <div className="truncate text-[10px] text-foreground/42">
+                    {pathDefinition.id}
+                    {pathDefinition.loop ? " · loop" : ""}
+                  </div>
+                </div>
+                <Chip>{pathDefinition.points.length} pts</Chip>
+              </button>
+            ))}
+          </div>
+          <div className={cn(ROW_SURFACE_CLASS, "space-y-1 px-3 py-2 text-[11px] text-foreground/48")}>
+            <div>`Add Path`: click in the viewport to start a new route and keep clicking to place waypoints.</div>
+            <div>`Edit Path`: drag points, click a segment to insert a point, press Delete to remove the selected point.</div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function HookCard({
   children,
   hook,
@@ -478,12 +616,16 @@ function HookFieldEditor({
   field,
   hook,
   onChange,
+  scenePaths,
+  targetId,
   targetOptions
 }: {
   availableEvents: SceneEventDefinition[];
   field: HookFieldDefinition;
   hook: SceneHook;
   onChange: (value: GameplayValue) => void;
+  scenePaths: ScenePathDefinition[];
+  targetId: string;
   targetOptions: TargetOption[];
 }) {
   const value = getGameplayValue(hook.config, field.path);
@@ -512,6 +654,7 @@ function HookFieldEditor({
           events={availableEvents}
           label={field.label}
           onChange={onChange}
+          targetId={targetId}
           targetOptions={targetOptions}
           value={toObjectArray(value)}
         />
@@ -555,12 +698,26 @@ function HookFieldEditor({
       );
     case "scalar":
       return <ScalarEditor label={field.label} onChange={onChange} value={value ?? ""} />;
+    case "scene-path":
+      return (
+        <SelectInput
+          label={field.label}
+          onChange={onChange}
+          options={scenePaths.map((pathDefinition) => ({
+            label: `${pathDefinition.name} (${pathDefinition.id})`,
+            value: pathDefinition.id
+          }))}
+          placeholder="Select path"
+          value={typeof value === "string" ? value : ""}
+        />
+      );
     case "sequence-actions":
       return (
         <SequenceActionsEditor
           events={availableEvents}
           label={field.label}
           onChange={onChange}
+          targetId={targetId}
           targetOptions={targetOptions}
           value={toObjectArray(value)}
         />
@@ -571,6 +728,7 @@ function HookFieldEditor({
           events={availableEvents}
           label={field.label}
           onChange={onChange}
+          targetId={targetId}
           targetOptions={targetOptions}
           value={toGameplayObject(value)}
         />
@@ -605,12 +763,14 @@ function EventConditionListEditor({
   events,
   label,
   onChange,
+  targetId,
   targetOptions,
   value
 }: {
   events: SceneEventDefinition[];
   label: string;
   onChange: (value: GameplayValue) => void;
+  targetId: string;
   targetOptions: TargetOption[];
   value: GameplayObject[];
 }) {
@@ -627,6 +787,7 @@ function EventConditionListEditor({
               label="Source"
               onChange={(nextValue) => updateEntry(index, { ...entry, fromEntity: nextValue })}
               options={targetOptions}
+              placeholder="Select source"
               value={typeof entry.fromEntity === "string" ? entry.fromEntity : ""}
             />
             <SelectInput
@@ -650,7 +811,7 @@ function EventConditionListEditor({
             </div>
           </div>
         ))}
-        <Button onClick={() => onChange([...value, createEmptyEventCondition()])} size="xs" type="button" variant="ghost">
+        <Button onClick={() => onChange([...value, createEmptyEventCondition(targetId)])} size="xs" type="button" variant="ghost">
           Add Condition
         </Button>
       </div>
@@ -925,12 +1086,14 @@ function SequenceActionsEditor({
   events,
   label,
   onChange,
+  targetId,
   targetOptions,
   value
 }: {
   events: SceneEventDefinition[];
   label: string;
   onChange: (value: GameplayValue) => void;
+  targetId: string;
   targetOptions: TargetOption[];
   value: GameplayObject[];
 }) {
@@ -966,6 +1129,7 @@ function SequenceActionsEditor({
                     label="Target"
                     onChange={(nextValue) => updateEntry(index, { ...entry, target: nextValue, type })}
                     options={targetOptions}
+                    placeholder="Select target"
                     value={typeof entry.target === "string" ? entry.target : ""}
                   />
                   <SelectInput
@@ -1011,6 +1175,7 @@ function SequenceActionsEditor({
                   label="Target"
                   onChange={(nextValue) => updateEntry(index, { ...entry, target: nextValue, type })}
                   options={targetOptions}
+                  placeholder="Select target"
                   value={typeof entry.target === "string" ? entry.target : ""}
                 />
               ) : null}
@@ -1027,7 +1192,12 @@ function SequenceActionsEditor({
             </div>
           );
         })}
-        <Button onClick={() => onChange([...value, createEmptySequenceAction()])} size="xs" type="button" variant="ghost">
+        <Button
+          onClick={() => onChange([...value, createEmptySequenceAction(targetId)])}
+          size="xs"
+          type="button"
+          variant="ghost"
+        >
           Add Action
         </Button>
       </div>
@@ -1039,37 +1209,46 @@ function SequenceTriggerEditor({
   events,
   label,
   onChange,
+  targetId,
   targetOptions,
   value
 }: {
   events: SceneEventDefinition[];
   label: string;
   onChange: (value: GameplayValue) => void;
+  targetId: string;
   targetOptions: TargetOption[];
   value: GameplayObject;
 }) {
+  const resolvedValue: GameplayObject = {
+    ...value,
+    fromEntity: typeof value.fromEntity === "string" && value.fromEntity.length > 0 ? value.fromEntity : targetId
+  };
+
   return (
     <FieldGroup label={label}>
       <div className={cn(ROW_SURFACE_CLASS, "space-y-2 p-2")}>
         <SelectInput
           label="From Entity"
-          onChange={(nextValue) => onChange({ ...value, fromEntity: nextValue })}
+          onChange={(nextValue) => onChange({ ...resolvedValue, fromEntity: nextValue })}
           options={targetOptions}
-          value={typeof value.fromEntity === "string" ? value.fromEntity : ""}
+          placeholder="Select source"
+          value={typeof resolvedValue.fromEntity === "string" ? resolvedValue.fromEntity : ""}
         />
         <SelectInput
           label="Event"
-          onChange={(nextValue) => onChange({ ...value, event: nextValue })}
+          onChange={(nextValue) => onChange({ ...resolvedValue, event: nextValue })}
           options={events.map((eventDefinition) => ({
             label: eventDefinition.name,
             value: eventDefinition.name
           }))}
-          value={typeof value.event === "string" ? value.event : "trigger.enter"}
+          placeholder="Select event"
+          value={typeof resolvedValue.event === "string" ? resolvedValue.event : "trigger.enter"}
         />
         <BooleanInput
           label="Once"
-          onChange={(checked) => onChange({ ...value, once: checked })}
-          value={value.once === true}
+          onChange={(checked) => onChange({ ...resolvedValue, once: checked })}
+          value={resolvedValue.once === true}
         />
       </div>
     </FieldGroup>
@@ -1358,11 +1537,13 @@ function SelectInput({
   label,
   onChange,
   options,
+  placeholder,
   value
 }: {
   label: string;
   onChange: (value: string) => void;
   options: Array<{ label: string; value: string }>;
+  placeholder?: string;
   value: string;
 }) {
   const resolvedOptions = value.length > 0 && !options.some((option) => option.value === value)
@@ -1372,6 +1553,7 @@ function SelectInput({
   return (
     <FieldGroup label={label}>
       <NativeSelect className="w-full [&_select]:rounded-xl [&_select]:border-white/8 [&_select]:bg-black/10 [&_select]:text-xs" onChange={(event) => onChange(event.target.value)} value={value}>
+        {placeholder ? <NativeSelectOption value="">{placeholder}</NativeSelectOption> : null}
         {resolvedOptions.map((option) => (
           <NativeSelectOption key={option.value} value={option.value}>
             {option.label}
