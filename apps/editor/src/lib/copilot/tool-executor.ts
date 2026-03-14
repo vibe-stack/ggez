@@ -154,6 +154,7 @@ function executeToolInner(editor: EditorCore, name: string, args: Args): string 
     case "place_light": {
       const lightType = str(args, "type", "point") as "ambient" | "directional" | "hemisphere" | "point" | "spot";
       const data = createDefaultLightData(lightType);
+      data.castShadow = false;
 
       if (args.color && typeof args.color === "string") {
         data.color = args.color;
