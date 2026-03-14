@@ -1,0 +1,41 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at top, rgba(72, 94, 112, 0.22), transparent 32%),
+    linear-gradient(180deg, #11161b 0%, #0a0e12 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  color: #edf3f7;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top, rgba(72, 94, 112, 0.22), transparent 32%),
+    linear-gradient(180deg, #11161b 0%, #0a0e12 100%);
+}
+
+button,
+input,
+label,
+select,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(131, 197, 190, 0.26);
+}

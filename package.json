@@ -13,7 +13,10 @@
     "typecheck": "bun run --cwd apps/editor typecheck",
     "dev:three-runtime": "bun run --cwd apps/three-runtime-playground dev",
     "build:three-runtime": "bun run --cwd apps/three-runtime-playground build",
-    "typecheck:three-runtime": "bun run --cwd apps/three-runtime-playground typecheck"
+    "typecheck:three-runtime": "bun run --cwd apps/three-runtime-playground typecheck",
+    "dev:three-vanilla": "bun run --cwd apps/three-vanilla-playground dev",
+    "build:three-vanilla": "bun run --cwd apps/three-vanilla-playground build",
+    "typecheck:three-vanilla": "bun run --cwd apps/three-vanilla-playground typecheck"
   },
   "dependencies": {}
 }
