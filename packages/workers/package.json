@@ -10,8 +10,9 @@
     "@types/three": "^0.181.0",
     "@web-hammer/editor-core": "workspace:*",
     "@web-hammer/geometry-kernel": "workspace:*",
+    "@web-hammer/runtime-build": "workspace:*",
+    "@web-hammer/runtime-format": "workspace:*",
     "@web-hammer/shared": "workspace:*",
-    "@web-hammer/three-runtime": "workspace:*",
     "comlink": "^4.4.2",
     "three": "^0.181.1",
     "three-mesh-bvh": "^0.9.2"

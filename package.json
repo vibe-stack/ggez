@@ -18,5 +18,8 @@
     "build:three-vanilla": "bun run --cwd apps/three-vanilla-playground build",
     "typecheck:three-vanilla": "bun run --cwd apps/three-vanilla-playground typecheck"
   },
-  "dependencies": {}
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.19.2",
+    "three-mesh-bvh": "^0.9.2"
+  }
 }

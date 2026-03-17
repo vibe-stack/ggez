@@ -1,5 +1,5 @@
 {
-  "name": "@web-hammer/three-runtime",
+  "name": "@web-hammer/runtime-physics-rapier",
   "version": "0.0.0",
   "license": "MIT",
   "type": "module",
@@ -10,7 +10,8 @@
     "@types/three": "^0.181.0"
   },
   "dependencies": {
-    "@web-hammer/runtime-build": "workspace:*",
+    "@dimforge/rapier3d-compat": "^0.19.2",
+    "@web-hammer/render-pipeline": "workspace:*",
     "@web-hammer/runtime-format": "workspace:*",
     "@web-hammer/shared": "workspace:*",
     "three": "^0.181.1"

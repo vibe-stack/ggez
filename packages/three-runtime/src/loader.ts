@@ -37,6 +37,12 @@ import { HDRLoader } from "three/examples/jsm/loaders/HDRLoader.js";
 import { MTLLoader } from "three/examples/jsm/loaders/MTLLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import {
+  isRuntimeBundle,
+  isRuntimeScene,
+  parseRuntimeScene,
+  type RuntimeScene
+} from "@web-hammer/runtime-format";
+import {
   createWebHammerSceneObjectFactory,
   extractPhysics as extractNodePhysics,
   findPrimaryLight as findNodePrimaryLight
@@ -88,11 +94,12 @@ export type WebHammerSceneLodOptions = {
   midDistance: number;
 };
 
-export type WebHammerLoadedScene = {
+export type ThreeRuntimeSceneInstance = {
+  dispose: () => void;
   entities: WebHammerEngineScene["entities"];
   lights: Object3D[];
-  nodes: Map<string, Object3D>;
-  physicsNodes: Array<{
+  nodesById: Map<string, Object3D>;
+  physicsDescriptors: Array<{
     nodeId: string;
     object: Object3D;
     physics: PropPhysics;
@@ -101,43 +108,30 @@ export type WebHammerLoadedScene = {
   scene: WebHammerEngineScene;
 };
 
+export type WebHammerLoadedScene = ThreeRuntimeSceneInstance & {
+  nodes: ThreeRuntimeSceneInstance["nodesById"];
+  physicsNodes: ThreeRuntimeSceneInstance["physicsDescriptors"];
+};
+
+export type ThreeRuntimeAssetResolverContext = WebHammerAssetResolverContext;
+export type ThreeRuntimeSceneInstanceOptions = WebHammerSceneLoaderOptions;
+export type ThreeRuntimeSceneLodOptions = WebHammerSceneLodOptions;
+
 const textureLoader = new TextureLoader();
 const gltfLoader = new GLTFLoader();
 const hdrLoader = new HDRLoader();
 const mtlLoader = new MTLLoader();
 
 export function isWebHammerEngineScene(value: unknown): value is WebHammerEngineScene {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const candidate = value as Partial<WebHammerEngineScene>;
-  return (
-    candidate.metadata?.format === "web-hammer-engine" &&
-    Array.isArray(candidate.nodes) &&
-    Array.isArray(candidate.assets) &&
-    Array.isArray(candidate.materials) &&
-    typeof candidate.settings === "object"
-  );
+  return isRuntimeScene(value);
 }
 
 export function isWebHammerEngineBundle(value: unknown): value is WebHammerEngineBundle {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const candidate = value as Partial<WebHammerEngineBundle>;
-  return Array.isArray(candidate.files) && isWebHammerEngineScene(candidate.manifest);
+  return isRuntimeBundle(value);
 }
 
 export function parseWebHammerEngineScene(text: string): WebHammerEngineScene {
-  const parsed = JSON.parse(text) as unknown;
-
-  if (!isWebHammerEngineScene(parsed)) {
-    throw new Error("Invalid Web Hammer engine scene JSON.");
-  }
-
-  return parsed;
+  return parseRuntimeScene(text);
 }
 
 export async function fetchWebHammerEngineScene(url: string, init?: RequestInit): Promise<WebHammerEngineScene> {
@@ -150,16 +144,16 @@ export async function fetchWebHammerEngineScene(url: string, init?: RequestInit)
   return parseWebHammerEngineScene(await response.text());
 }
 
-export async function loadWebHammerEngineScene(
-  input: WebHammerEngineScene | string,
+export async function createThreeRuntimeSceneInstance(
+  input: RuntimeScene | string,
   options: WebHammerSceneLoaderOptions = {}
-): Promise<WebHammerLoadedScene> {
-  const engineScene = typeof input === "string" ? parseWebHammerEngineScene(input) : input;
+): Promise<ThreeRuntimeSceneInstance> {
+  const engineScene = typeof input === "string" ? parseRuntimeScene(input) : parseRuntimeScene(JSON.stringify(input));
   const root = new Group();
-  const nodes = new Map<string, Object3D>();
+  const nodesById = new Map<string, Object3D>();
   const lights: Object3D[] = [];
-  const physicsNodes: WebHammerLoadedScene["physicsNodes"] = [];
-  const nodesById = new Map(engineScene.nodes.map((node) => [node.id, node]));
+  const physicsDescriptors: ThreeRuntimeSceneInstance["physicsDescriptors"] = [];
+  const runtimeNodesById = new Map(engineScene.nodes.map((node) => [node.id, node]));
   const sceneGraph = resolveSceneGraph(engineScene.nodes, engineScene.entities);
   const objectFactory = createWebHammerSceneObjectFactory(engineScene, options);
   const createdObjects = await Promise.all(
@@ -186,7 +180,7 @@ export async function loadWebHammerEngineScene(
   }
 
   createdObjects.forEach(([nodeId, object]) => {
-    nodes.set(nodeId, object);
+    nodesById.set(nodeId, object);
   });
 
   const attachNode = (nodeId: string) => {
@@ -194,8 +188,8 @@ export async function loadWebHammerEngineScene(
       return;
     }
 
-    const node = nodesById.get(nodeId);
-    const object = nodes.get(nodeId);
+    const node = runtimeNodesById.get(nodeId);
+    const object = nodesById.get(nodeId);
 
     if (!node || !object) {
       return;
@@ -211,7 +205,7 @@ export async function loadWebHammerEngineScene(
 
     const parentObject =
       node.parentId && node.parentId !== node.id
-        ? nodes.get(node.parentId)
+        ? nodesById.get(node.parentId)
         : undefined;
 
     if (parentObject && !attachStack.has(node.parentId!)) {
@@ -236,7 +230,7 @@ export async function loadWebHammerEngineScene(
   });
 
   for (const node of engineScene.nodes) {
-    const object = nodes.get(node.id);
+    const object = nodesById.get(node.id);
 
     if (!object) {
       continue;
@@ -251,7 +245,7 @@ export async function loadWebHammerEngineScene(
     const physics = extractNodePhysics(node);
 
     if (physics?.enabled) {
-      physicsNodes.push({
+      physicsDescriptors.push({
         nodeId: node.id,
         object,
         physics
@@ -260,15 +254,31 @@ export async function loadWebHammerEngineScene(
   }
 
   return {
+    dispose() {
+      disposeThreeRuntimeSceneInstance(root);
+    },
     entities: engineScene.entities.map((entity) => ({
       ...entity,
       transform: sceneGraph.entityWorldTransforms.get(entity.id) ?? entity.transform
     })),
     lights,
-    nodes,
-    physicsNodes,
+    nodesById,
+    physicsDescriptors,
     root,
     scene: engineScene
+  };
+}
+
+export async function loadWebHammerEngineScene(
+  input: WebHammerEngineScene | string,
+  options: WebHammerSceneLoaderOptions = {}
+): Promise<WebHammerLoadedScene> {
+  const instance = await createThreeRuntimeSceneInstance(input, options);
+
+  return {
+    ...instance,
+    nodes: instance.nodesById,
+    physicsNodes: instance.physicsDescriptors
   };
 }
 
@@ -278,6 +288,14 @@ export async function loadWebHammerEngineSceneFromUrl(
 ): Promise<WebHammerLoadedScene> {
   const scene = await fetchWebHammerEngineScene(url);
   return loadWebHammerEngineScene(scene, options);
+}
+
+export async function loadThreeRuntimeSceneInstanceFromUrl(
+  url: string,
+  options: WebHammerSceneLoaderOptions = {}
+): Promise<ThreeRuntimeSceneInstance> {
+  const scene = await fetchWebHammerEngineScene(url);
+  return createThreeRuntimeSceneInstance(scene, options);
 }
 
 type AppliedWorldSettingsState = {
@@ -342,6 +360,9 @@ export function clearWebHammerWorldSettings(target: Scene) {
   target.fog = null;
 }
 
+export const applyRuntimeWorldSettingsToThreeScene = applyWebHammerWorldSettings;
+export const clearRuntimeWorldSettingsFromThreeScene = clearWebHammerWorldSettings;
+
 function createWorldAmbientLight(engineScene: WebHammerEngineScene) {
   const { ambientColor, ambientIntensity } = engineScene.settings.world;
 
@@ -390,6 +411,59 @@ function disposeAppliedSkybox(target: Scene, state: AppliedWorldSettingsState) {
   target.backgroundBlurriness = 0;
   target.backgroundIntensity = 1;
   target.environmentIntensity = 1;
+}
+
+function disposeThreeRuntimeSceneInstance(root: Group) {
+  const geometries = new Set<BufferGeometry>();
+  const materials = new Set<MeshStandardMaterial>();
+  const textures = new Set<Texture>();
+
+  root.traverse((object) => {
+    if (!(object instanceof Mesh || object instanceof InstancedMesh)) {
+      return;
+    }
+
+    if (object.geometry instanceof BufferGeometry) {
+      geometries.add(object.geometry);
+    }
+
+    const objectMaterials = Array.isArray(object.material) ? object.material : [object.material];
+
+    objectMaterials.forEach((material) => {
+      if (!(material instanceof MeshStandardMaterial)) {
+        return;
+      }
+
+      materials.add(material);
+
+      if (material.map) {
+        textures.add(material.map);
+      }
+
+      if (material.normalMap) {
+        textures.add(material.normalMap);
+      }
+
+      if (material.metalnessMap) {
+        textures.add(material.metalnessMap);
+      }
+
+      if (material.roughnessMap) {
+        textures.add(material.roughnessMap);
+      }
+    });
+  });
+
+  root.removeFromParent();
+  geometries.forEach((geometry) => {
+    geometry.dispose();
+  });
+  materials.forEach((material) => {
+    material.dispose();
+  });
+  textures.forEach((texture) => {
+    texture.dispose();
+  });
 }
 
 async function loadSkyboxTexture(path: string, skybox: SceneSkyboxSettings) {

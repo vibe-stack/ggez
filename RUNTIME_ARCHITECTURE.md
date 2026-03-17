@@ -13,6 +13,31 @@ The design goal is similar in spirit to what Next.js does for React:
 
 The runtime must never swallow the host application. Consumers must keep control over rendering, physics, gameplay, streaming, caching, lifecycle, and deployment.
 
+## Progress Update (2026-03-17)
+
+The repo now implements the runtime architecture described below.
+
+Completed:
+
+- `packages/runtime-format` now exists and owns the canonical runtime scene, bundle, and world-index types.
+- Runtime parse, validation, migration, and type-guard helpers now live in `packages/runtime-format`.
+- `packages/three-runtime` now depends on `packages/runtime-format` for the content contract and keeps compatibility re-exports for existing imports.
+- `packages/runtime-build` now exists for headless `.whmap` snapshot compilation, runtime asset externalization, bundle packing/unpacking, world-index creation, and CLI builds.
+- `packages/workers` now call into `packages/runtime-build` for runtime scene compilation and runtime bundle generation.
+- `packages/three-runtime` now exposes `createThreeRuntimeSceneInstance()`.
+- `loadWebHammerEngineScene()` is now a convenience wrapper around the new Three scene-instance path.
+- `packages/three-runtime` now exposes adapter-oriented aliases: `createThreeRuntimeObjectFactory()`, `applyRuntimeWorldSettingsToThreeScene()`, `clearRuntimeWorldSettingsFromThreeScene()`, and `createThreeAssetResolver()`.
+- Runtime scene-instance disposal now exists in `packages/three-runtime`.
+- `packages/runtime-streaming` now provides optional chunk/world orchestration.
+- `packages/runtime-physics-rapier` now provides optional Rapier bindings and is consumed by the vanilla Three playground.
+- `packages/gameplay-runtime` now exposes a stable adapter from `RuntimeScene` data into gameplay-runtime scene input.
+- Runtime docs have been rewritten around the new format/build/adapter/streaming/physics package split.
+- Tests now cover runtime-format parsing/migration/fixtures, runtime-build bundle/world-index helpers, runtime-streaming, runtime-physics-rapier, and direct worker-to-build parity.
+
+Notes:
+
+- `packages/workers` still contains `.whmap`, glTF export, and AI worker tasks, but the runtime-export path itself is now delegated to `packages/runtime-build`.
+
 ## Problem Statement
 
 The current runtime workflow works, but the architecture boundary is wrong.
@@ -627,6 +652,10 @@ Success criteria:
 - no runtime format types are owned primarily by the Three package
 - current editor export still works unchanged
 
+Status:
+
+- Completed. The format contract now lives in `packages/runtime-format`, and `packages/three-runtime` keeps compatibility exports for the old names.
+
 ### Phase 2: Extract the headless build pipeline
 
 Goals:
@@ -644,6 +673,10 @@ Success criteria:
 
 - editor worker becomes a thin caller
 - the same build code can run in CLI or CI contexts
+
+Status:
+
+- Completed for the runtime-export path. `packages/runtime-build` now owns authored snapshot compilation, bundling, asset externalization, world-index creation, and CLI usage.
 
 ### Phase 3: Refactor the Three adapter around scene instances
 
@@ -663,6 +696,10 @@ Success criteria:
 - there is one primary object creation path
 - convenience loaders are wrappers, not the foundation
 
+Status:
+
+- Completed. `createThreeRuntimeSceneInstance()` is the primary scene-instantiation path, `loadWebHammerEngineScene()` wraps it, and explicit disposal now exists.
+
 ### Phase 4: Extract optional integration kits
 
 Goals:
@@ -681,6 +718,10 @@ Success criteria:
 - runtime orchestration exists as package APIs, not only example code
 - consumers can pick and choose integrations
 
+Status:
+
+- Completed. `packages/runtime-physics-rapier` and `packages/runtime-streaming` now exist as optional integration kits, and the vanilla playground consumes the Rapier package.
+
 ### Phase 5: Add production-grade world workflows
 
 Goals:
@@ -697,6 +738,10 @@ Work:
 Success criteria:
 
 - large worlds are modeled as chunk sets, not giant scene bundles
+
+Status:
+
+- Completed. `RuntimeWorldIndex` is formalized, `runtime-build` can create world indexes, `runtime-streaming` handles chunk orchestration, and docs now describe unpacked manifests and shared asset hosting.
 
 ## Decisions And Non-Goals
 
@@ -736,65 +781,65 @@ This is the concrete backlog required to move from the current architecture to t
 
 ### Foundation
 
-- Create `packages/runtime-format`.
-- Move runtime manifest and bundle types out of `packages/three-runtime`.
-- Move runtime parse and type guard helpers into `packages/runtime-format`.
-- Add runtime format version and migration helpers.
-- Add tests for manifest parsing, validation, and backward compatibility.
+- Done: Create `packages/runtime-format`.
+- Done: Move runtime manifest and bundle types out of `packages/three-runtime`.
+- Done: Move runtime parse and type guard helpers into `packages/runtime-format`.
+- Done: Add runtime format version and migration helpers.
+- Done: Add tests for manifest parsing, validation, and backward compatibility.
 
 ### Build Pipeline
 
-- Create `packages/runtime-build`.
-- Move runtime scene compilation out of `packages/workers/src/export-tasks.ts`.
-- Move asset externalization and bundle packing orchestration into `packages/runtime-build`.
-- Keep `packages/workers` responsible only for worker transport and request dispatch.
-- Add a programmatic build API usable from editor, tests, and future CLI.
-- Add tests that compare editor worker output against direct build package output.
+- Done: Create `packages/runtime-build`.
+- Done: Move runtime scene compilation out of `packages/workers/src/export-tasks.ts`.
+- Done: Move asset externalization and bundle packing orchestration into `packages/runtime-build`.
+- Done for runtime export: Keep `packages/workers` responsible only for worker transport and request dispatch.
+- Done: Add a programmatic build API usable from editor, tests, and future CLI.
+- Done: Add tests that compare editor worker output against direct build package output.
 
 ### Three Adapter
 
-- Refactor `packages/three-runtime` to depend on `packages/runtime-format`.
-- Introduce `createThreeRuntimeSceneInstance()` as the main adapter entrypoint.
-- Make existing convenience loaders wrap the new scene instance builder.
-- Remove duplicated node/material/instancing construction logic from the loader layer.
-- Add explicit `dispose()` behavior for textures, object URLs, and scene-owned runtime resources.
-- Separate bundle helpers from Three-specific scene instantiation where practical.
+- Done: Refactor `packages/three-runtime` to depend on `packages/runtime-format`.
+- Done: Introduce `createThreeRuntimeSceneInstance()` as the main adapter entrypoint.
+- Done: Make existing convenience loaders wrap the new scene instance builder.
+- Done: Remove duplicated node/material/instancing construction logic from the loader layer.
+- Done: Add explicit `dispose()` behavior for textures, object URLs, and scene-owned runtime resources.
+- Done: Separate bundle helpers from Three-specific scene instantiation where practical.
 
 ### Gameplay Integration
 
-- Audit `packages/gameplay-runtime` against the runtime-format types.
-- Define a stable adapter between runtime scene data and gameplay scene data.
-- Add examples showing authored hooks consumed without renderer ownership leakage.
-- Ensure gameplay systems can run with either Three, R3F, or headless tests.
+- Done: Audit `packages/gameplay-runtime` against the runtime-format types.
+- Done: Define a stable adapter between runtime scene data and gameplay scene data.
+- Done: Add examples showing authored hooks consumed without renderer ownership leakage.
+- Done: Ensure gameplay systems can run with either Three, R3F, or headless tests.
 
 ### Physics Integration
 
-- Extract Rapier-specific runtime bindings from playground orchestration into an optional adapter package.
-- Define a renderer-agnostic runtime physics descriptor contract if the current one is too Three-shaped.
-- Add an example showing host-owned physics world lifecycle.
+- Done: Extract Rapier-specific runtime bindings from playground orchestration into an optional adapter package.
+- Done: Define a renderer-agnostic runtime physics descriptor contract if the current one is too Three-shaped.
+- Done: Add an example showing host-owned physics world lifecycle.
 
 ### Streaming And World Scale
 
-- Define `RuntimeWorldIndex` schema in `packages/runtime-format`.
-- Add chunk metadata types and validation.
-- Add `packages/runtime-streaming` for optional world orchestration.
-- Support unpacked chunk manifest consumption as a first-class workflow.
-- Add examples for chunk load, unload, and shared asset hosting.
+- Done: Define `RuntimeWorldIndex` schema in `packages/runtime-format`.
+- Done: Add chunk metadata types and validation.
+- Done: Add `packages/runtime-streaming` for optional world orchestration.
+- Done: Support unpacked chunk manifest consumption as a first-class workflow.
+- Done: Add examples for chunk load, unload, and shared asset hosting.
 
 ### Tooling
 
-- Add a CLI entrypoint for runtime builds.
-- Add a build example for Vite or Bun-based content compilation.
-- Add CI tests for representative runtime manifests and bundles.
-- Add snapshot fixtures for version migration tests.
+- Done: Add a CLI entrypoint for runtime builds.
+- Done: Add a build example for Vite or Bun-based content compilation.
+- Done: Add CI tests for representative runtime manifests and bundles.
+- Done: Add snapshot fixtures for version migration tests.
 
 ### Documentation
 
-- Rewrite runtime docs around the new package split.
-- Document the distinction between `.whmap`, runtime manifest, and runtime bundle.
-- Document when to use packed bundles versus unpacked manifests.
-- Add integration guides for vanilla Three and React Three Fiber.
-- Add a host-ownership guide explaining what Web Hammer runtime does and does not own.
+- Done: Rewrite runtime docs around the new package split.
+- Done: Document the distinction between `.whmap`, runtime manifest, and runtime bundle.
+- Done: Document when to use packed bundles versus unpacked manifests.
+- Done: Add integration guides for vanilla Three and React Three Fiber.
+- Done: Add a host-ownership guide explaining what Web Hammer runtime does and does not own.
 
 ## Recommended Order Of Execution
 

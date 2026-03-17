@@ -2,6 +2,7 @@ export * from "./types";
 export * from "./event-bus";
 export * from "./scene-store";
 export * from "./runtime";
+export * from "./runtime-format";
 export * from "./system";
 export * from "./systems";
 

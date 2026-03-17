@@ -1,4 +1,4 @@
-import { createGameplayRuntime } from "@web-hammer/gameplay-runtime";
+import { createGameplayRuntime, createGameplayRuntimeSceneFromRuntimeScene } from "@web-hammer/gameplay-runtime";
 import { normalizeSceneSettings } from "@web-hammer/shared";
 import {
   createWebHammerBundleAssetResolver,
@@ -100,10 +100,7 @@ class RuntimePlaygroundApp {
     const sceneSettings = normalizeSceneSettings(this.scene.settings);
     const gameplayRuntime = createGameplayRuntime({
       host: this.host.host,
-      scene: {
-        entities: this.scene.entities,
-        nodes: this.scene.nodes
-      },
+      scene: createGameplayRuntimeSceneFromRuntimeScene(this.scene),
       systems: createPlaybackGameplaySystems(this.scene, this.enabledSystems)
     });
 

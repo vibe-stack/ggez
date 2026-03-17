@@ -1,4 +1,10 @@
 import RAPIER from "@dimforge/rapier3d-compat";
+import {
+  createDynamicRigidBody,
+  createRapierPhysicsWorld,
+  createStaticRigidBody,
+  ensureRapierRuntimePhysics
+} from "@web-hammer/runtime-physics-rapier";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MTLLoader } from "three/examples/jsm/loaders/MTLLoader.js";
@@ -380,7 +386,7 @@ export class PlaybackSceneController {
       return;
     }
 
-    this.world = new RAPIER.World(config.sceneSettings.world.gravity);
+    this.world = createRapierPhysicsWorld(config.sceneSettings);
     staticMeshes.forEach((mesh) => {
       const body = createStaticRigidBody(this.world!, mesh);
       this.staticBodies.push({ body, nodeId: mesh.nodeId });
@@ -595,7 +601,7 @@ export class PlaybackSceneController {
 }
 
 async function ensureRapierReady() {
-  rapierReady ??= RAPIER.init();
+  rapierReady ??= ensureRapierRuntimePhysics();
   await rapierReady;
 }
 
@@ -859,156 +865,6 @@ function resolveMeshLodDistances(_mesh: DerivedRenderMesh) {
   return {
     lowDistance: PLAYGROUND_LOW_LOD_DISTANCE,
     midDistance: PLAYGROUND_MID_LOD_DISTANCE
-  };
-}
-
-function createStaticRigidBody(world: RAPIER.World, mesh: DerivedRenderMesh) {
-  const bodyDesc = RAPIER.RigidBodyDesc.kinematicPositionBased()
-    .setTranslation(mesh.position.x, mesh.position.y, mesh.position.z)
-    .setRotation(createRapierQuaternion(mesh.rotation));
-  const body = world.createRigidBody(bodyDesc);
-  const collider = createColliderDesc(mesh);
-
-  if (collider) {
-    world.createCollider(collider, body);
-  }
-
-  return body;
-}
-
-function createDynamicRigidBody(world: RAPIER.World, mesh: DerivedRenderMesh) {
-  const physics = mesh.physics;
-  const bodyDesc = resolveRigidBodyDesc(physics?.bodyType ?? "dynamic")
-    .setTranslation(mesh.position.x, mesh.position.y, mesh.position.z)
-    .setRotation(createRapierQuaternion(mesh.rotation));
-  const body = world.createRigidBody(bodyDesc);
-
-  if (physics) {
-    body.setAngularDamping(physics.angularDamping);
-    body.setLinearDamping(physics.linearDamping);
-    body.setGravityScale(physics.gravityScale, true);
-
-    if (physics.lockRotations) {
-      body.lockRotations(true, true);
-    }
-
-    if (physics.lockTranslations) {
-      body.lockTranslations(true, true);
-    }
-  }
-
-  const collider = createColliderDesc(mesh);
-
-  if (collider) {
-    world.createCollider(collider, body);
-  }
-
-  return body;
-}
-
-function resolveRigidBodyDesc(bodyType: NonNullable<DerivedRenderMesh["physics"]>["bodyType"]) {
-  switch (bodyType) {
-    case "fixed":
-      return RAPIER.RigidBodyDesc.fixed();
-    case "kinematicPosition":
-      return RAPIER.RigidBodyDesc.kinematicPositionBased();
-    default:
-      return RAPIER.RigidBodyDesc.dynamic();
-  }
-}
-
-function createColliderDesc(mesh: DerivedRenderMesh) {
-  const physics = mesh.physics;
-  const pivot = resolveMeshPivot(mesh);
-
-  let desc: RAPIER.ColliderDesc | undefined;
-
-  if (mesh.primitive && physics) {
-    if (physics.colliderShape === "ball" && mesh.primitive.kind === "sphere") {
-      desc = RAPIER.ColliderDesc.ball(mesh.primitive.radius * maxAxisScale(mesh.scale));
-    }
-
-    if (physics.colliderShape === "cuboid" && mesh.primitive.kind === "box") {
-      desc = RAPIER.ColliderDesc.cuboid(
-        Math.abs(mesh.primitive.size.x * mesh.scale.x) * 0.5,
-        Math.abs(mesh.primitive.size.y * mesh.scale.y) * 0.5,
-        Math.abs(mesh.primitive.size.z * mesh.scale.z) * 0.5
-      );
-    }
-
-    if (physics.colliderShape === "cylinder" && mesh.primitive.kind === "cylinder") {
-      desc = RAPIER.ColliderDesc.cylinder(
-        Math.abs(mesh.primitive.height * mesh.scale.y) * 0.5,
-        Math.max(
-          Math.abs(mesh.primitive.radiusTop * mesh.scale.x),
-          Math.abs(mesh.primitive.radiusBottom * mesh.scale.z)
-        )
-      );
-    }
-
-    if (physics.colliderShape === "cone" && mesh.primitive.kind === "cone") {
-      desc = RAPIER.ColliderDesc.cone(
-        Math.abs(mesh.primitive.height * mesh.scale.y) * 0.5,
-        Math.abs(mesh.primitive.radius * maxAxisScale(mesh.scale))
-      );
-    }
-  }
-
-  if (!desc) {
-    const geometry = createRenderableGeometry(mesh);
-
-    if (!geometry) {
-      return undefined;
-    }
-
-    const position = geometry.getAttribute("position");
-    const index = geometry.getIndex();
-    const scaledVertices = new Float32Array(position.count * 3);
-
-    for (let vertexIndex = 0; vertexIndex < position.count; vertexIndex += 1) {
-      scaledVertices[vertexIndex * 3] = position.getX(vertexIndex) * mesh.scale.x - pivot.x;
-      scaledVertices[vertexIndex * 3 + 1] = position.getY(vertexIndex) * mesh.scale.y - pivot.y;
-      scaledVertices[vertexIndex * 3 + 2] = position.getZ(vertexIndex) * mesh.scale.z - pivot.z;
-    }
-
-    const indices = index
-      ? Uint32Array.from(index.array as ArrayLike<number>)
-      : Uint32Array.from({ length: position.count }, (_, value) => value);
-    desc = RAPIER.ColliderDesc.trimesh(scaledVertices, indices);
-    geometry.dispose();
-  } else {
-    desc.setTranslation(-pivot.x, -pivot.y, -pivot.z);
-  }
-
-  if (!physics) {
-    return desc;
-  }
-
-  if (physics.contactSkin !== undefined) {
-    desc.setContactSkin(physics.contactSkin);
-  }
-
-  if (physics.density !== undefined) {
-    desc.setDensity(physics.density);
-  } else if (physics.mass !== undefined) {
-    desc.setMass(physics.mass);
-  }
-
-  desc.setFriction(physics.friction);
-  desc.setRestitution(physics.restitution);
-  desc.setSensor(physics.sensor);
-
-  return desc;
-}
-
-function createRapierQuaternion(rotation: DerivedRenderMesh["rotation"]) {
-  const quaternion = new Quaternion().setFromEuler(new Euler(rotation.x, rotation.y, rotation.z));
-
-  return {
-    w: quaternion.w,
-    x: quaternion.x,
-    y: quaternion.y,
-    z: quaternion.z
   };
 }
 

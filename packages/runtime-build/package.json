@@ -1,8 +1,11 @@
 {
-  "name": "@web-hammer/three-runtime",
+  "name": "@web-hammer/runtime-build",
   "version": "0.0.0",
   "license": "MIT",
   "type": "module",
+  "bin": {
+    "web-hammer-runtime-build": "./src/cli.ts"
+  },
   "exports": {
     ".": "./src/index.ts"
   },
@@ -10,9 +13,12 @@
     "@types/three": "^0.181.0"
   },
   "dependencies": {
-    "@web-hammer/runtime-build": "workspace:*",
+    "@web-hammer/editor-core": "workspace:*",
+    "@web-hammer/geometry-kernel": "workspace:*",
     "@web-hammer/runtime-format": "workspace:*",
     "@web-hammer/shared": "workspace:*",
-    "three": "^0.181.1"
+    "fflate": "^0.8.2",
+    "three": "^0.181.1",
+    "three-mesh-bvh": "^0.9.2"
   }
 }

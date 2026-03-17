@@ -1,5 +1,5 @@
 {
-  "name": "@web-hammer/gameplay-runtime",
+  "name": "@web-hammer/runtime-format",
   "version": "0.0.0",
   "license": "MIT",
   "type": "module",
@@ -7,7 +7,6 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@web-hammer/runtime-format": "workspace:*",
     "@web-hammer/shared": "workspace:*"
   }
 }

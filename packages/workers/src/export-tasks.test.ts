@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { exportEngineBundle, serializeGltfScene } from "./export-tasks";
 import { makeTransform, vec3, type SceneSettings } from "@web-hammer/shared";
 import type { SceneDocumentSnapshot } from "@web-hammer/editor-core";
+import { buildRuntimeBundleFromSnapshot, buildRuntimeSceneFromSnapshot } from "@web-hammer/runtime-build";
 
 const settings: SceneSettings = {
   player: {
@@ -43,6 +44,94 @@ const settings: SceneSettings = {
 };
 
 describe("exportEngineBundle", () => {
+  test("matches direct runtime-build scene compilation", async () => {
+    const snapshot: SceneDocumentSnapshot = {
+      assets: [],
+      entities: [],
+      layers: [],
+      materials: [],
+      nodes: [
+        {
+          data: {
+            role: "prop",
+            shape: "cube",
+            size: vec3(1, 2, 3)
+          },
+          id: "node:cube",
+          kind: "primitive",
+          name: "Cube",
+          transform: makeTransform(vec3(2, 1, -3))
+        }
+      ],
+      settings,
+      textures: []
+    };
+
+    const bundle = await exportEngineBundle(snapshot);
+    const scene = await buildRuntimeSceneFromSnapshot(snapshot);
+
+    expect({
+      ...bundle.manifest,
+      metadata: {
+        ...bundle.manifest.metadata,
+        exportedAt: "<normalized>"
+      }
+    }).toEqual({
+      ...scene,
+      metadata: {
+        ...scene.metadata,
+        exportedAt: "<normalized>"
+      }
+    });
+  });
+
+  test("matches direct runtime-build bundle externalization", async () => {
+    const snapshot: SceneDocumentSnapshot = {
+      assets: [],
+      entities: [],
+      layers: [],
+      materials: [],
+      nodes: [],
+      settings: {
+        ...settings,
+        world: {
+          ...settings.world,
+          skybox: {
+            ...settings.world.skybox,
+            enabled: true,
+            format: "image",
+            name: "sunset-sky.png",
+            source: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9sotW5kAAAAASUVORK5CYII="
+          }
+        }
+      },
+      textures: []
+    };
+
+    const fromWorker = await exportEngineBundle(snapshot);
+    const direct = await buildRuntimeBundleFromSnapshot(snapshot);
+
+    expect({
+      ...fromWorker,
+      manifest: {
+        ...fromWorker.manifest,
+        metadata: {
+          ...fromWorker.manifest.metadata,
+          exportedAt: "<normalized>"
+        }
+      }
+    }).toEqual({
+      ...direct,
+      manifest: {
+        ...direct.manifest,
+        metadata: {
+          ...direct.manifest.metadata,
+          exportedAt: "<normalized>"
+        }
+      }
+    });
+  });
+
   test("preserves parent ids for grouped runtime exports", async () => {
     const snapshot: SceneDocumentSnapshot = {
       assets: [],

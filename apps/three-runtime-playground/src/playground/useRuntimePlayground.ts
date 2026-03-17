@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createGameplayRuntime } from "@web-hammer/gameplay-runtime";
+import { createGameplayRuntime, createGameplayRuntimeSceneFromRuntimeScene } from "@web-hammer/gameplay-runtime";
 import {
   createWebHammerBundleAssetResolver,
   parseWebHammerEngineBundleZip,
@@ -52,10 +52,7 @@ export function useRuntimePlayground() {
     () =>
       createGameplayRuntime({
         host: hostRef.current.host,
-        scene: {
-          entities: scene.entities,
-          nodes: scene.nodes
-        },
+        scene: createGameplayRuntimeSceneFromRuntimeScene(scene),
         systems: gameplaySystems
       }),
     [gameplaySystems, scene.entities, scene.nodes]

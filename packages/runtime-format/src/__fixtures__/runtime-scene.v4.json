@@ -1,0 +1,62 @@
+{
+  "assets": [],
+  "entities": [],
+  "layers": [],
+  "materials": [],
+  "metadata": {
+    "exportedAt": "2026-03-17T10:00:00.000Z",
+    "format": "web-hammer-engine",
+    "version": 4
+  },
+  "nodes": [
+    {
+      "data": {},
+      "id": "node:test",
+      "kind": "group",
+      "name": "Test",
+      "transform": {
+        "position": { "x": 0, "y": 0, "z": 0 },
+        "rotation": { "x": 0, "y": 0, "z": 0 },
+        "scale": { "x": 1, "y": 1, "z": 1 }
+      }
+    }
+  ],
+  "settings": {
+    "player": {
+      "cameraMode": "fps",
+      "canCrouch": true,
+      "canJump": true,
+      "canRun": true,
+      "crouchHeight": 1.2,
+      "height": 1.8,
+      "jumpHeight": 1,
+      "movementSpeed": 4,
+      "runningSpeed": 6
+    },
+    "world": {
+      "ambientColor": "#ffffff",
+      "ambientIntensity": 0,
+      "fogColor": "#000000",
+      "fogFar": 0,
+      "fogNear": 0,
+      "gravity": { "x": 0, "y": -9.81, "z": 0 },
+      "lod": {
+        "bakedAt": "",
+        "enabled": false,
+        "lowDetailRatio": 0.2,
+        "midDetailRatio": 0.5
+      },
+      "physicsEnabled": true,
+      "skybox": {
+        "affectsLighting": false,
+        "blur": 0,
+        "enabled": false,
+        "format": "image",
+        "intensity": 1,
+        "lightingIntensity": 1,
+        "name": "",
+        "source": ""
+      }
+    }
+  }
+}

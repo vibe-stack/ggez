@@ -1,5 +1,5 @@
 {
-  "name": "@web-hammer/gameplay-runtime",
+  "name": "@web-hammer/runtime-streaming",
   "version": "0.0.0",
   "license": "MIT",
   "type": "module",

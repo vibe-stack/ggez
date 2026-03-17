@@ -106,6 +106,8 @@ export function createWebHammerSceneObjectFactory(
   };
 }
 
+export const createThreeRuntimeObjectFactory = createWebHammerSceneObjectFactory;
+
 async function createObjectForNode(
   node: WebHammerEngineNode,
   resources: WebHammerSceneObjectFactoryResources,
