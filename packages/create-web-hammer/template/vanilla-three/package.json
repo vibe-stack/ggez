@@ -1,0 +1,27 @@
+{
+  "name": "__PROJECT_NAME__",
+  "private": true,
+  "version": "0.0.0",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.19.2",
+    "@web-hammer/gameplay-runtime": "latest",
+    "@web-hammer/runtime-format": "latest",
+    "@web-hammer/runtime-physics-rapier": "latest",
+    "@web-hammer/runtime-streaming": "latest",
+    "@web-hammer/three-runtime": "latest",
+    "three": "^0.181.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.181.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.12"
+  }
+}

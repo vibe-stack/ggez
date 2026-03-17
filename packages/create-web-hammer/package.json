@@ -1,0 +1,12 @@
+{
+  "name": "create-web-hammer",
+  "version": "0.0.0",
+  "license": "MIT",
+  "type": "module",
+  "devDependencies": {
+    "@types/node": "^24.10.1"
+  },
+  "bin": {
+    "create-web-hammer": "./src/cli.js"
+  }
+}

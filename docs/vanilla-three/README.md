@@ -5,11 +5,12 @@ This guide set explains how to use Web Hammer as a content pipeline and runtime 
 Read in this order:
 
 1. [Getting Started](./getting-started.md)
-2. [Build Pipeline](./build-pipeline.md)
-3. [Loading A Scene](./loading-a-scene.md)
-4. [Gameplay And Physics](./gameplay-and-physics.md)
-5. [World Streaming](./world-streaming.md)
-6. [Suggested Project Layout](./project-layout.md)
+2. [Starter CLI](./starter-cli.md)
+3. [Build Pipeline](./build-pipeline.md)
+4. [Loading A Scene](./loading-a-scene.md)
+5. [Gameplay And Physics](./gameplay-and-physics.md)
+6. [World Streaming](./world-streaming.md)
+7. [Suggested Project Layout](./project-layout.md)
 
 What this stack looks like:
 
