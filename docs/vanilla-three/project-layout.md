@@ -14,27 +14,29 @@ Related guides:
 /src
   /game
     app.ts
-    loop.ts
     camera.ts
-    input.ts
-  /runtime
-    build.ts
-    load-scene.ts
-    gameplay.ts
-    physics.ts
-    streaming.ts
-  /content
-    world-index.ts
+    runtime-physics.ts
+    runtime-scene-sources.ts
+    scene-types.ts
+    starter-player-controller.ts
+  /scenes
+    /main
+      index.ts
+      scene.runtime.json
+      /assets
+    index.ts
 ```
 
 Suggested responsibilities:
 
-- `app.ts`: bootstraps Three, your scene, camera, and renderer
-- `loop.ts`: owns update and render order
-- `load-scene.ts`: wraps `createThreeRuntimeSceneInstance()`
-- `gameplay.ts`: creates `@web-hammer/gameplay-runtime`
-- `physics.ts`: owns Rapier lifecycle
-- `streaming.ts`: owns `@web-hammer/runtime-streaming`
+- `app.ts`: bootstraps Three, scene loading, fixed-step physics, gameplay runtime, and scene transitions
+- `camera.ts`: shared camera framing helpers for non-player scenes
+- `runtime-physics.ts`: starter collision extraction from runtime physics definitions
+- `runtime-scene-sources.ts`: scene manifest loading, including source-colocated Vite asset resolution
+- `scene-types.ts`: app-facing scene module contract
+- `starter-player-controller.ts`: starter capsule controller driven by runtime player/camera settings
+- `scenes/<id>/index.ts`: per-scene logic using `mount`, `systems`, `player`, and `gotoScene(...)`
+- `scenes/<id>/scene.runtime.json`: colocated runtime manifest for that scene
 
 ## Recommended Built Asset Layout
 
@@ -52,6 +54,39 @@ Suggested responsibilities:
     /shared
       /textures
       /props
+```
+
+## Minimal Scene Module
+
+```ts
+import sceneManifest from "./scene.runtime.json?raw";
+import {
+  createBundledRuntimeSceneSource,
+  defineGameScene,
+  normalizeBundledAssetUrls
+} from "../game/runtime-scene-sources";
+
+const assetUrls = normalizeBundledAssetUrls(
+  import.meta.glob("./assets/**/*", {
+    eager: true,
+    import: "default",
+    query: "?url"
+  }) as Record<string, string>
+);
+
+export const mainScene = defineGameScene({
+  id: "main",
+  mount({ player, setStatus }) {
+    if (player) {
+      setStatus("Click to capture the cursor. WASD to move, Space to jump.");
+    }
+  },
+  source: createBundledRuntimeSceneSource({
+    assetUrls,
+    manifestText: sceneManifest
+  }),
+  title: "Main Scene"
+});
 ```
 
 ## Minimal Runtime Loader Module

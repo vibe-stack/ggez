@@ -1,0 +1,144 @@
+{
+  "assets": [],
+  "entities": [
+    {
+      "id": "entity:player-spawn:arena",
+      "name": "Arena Spawn",
+      "properties": {},
+      "transform": {
+        "pivot": { "x": 0, "y": 0, "z": 0 },
+        "position": { "x": 0, "y": 0.5, "z": 6 },
+        "rotation": { "x": 0, "y": 3.141592653589793, "z": 0 },
+        "scale": { "x": 1, "y": 1, "z": 1 }
+      },
+      "type": "player-spawn"
+    }
+  ],
+  "layers": [],
+  "materials": [
+    {
+      "color": "#f2b26e",
+      "id": "material:arena:floor",
+      "metallicFactor": 0,
+      "name": "Arena Floor",
+      "roughnessFactor": 0.92
+    }
+  ],
+  "metadata": {
+    "exportedAt": "2026-03-18T10:00:00.000Z",
+    "format": "web-hammer-engine",
+    "version": 6
+  },
+  "nodes": [
+    {
+      "data": {
+        "materialId": "material:arena:floor",
+        "physics": {
+          "angularDamping": 0,
+          "bodyType": "fixed",
+          "canSleep": true,
+          "ccd": false,
+          "colliderShape": "trimesh",
+          "contactSkin": 0,
+          "enabled": true,
+          "friction": 0.85,
+          "gravityScale": 1,
+          "linearDamping": 0,
+          "lockRotations": false,
+          "lockTranslations": false,
+          "restitution": 0,
+          "sensor": false
+        },
+        "role": "brush",
+        "shape": "cube",
+        "size": { "x": 24, "y": 1, "z": 24 }
+      },
+      "geometry": {
+        "primitives": [
+          {
+            "indices": [0, 1, 2, 0, 2, 3],
+            "material": {
+              "color": "#f2b26e",
+              "id": "material:arena:floor",
+              "metallicFactor": 0,
+              "name": "Arena Floor",
+              "roughnessFactor": 0.92
+            },
+            "normals": [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
+            "positions": [-12, 0, -12, 12, 0, -12, 12, 0, 12, -12, 0, 12],
+            "uvs": [0, 0, 1, 0, 1, 1, 0, 1]
+          }
+        ]
+      },
+      "id": "node:arena:floor",
+      "kind": "primitive",
+      "name": "Arena Floor",
+      "transform": {
+        "pivot": { "x": 0, "y": 0, "z": 0 },
+        "position": { "x": 0, "y": 0, "z": 0 },
+        "rotation": { "x": 0, "y": 0, "z": 0 },
+        "scale": { "x": 1, "y": 1, "z": 1 }
+      }
+    },
+    {
+      "data": {
+        "castShadow": true,
+        "color": "#fff2d9",
+        "enabled": true,
+        "intensity": 1.2,
+        "type": "directional"
+      },
+      "id": "node:arena:light:directional",
+      "kind": "light",
+      "name": "Arena Directional Light",
+      "transform": {
+        "pivot": { "x": 0, "y": 0, "z": 0 },
+        "position": { "x": 6, "y": 8, "z": 5 },
+        "rotation": { "x": 0, "y": 0, "z": 0 },
+        "scale": { "x": 1, "y": 1, "z": 1 }
+      }
+    }
+  ],
+  "settings": {
+    "player": {
+      "cameraMode": "fps",
+      "canCrouch": true,
+      "canJump": true,
+      "canRun": true,
+      "crouchHeight": 1.2,
+      "height": 1.8,
+      "jumpHeight": 1,
+      "movementSpeed": 4.8,
+      "runningSpeed": 7.4
+    },
+    "world": {
+      "ambientColor": "#fff8ef",
+      "ambientIntensity": 0.3,
+      "fogColor": "#f7dcc0",
+      "fogFar": 140,
+      "fogNear": 45,
+      "gravity": {
+        "x": 0,
+        "y": -9.81,
+        "z": 0
+      },
+      "lod": {
+        "bakedAt": "",
+        "enabled": false,
+        "lowDetailRatio": 0.2,
+        "midDetailRatio": 0.5
+      },
+      "physicsEnabled": true,
+      "skybox": {
+        "affectsLighting": false,
+        "blur": 0,
+        "enabled": false,
+        "format": "image",
+        "intensity": 1,
+        "lightingIntensity": 1,
+        "name": "",
+        "source": ""
+      }
+    }
+  }
+}

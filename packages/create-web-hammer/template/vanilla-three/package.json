@@ -13,9 +13,10 @@
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.2",
     "@web-hammer/gameplay-runtime": "workspace:*",
+    "@web-hammer/render-pipeline": "workspace:*",
     "@web-hammer/runtime-format": "workspace:*",
     "@web-hammer/runtime-physics-rapier": "workspace:*",
-    "@web-hammer/runtime-streaming": "workspace:*",
+    "@web-hammer/shared": "workspace:*",
     "@web-hammer/three-runtime": "workspace:*",
     "three": "^0.181.1"
   },

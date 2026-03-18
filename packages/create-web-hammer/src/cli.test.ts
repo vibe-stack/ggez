@@ -17,10 +17,12 @@ describe("create-web-hammer cli", () => {
 
     const packageJson = await readFile(join(targetDir, "app/package.json"), "utf8");
     const mainFile = await readFile(join(targetDir, "app/src/main.ts"), "utf8");
+    const sceneModule = await readFile(join(targetDir, "app/src/scenes/main/index.ts"), "utf8");
 
     expect(packageJson).toContain("\"name\": \"app\"");
     expect(packageJson).toContain("@web-hammer/three-runtime");
-    expect(mainFile).toContain("createThreeRuntimeSceneInstance");
+    expect(mainFile).toContain("createGameApp");
+    expect(sceneModule).toContain("createBundledRuntimeSceneSource");
 
     await rm(targetDir, { force: true, recursive: true });
   });

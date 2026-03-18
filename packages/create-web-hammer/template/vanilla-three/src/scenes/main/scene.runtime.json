@@ -1,0 +1,163 @@
+{
+  "assets": [],
+  "entities": [
+    {
+      "id": "entity:player-spawn:main",
+      "name": "Player Spawn",
+      "properties": {},
+      "transform": {
+        "pivot": { "x": 0, "y": 0, "z": 0 },
+        "position": { "x": 0, "y": 0.5, "z": 4 },
+        "rotation": { "x": 0, "y": 3.141592653589793, "z": 0 },
+        "scale": { "x": 1, "y": 1, "z": 1 }
+      },
+      "type": "player-spawn"
+    }
+  ],
+  "layers": [],
+  "materials": [
+    {
+      "color": "#d2d7de",
+      "id": "material:starter:floor",
+      "metallicFactor": 0,
+      "name": "Starter Floor",
+      "roughnessFactor": 0.96
+    }
+  ],
+  "metadata": {
+    "exportedAt": "2026-03-17T10:00:00.000Z",
+    "format": "web-hammer-engine",
+    "version": 6
+  },
+  "nodes": [
+    {
+      "data": {
+        "materialId": "material:starter:floor",
+        "physics": {
+          "angularDamping": 0,
+          "bodyType": "fixed",
+          "canSleep": true,
+          "ccd": false,
+          "colliderShape": "trimesh",
+          "contactSkin": 0,
+          "enabled": true,
+          "friction": 0.9,
+          "gravityScale": 1,
+          "linearDamping": 0,
+          "lockRotations": false,
+          "lockTranslations": false,
+          "restitution": 0,
+          "sensor": false
+        },
+        "role": "brush",
+        "shape": "cube",
+        "size": { "x": 20, "y": 1, "z": 20 }
+      },
+      "geometry": {
+        "primitives": [
+          {
+            "indices": [0, 1, 2, 0, 2, 3],
+            "material": {
+              "color": "#d2d7de",
+              "id": "material:starter:floor",
+              "metallicFactor": 0,
+              "name": "Starter Floor",
+              "roughnessFactor": 0.96
+            },
+            "normals": [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
+            "positions": [-10, 0, -10, 10, 0, -10, 10, 0, 10, -10, 0, 10],
+            "uvs": [0, 0, 1, 0, 1, 1, 0, 1]
+          }
+        ]
+      },
+      "id": "node:starter:floor",
+      "kind": "primitive",
+      "name": "Floor",
+      "transform": {
+        "pivot": { "x": 0, "y": 0, "z": 0 },
+        "position": { "x": 0, "y": 0, "z": 0 },
+        "rotation": { "x": 0, "y": 0, "z": 0 },
+        "scale": { "x": 1, "y": 1, "z": 1 }
+      }
+    },
+    {
+      "data": {
+        "castShadow": true,
+        "color": "#ffffff",
+        "enabled": true,
+        "intensity": 1.35,
+        "type": "directional"
+      },
+      "id": "node:starter:light:directional",
+      "kind": "light",
+      "name": "Directional Light",
+      "transform": {
+        "pivot": { "x": 0, "y": 0, "z": 0 },
+        "position": { "x": 4, "y": 9, "z": 3 },
+        "rotation": { "x": 0, "y": 0, "z": 0 },
+        "scale": { "x": 1, "y": 1, "z": 1 }
+      }
+    },
+    {
+      "data": {
+        "castShadow": false,
+        "color": "#dfe9ff",
+        "enabled": true,
+        "groundColor": "#5b6472",
+        "intensity": 0.7,
+        "type": "hemisphere"
+      },
+      "id": "node:starter:light:hemisphere",
+      "kind": "light",
+      "name": "Hemisphere Light",
+      "transform": {
+        "pivot": { "x": 0, "y": 0, "z": 0 },
+        "position": { "x": 0, "y": 5, "z": 0 },
+        "rotation": { "x": 0, "y": 0, "z": 0 },
+        "scale": { "x": 1, "y": 1, "z": 1 }
+      }
+    }
+  ],
+  "settings": {
+    "player": {
+      "cameraMode": "third-person",
+      "canCrouch": true,
+      "canJump": true,
+      "canRun": true,
+      "crouchHeight": 1.2,
+      "height": 1.8,
+      "jumpHeight": 1,
+      "movementSpeed": 4.5,
+      "runningSpeed": 7
+    },
+    "world": {
+      "ambientColor": "#f7fbff",
+      "ambientIntensity": 0.35,
+      "fogColor": "#d9e4ef",
+      "fogFar": 120,
+      "fogNear": 35,
+      "gravity": {
+        "x": 0,
+        "y": -9.81,
+        "z": 0
+      },
+      "lod": {
+        "bakedAt": "",
+        "enabled": false,
+        "lowDetailRatio": 0.2,
+        "midDetailRatio": 0.5
+      },
+      "physicsEnabled": true,
+      "skybox": {
+        "affectsLighting": false,
+        "blur": 0,
+        "enabled": false,
+        "format": "image",
+        "intensity": 1,
+        "lightingIntensity": 1,
+        "name": "",
+        "source": ""
+      }
+    }
+  }
+}

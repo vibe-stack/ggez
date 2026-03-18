@@ -1,8 +1,6 @@
 :root {
-  color: #0f1c28;
-  background:
-    radial-gradient(circle at top, rgba(255, 247, 222, 0.75), transparent 30%),
-    linear-gradient(180deg, #dce9f4 0%, #c8d8e5 100%);
+  color: #f4f7fb;
+  background: #05070a;
   font-family:
     "IBM Plex Sans",
     "Segoe UI",
@@ -17,65 +15,36 @@ html,
 body,
 #app {
   margin: 0;
-  min-height: 100%;
   width: 100%;
+  min-height: 100%;
 }
 
 body {
   overflow: hidden;
+  background: #05070a;
 }
 
 canvas {
   display: block;
 }
 
-.app-shell {
+.game-shell {
   position: relative;
-  min-height: 100vh;
+  width: 100vw;
+  height: 100vh;
 }
 
-.hud {
+.game-status {
   position: absolute;
-  top: 1rem;
   left: 1rem;
+  bottom: 1rem;
   z-index: 10;
-  max-width: 28rem;
-  padding: 1rem 1.2rem;
-  border: 1px solid rgba(15, 28, 40, 0.12);
-  border-radius: 1rem;
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(18px);
-  box-shadow: 0 20px 50px rgba(49, 74, 97, 0.18);
-}
-
-.eyebrow {
-  display: inline-block;
-  margin-bottom: 0.55rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: #55708a;
-}
-
-h1 {
-  margin: 0 0 0.5rem;
-  font-size: clamp(1.8rem, 2vw, 2.6rem);
-  line-height: 1;
-}
-
-p {
-  margin: 0;
-  line-height: 1.5;
-  color: #314a61;
-}
-
-code {
-  padding: 0.12rem 0.32rem;
-  border-radius: 0.35rem;
-  background: rgba(15, 28, 40, 0.08);
-  font-family:
-    "IBM Plex Mono",
-    "SFMono-Regular",
-    monospace;
+  max-width: min(32rem, calc(100vw - 2rem));
+  padding: 0.8rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 0.75rem;
+  background: rgba(8, 12, 18, 0.78);
+  color: #f4f7fb;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
 }

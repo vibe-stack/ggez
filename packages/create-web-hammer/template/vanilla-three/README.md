@@ -13,18 +13,22 @@ __PACKAGE_MANAGER__ run build
 ## What This Starter Includes
 
 - plain Vite app
-- TypeScript
-- Three.js renderer setup
+- modular game runtime shell
+- scene registry in `src/scenes`
+- scene-local runtime manifests and assets
+- starter capsule controller driven by runtime camera/player settings
+- static collision extraction from runtime physics definitions
+- scene-level `systems`, `mount`, and `gotoScene(...)` hooks
 - Rapier runtime initialization
-- Web Hammer runtime scene loading helper
 - gameplay-runtime bootstrap
-- runtime-streaming bootstrap placeholder
 
 ## First Steps
 
-1. Run the app with the included placeholder manifest at `public/scene.runtime.json`.
-2. Export a real runtime manifest from Web Hammer when you are ready.
-3. Replace `public/scene.runtime.json` or update `loadRuntimeScene()` in `src/main.ts` if your asset base path differs.
+1. Run the app and move around in the included starter scene.
+2. Replace `src/scenes/main/scene.runtime.json` with your exported runtime scene when ready.
+3. If your scene has assets, place them under `src/scenes/main/assets/`.
+4. Inspect `src/scenes/arena/` for a second scene and the `gotoScene(...)` transition pattern.
+5. Add custom logic in `src/scenes/main/index.ts` with `mount`, `systems`, `player`, and `gotoScene(...)`.
 
 ## Runtime Packages
 
@@ -32,8 +36,7 @@ __PACKAGE_MANAGER__ run build
 - `@web-hammer/runtime-format`
 - `@web-hammer/gameplay-runtime`
 - `@web-hammer/runtime-physics-rapier`
-- `@web-hammer/runtime-streaming`
 
 ## Notes
 
-The scaffold is intentionally vanilla. It does not impose React, ECS, or app-framework structure.
+The scaffold is intentionally vanilla, but it is structured as a real game app rather than a preview playground.

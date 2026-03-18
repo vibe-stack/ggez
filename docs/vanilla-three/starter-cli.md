@@ -46,7 +46,8 @@ The starter includes:
 - `@web-hammer/runtime-format`
 - `@web-hammer/gameplay-runtime`
 - `@web-hammer/runtime-physics-rapier`
-- `@web-hammer/runtime-streaming`
+- a scaffold-owned starter player controller that reads runtime camera/player settings
+- scene modules with `mount`, `systems`, `player`, and `gotoScene(...)`
 
 ## After Scaffolding
 
@@ -56,12 +57,15 @@ bun install
 bun run dev
 ```
 
-The generated project already includes a placeholder `public/scene.runtime.json`, so it boots immediately.
+The generated project boots immediately from `src/scenes/main/scene.runtime.json` with a walkable floor, a player spawn, and the starter capsule controller.
 
 Then:
 
 1. export a runtime manifest from Web Hammer
-2. replace `public/scene.runtime.json` or point `loadRuntimeScene()` at your manifest URL
-3. adjust `resolveAssetUrl` in `src/main.ts` if your asset paths differ
+2. replace `src/scenes/main/scene.runtime.json`
+3. place scene assets under `src/scenes/main/assets/` if you want source-colocated scenes
+4. inspect `src/scenes/arena/` for the bundled second-scene transition example
+5. add custom logic in `src/scenes/main/index.ts`
+6. register more scenes in `src/scenes/index.ts`
 
 Continue with [Build Pipeline](./build-pipeline.md).
