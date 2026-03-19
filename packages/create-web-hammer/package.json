@@ -1,6 +1,6 @@
 {
   "name": "create-web-hammer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Scaffold a Web Hammer starter project with a vanilla Three.js runtime setup.",
   "license": "MIT",
   "type": "module",

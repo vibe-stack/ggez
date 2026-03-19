@@ -1,6 +1,6 @@
 {
   "name": "@ggez/workers",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Worker task contracts and managers for Web Hammer export and processing flows.",
   "license": "MIT",
   "type": "module",
@@ -35,11 +35,11 @@
   "homepage": "https://github.com/vibe-stack/trident/tree/main/packages/workers",
   "dependencies": {
     "@types/three": "^0.181.0",
-    "@ggez/editor-core": "0.1.0",
-    "@ggez/geometry-kernel": "0.1.0",
-    "@ggez/runtime-build": "0.1.0",
-    "@ggez/runtime-format": "0.1.0",
-    "@ggez/shared": "0.1.0",
+    "@ggez/editor-core": "0.1.1",
+    "@ggez/geometry-kernel": "0.1.1",
+    "@ggez/runtime-build": "0.1.1",
+    "@ggez/runtime-format": "0.1.1",
+    "@ggez/shared": "0.1.1",
     "comlink": "^4.4.2",
     "three": "^0.181.1",
     "three-mesh-bvh": "^0.9.2"

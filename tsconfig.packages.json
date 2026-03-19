@@ -1,10 +1,12 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
+    "baseUrl": ".",
     "declaration": true,
     "declarationMap": true,
     "emitDeclarationOnly": false,
-    "noEmit": false
+    "noEmit": false,
+    "paths": {}
   },
   "include": ["packages/*/src/**/*"]
 }

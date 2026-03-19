@@ -1,6 +1,6 @@
 {
   "name": "@ggez/gameplay-runtime",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Lightweight gameplay runtime primitives and system orchestration for Web Hammer scenes.",
   "license": "MIT",
   "type": "module",
@@ -34,7 +34,7 @@
   },
   "homepage": "https://github.com/vibe-stack/trident/tree/main/packages/gameplay-runtime",
   "dependencies": {
-    "@ggez/runtime-format": "0.1.0",
-    "@ggez/shared": "0.1.0"
+    "@ggez/runtime-format": "0.1.1",
+    "@ggez/shared": "0.1.1"
   }
 }

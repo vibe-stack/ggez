@@ -1,6 +1,6 @@
 {
   "name": "@ggez/runtime-format",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Renderer-agnostic runtime contracts, parsing, and validation for Web Hammer.",
   "license": "MIT",
   "type": "module",
@@ -34,6 +34,6 @@
   },
   "homepage": "https://github.com/vibe-stack/trident/tree/main/packages/runtime-format",
   "dependencies": {
-    "@ggez/shared": "0.1.0"
+    "@ggez/shared": "0.1.1"
   }
 }
