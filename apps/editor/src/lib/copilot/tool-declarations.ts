@@ -410,6 +410,32 @@ export const COPILOT_TOOL_DECLARATIONS: CopilotToolDeclaration[] = [
       }
     }
   },
+  {
+    name: "push_scene_to_connected_game",
+    description:
+      "Pushes the current editor scene into the connected scaffolded game dev server. Use it when the user asks to sync or send the current scene to the game.",
+    parameters: {
+      type: "object",
+      properties: {
+        forceSwitch: {
+          type: "boolean",
+          description: "If true, request the game to reload directly into the pushed scene after syncing."
+        },
+        gameId: {
+          type: "string",
+          description: "Optional specific connected game ID when more than one game is available."
+        },
+        projectName: {
+          type: "string",
+          description: "Optional project display name override for the pushed scene."
+        },
+        projectSlug: {
+          type: "string",
+          description: "Optional slug override for the target scene folder."
+        }
+      }
+    }
+  },
 
   // ── Read-only queries ───────────────────────────────────────
   {

@@ -6,7 +6,7 @@ import { createCopilotProvider } from "@/lib/copilot/provider";
 import { buildSystemPrompt } from "@/lib/copilot/system-prompt";
 import { loadCopilotSettings, isCopilotConfigured } from "@/lib/copilot/settings";
 import { COPILOT_TOOL_DECLARATIONS } from "@/lib/copilot/tool-declarations";
-import { executeTool } from "@/lib/copilot/tool-executor";
+import { executeTool, type CopilotToolExecutionContext } from "@/lib/copilot/tool-executor";
 
 const EMPTY_SESSION: CopilotSession = {
   messages: [],
@@ -14,7 +14,7 @@ const EMPTY_SESSION: CopilotSession = {
   iterationCount: 0
 };
 
-export function useCopilot(editor: EditorCore) {
+export function useCopilot(editor: EditorCore, toolContext: CopilotToolExecutionContext = {}) {
   const [session, setSession] = useState<CopilotSession>(EMPTY_SESSION);
   const [configured, setConfigured] = useState(() => isCopilotConfigured());
   const abortRef = useRef<AbortController | null>(null);
@@ -69,7 +69,7 @@ export function useCopilot(editor: EditorCore) {
           onThreadId: (threadId) => {
             codexThreadIdRef.current = threadId;
           },
-          executeTool: (toolCall) => executeTool(editor, toolCall),
+          executeTool: (toolCall) => executeTool(editor, toolCall, toolContext),
           onUpdate: (updated) => {
             setSession({ ...updated, messages: [...updated.messages] });
           },
@@ -86,7 +86,7 @@ export function useCopilot(editor: EditorCore) {
             providerConfig,
             systemPrompt,
             tools: COPILOT_TOOL_DECLARATIONS,
-            executeTool: (toolCall) => executeTool(editor, toolCall),
+            executeTool: (toolCall) => executeTool(editor, toolCall, toolContext),
             onUpdate: (updated) => {
               setSession({ ...updated, messages: [...updated.messages] });
             }
@@ -97,7 +97,7 @@ export function useCopilot(editor: EditorCore) {
 
       abortRef.current = null;
     },
-    [editor, session.messages]
+    [editor, session.messages, toolContext]
   );
 
   const abort = useCallback(() => {

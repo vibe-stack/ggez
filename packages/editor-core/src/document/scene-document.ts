@@ -44,6 +44,10 @@ export type SceneDocumentSnapshot = {
   entities: Entity[];
   layers: Layer[];
   materials: Material[];
+  metadata?: {
+    projectName?: string;
+    projectSlug?: string;
+  };
   nodes: GeometryNode[];
   settings: SceneSettings;
   textures: TextureRecord[];

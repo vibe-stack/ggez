@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react-swc";
 import tsconfigPaths from "vite-tsconfig-paths";
 import tailwindcss from "@tailwindcss/vite";
 import { createCodexBridgePlugin } from "./server/codex-bridge-plugin";
+import { createEditorGameSyncPlugin } from "./server/editor-game-sync-plugin";
 import { createObjectGenerationApiPlugin } from "./server/object-generation-api";
 import { createTextureGenerationApiPlugin } from "./server/texture-generation-api";
 
@@ -26,6 +27,7 @@ export default defineConfig(({ mode }) => {
       tsconfigPaths(),
       tailwindcss(),
       createCodexBridgePlugin(),
+      createEditorGameSyncPlugin(),
       createObjectGenerationApiPlugin(),
       createTextureGenerationApiPlugin()
     ],

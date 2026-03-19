@@ -1,4 +1,5 @@
 import { Bot, Gauge } from "lucide-react";
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Menubar,
@@ -15,6 +16,7 @@ type EditorMenuBarProps = {
   canRedo: boolean;
   canUndo: boolean;
   copilotOpen: boolean;
+  gameConnectionControl?: ReactNode;
   onClearSelection: () => void;
   onCreateBrush: () => void;
   onDeleteSelection: () => void;
@@ -36,6 +38,7 @@ export function EditorMenuBar({
   canRedo,
   canUndo,
   copilotOpen,
+  gameConnectionControl,
   onClearSelection,
   onCreateBrush,
   onDeleteSelection,
@@ -150,6 +153,7 @@ export function EditorMenuBar({
       </div>
 
       <div className="flex shrink-0 items-center gap-3 px-2">
+        {gameConnectionControl}
         <Button
           aria-label={`Canvas DPR ${viewportQuality.toFixed(2)}x`}
           className="text-[11px] text-foreground/65 hover:text-foreground flex flex-row gap-1 px-2"

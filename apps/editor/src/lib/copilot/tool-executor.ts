@@ -57,6 +57,15 @@ import type { CopilotToolCall, CopilotToolResult } from "./types";
 
 type Args = Record<string, unknown>;
 
+export type CopilotToolExecutionContext = {
+  requestScenePush?: (options: {
+    forceSwitch?: boolean;
+    gameId?: string;
+    projectName?: string;
+    projectSlug?: string;
+  }) => void;
+};
+
 function num(args: Args, key: string, fallback = 0): number {
   const v = args[key];
   return typeof v === "number" ? v : fallback;
@@ -249,11 +258,15 @@ function updateHooksOnTarget(
   return ok(result);
 }
 
-export function executeTool(editor: EditorCore, toolCall: CopilotToolCall): CopilotToolResult {
+export function executeTool(
+  editor: EditorCore,
+  toolCall: CopilotToolCall,
+  context: CopilotToolExecutionContext = {}
+): CopilotToolResult {
   const { name, args } = toolCall;
 
   try {
-    const result = executeToolInner(editor, name, args);
+    const result = executeToolInner(editor, name, args, context);
     return { callId: toolCall.id, name, result };
   } catch (error) {
     return {
@@ -264,7 +277,7 @@ export function executeTool(editor: EditorCore, toolCall: CopilotToolCall): Copi
   }
 }
 
-function executeToolInner(editor: EditorCore, name: string, args: Args): string {
+function executeToolInner(editor: EditorCore, name: string, args: Args, context: CopilotToolExecutionContext): string {
   const scene = editor.scene;
 
   switch (name) {
@@ -574,6 +587,20 @@ function executeToolInner(editor: EditorCore, name: string, args: Args): string 
       const command = createSetSceneSettingsCommand(scene, next);
       editor.execute(command);
       return ok({});
+    }
+
+    case "push_scene_to_connected_game": {
+      if (!context.requestScenePush) {
+        return fail("Editor-to-game sync is unavailable in this session.");
+      }
+
+      context.requestScenePush({
+        forceSwitch: bool(args, "forceSwitch") ?? true,
+        gameId: str(args, "gameId") || undefined,
+        projectName: str(args, "projectName") || undefined,
+        projectSlug: str(args, "projectSlug") || undefined
+      });
+      return ok({ queued: true });
     }
 
     // ── Read-only queries ─────────────────────────────────────

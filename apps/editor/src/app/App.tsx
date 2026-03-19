@@ -86,12 +86,15 @@ import {
   createWebHammerEngineBundleZip,
   isWebHammerEngineBundle
 } from "@web-hammer/three-runtime";
+import { slugifyProjectName, type EditorFileMetadata } from "@web-hammer/dev-sync";
 import { EditorShell } from "@/components/EditorShell";
+import { useGameConnection } from "@/app/hooks/useGameConnection";
 import { uiStore, type RightPanelId } from "@/state/ui-store";
 import type { Transform } from "@web-hammer/shared";
 import type { MeshEditMode } from "@/viewport/editing";
 import { useAppHotkeys } from "@/app/hooks/useAppHotkeys";
 import { useCopilot } from "@/app/hooks/useCopilot";
+import { GameConnectionControl } from "@/components/editor-shell/GameConnectionControl";
 import { useEditorSubscriptions } from "@/app/hooks/useEditorSubscriptions";
 import { useExportWorker } from "@/app/hooks/useExportWorker";
 import { clampSnapSize, resolveViewportSnapSize } from "@/viewport/utils/snap";
@@ -147,12 +150,16 @@ export function App() {
   const [sculptBrushRadius, setSculptBrushRadius] = useState(3);
   const [sculptBrushStrength, setSculptBrushStrength] = useState(0.2);
   const [selectedScenePathId, setSelectedScenePathId] = useState<string>();
+  const [projectName, setProjectName] = useState("Untitled Scene");
+  const [projectSlug, setProjectSlug] = useState("untitled-scene");
+  const [projectSlugDirty, setProjectSlugDirty] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const glbImportInputRef = useRef<HTMLInputElement | null>(null);
   const renderSceneCacheRef = useRef(createDerivedRenderSceneCache());
   const ui = useSnapshot(uiStore);
   const toolSession = useMemo(() => createToolSession(activeToolId), [activeToolId]);
   const { downloadBinaryFile, downloadTextFile, exportJobs, runWorkerRequest } = useExportWorker();
+  const gameConnection = useGameConnection();
   const renderScene = useMemo(
     () =>
       deriveRenderSceneCached(
@@ -165,6 +172,8 @@ export function App() {
     [editor, sceneRevision]
   );
   const spatialAnalysis = useMemo(() => analyzeSceneSpatialLayout(editor.scene), [editor, sceneRevision]);
+  const resolvedProjectName = projectName.trim() || "Untitled Scene";
+  const resolvedProjectSlug = slugifyProjectName(projectSlug.trim() || resolvedProjectName);
 
   useEditorSubscriptions(editor, setSceneRevision, setSelectionRevision);
 
@@ -1296,17 +1305,52 @@ export function App() {
     setPhysicsRevision((current) => current + 1);
   };
 
+  const buildEditorSnapshot = () => ({
+    ...editor.exportSnapshot(),
+    metadata: {
+      projectName: resolvedProjectName,
+      projectSlug: resolvedProjectSlug
+    }
+  });
+
+  const applyProjectMetadata = (metadata?: EditorFileMetadata) => {
+    if (!metadata?.projectName && !metadata?.projectSlug) {
+      return;
+    }
+
+    const nextProjectName = metadata.projectName?.trim() || resolvedProjectName;
+    const nextProjectSlug = slugifyProjectName(metadata.projectSlug?.trim() || nextProjectName);
+    setProjectName(nextProjectName);
+    setProjectSlug(nextProjectSlug);
+    setProjectSlugDirty(Boolean(metadata.projectSlug));
+  };
+
+  const handleProjectNameChange = (value: string) => {
+    const previousAutoSlug = slugifyProjectName(projectName);
+    setProjectName(value);
+
+    if (!projectSlugDirty || projectSlug === previousAutoSlug) {
+      setProjectSlug(slugifyProjectName(value));
+      setProjectSlugDirty(false);
+    }
+  };
+
+  const handleProjectSlugChange = (value: string) => {
+    setProjectSlug(slugifyProjectName(value));
+    setProjectSlugDirty(true);
+  };
+
   const handleSaveWhmap = async () => {
     const payload = await runWorkerRequest(
       {
         kind: "whmap-save",
-        snapshot: editor.exportSnapshot()
+        snapshot: buildEditorSnapshot()
       },
       "Save .whmap"
     );
 
     if (typeof payload === "string") {
-      downloadTextFile("scene.whmap", payload, "application/json");
+      downloadTextFile(`${resolvedProjectSlug}.whmap`, payload, "application/json");
     }
   };
 
@@ -1331,6 +1375,7 @@ export function App() {
     );
 
     if (typeof payload !== "string" && !isWebHammerEngineBundle(payload)) {
+      applyProjectMetadata(payload.metadata);
       editor.importSnapshot(payload, "scene:load-whmap");
     }
 
@@ -1341,13 +1386,13 @@ export function App() {
     const payload = await runWorkerRequest(
       {
         kind: "gltf-export",
-        snapshot: editor.exportSnapshot()
+        snapshot: buildEditorSnapshot()
       },
       "Export glTF"
     );
 
     if (typeof payload === "string") {
-      downloadTextFile("scene.gltf", payload, "model/gltf+json");
+      downloadTextFile(`${resolvedProjectSlug}.gltf`, payload, "model/gltf+json");
     }
   };
 
@@ -1355,14 +1400,14 @@ export function App() {
     const payload = await runWorkerRequest(
       {
         kind: "engine-export",
-        snapshot: editor.exportSnapshot()
+        snapshot: buildEditorSnapshot()
       },
       "Export runtime scene"
     );
 
     if (isWebHammerEngineBundle(payload)) {
       const zip = createWebHammerEngineBundleZip(payload);
-      downloadBinaryFile("scene.runtime.zip", zip, "application/zip");
+      downloadBinaryFile(`${resolvedProjectSlug}.runtime.zip`, zip, "application/zip");
     }
   };
 
@@ -1374,7 +1419,64 @@ export function App() {
     editor.redo();
   };
 
-  const copilot = useCopilot(editor);
+  const handlePushSceneToGame = async (options?: {
+    forceSwitch?: boolean;
+    gameId?: string;
+    projectName?: string;
+    projectSlug?: string;
+  }) => {
+    const nextProjectName = options?.projectName?.trim() || resolvedProjectName;
+    const nextProjectSlug = slugifyProjectName(
+      options?.projectSlug?.trim() || options?.projectName?.trim() || resolvedProjectSlug || nextProjectName
+    );
+
+    if (options?.projectName) {
+      setProjectName(nextProjectName);
+      if (!options.projectSlug) {
+        setProjectSlug(nextProjectSlug);
+        setProjectSlugDirty(false);
+      }
+    }
+
+    if (options?.projectSlug) {
+      setProjectSlug(nextProjectSlug);
+      setProjectSlugDirty(true);
+    }
+
+    const exportPayload = await runWorkerRequest(
+      {
+        kind: "engine-export",
+        snapshot: {
+          ...editor.exportSnapshot(),
+          metadata: {
+            projectName: nextProjectName,
+            projectSlug: nextProjectSlug
+          }
+        }
+      },
+      "Push runtime scene"
+    );
+
+    if (!isWebHammerEngineBundle(exportPayload)) {
+      throw new Error("Failed to export a runtime bundle for editor sync.");
+    }
+
+    return gameConnection.pushScene({
+      bundle: serializeRuntimeBundleForSync(exportPayload),
+      forceSwitch: options?.forceSwitch,
+      gameId: options?.gameId ?? gameConnection.activeGame?.id,
+      metadata: {
+        projectName: nextProjectName,
+        projectSlug: nextProjectSlug
+      }
+    });
+  };
+
+  const copilot = useCopilot(editor, {
+    requestScenePush: (options) => {
+      void handlePushSceneToGame(options).catch(() => {});
+    }
+  });
 
   const handleToggleCopilot = () => {
     uiStore.copilotPanelOpen = !uiStore.copilotPanelOpen;
@@ -1407,6 +1509,26 @@ export function App() {
         activeBrushShape={activeBrushShape}
         copilot={copilot}
         copilotPanelOpen={ui.copilotPanelOpen}
+        gameConnectionControl={
+          <GameConnectionControl
+            activeGame={gameConnection.activeGame}
+            error={gameConnection.error}
+            games={gameConnection.games}
+            isLoading={gameConnection.isLoading}
+            isPushing={gameConnection.isPushing}
+            lastPush={gameConnection.lastPush}
+            onProjectNameChange={handleProjectNameChange}
+            onProjectSlugChange={handleProjectSlugChange}
+            onPushScene={(forceSwitch) => {
+              void handlePushSceneToGame({ forceSwitch });
+            }}
+            onRefresh={gameConnection.refresh}
+            onSelectGame={gameConnection.setSelectedGameId}
+            projectName={projectName}
+            projectSlug={resolvedProjectSlug}
+            selectedGameId={gameConnection.selectedGameId}
+          />
+        }
         onToggleCopilot={handleToggleCopilot}
         aiModelPlacementActive={Boolean(aiModelDraft)}
         aiModelPlacementArmed={aiModelPlacementArmed}
@@ -1544,4 +1666,15 @@ function preserveMeshMetadata(mesh: EditableMesh, existingMesh?: EditableMesh) {
         role: mesh.role ?? existingMesh.role
       }
     : structuredClone(mesh);
+}
+
+function serializeRuntimeBundleForSync(bundle: Parameters<typeof createWebHammerEngineBundleZip>[0]) {
+  return {
+    files: bundle.files.map((file) => ({
+      bytes: Array.from(file.bytes),
+      mimeType: file.mimeType,
+      path: file.path
+    })),
+    manifest: bundle.manifest
+  };
 }

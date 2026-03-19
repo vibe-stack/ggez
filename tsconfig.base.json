@@ -17,6 +17,8 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["apps/editor/src/*"],
+      "@web-hammer/dev-sync": ["packages/dev-sync/src/index.ts"],
+      "@web-hammer/dev-sync/node": ["packages/dev-sync/src/node.ts"],
       "@web-hammer/shared": ["packages/shared/src/index.ts"],
       "@web-hammer/editor-core": ["packages/editor-core/src/index.ts"],
       "@web-hammer/geometry-kernel": ["packages/geometry-kernel/src/index.ts"],

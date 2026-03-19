@@ -52,6 +52,7 @@ type EditorShellProps = {
     refreshConfigured: () => void;
   };
   copilotPanelOpen: boolean;
+  gameConnectionControl?: ReactNode;
   aiModelPlacementArmed: boolean;
   aiModelPrompt: string;
   aiModelPromptBusy: boolean;
@@ -172,6 +173,7 @@ export function EditorShell({
   aiModelPlacementArmed,
   copilot,
   copilotPanelOpen,
+  gameConnectionControl,
   aiModelPrompt,
   aiModelPromptBusy,
   aiModelPromptError,
@@ -372,6 +374,7 @@ export function EditorShell({
           canRedo={canRedo}
           canUndo={canUndo}
           copilotOpen={copilotPanelOpen}
+          gameConnectionControl={gameConnectionControl}
           onClearSelection={onClearSelection}
           onCreateBrush={onCreateBrush}
           onDeleteSelection={onDeleteSelection}
