@@ -806,6 +806,38 @@ export function InspectorSidebar({
                     value={draftPlayerSettings.crouchHeight}
                   />
                 </ToolSection>
+
+                <ToolSection title="Interaction">
+                  <BooleanField
+                    label="Allow Interact"
+                    onCheckedChange={(checked) => {
+                      const nextPlayer = { ...draftPlayerSettings, canInteract: checked };
+                      setDraftPlayerSettings(nextPlayer);
+                      onUpdateSceneSettings(
+                        {
+                          ...sceneSettings,
+                          player: nextPlayer
+                        },
+                        sceneSettings
+                      );
+                    }}
+                    checked={draftPlayerSettings.canInteract ?? true}
+                  />
+                  <InteractKeyField
+                    value={draftPlayerSettings.interactKey ?? "KeyE"}
+                    onChange={(code) => {
+                      const nextPlayer = { ...draftPlayerSettings, interactKey: code };
+                      setDraftPlayerSettings(nextPlayer);
+                      onUpdateSceneSettings(
+                        {
+                          ...sceneSettings,
+                          player: nextPlayer
+                        },
+                        sceneSettings
+                      );
+                    }}
+                  />
+                </ToolSection>
               </div>
             </ScrollArea>
           </TabsContent>
@@ -1475,6 +1507,51 @@ function ColorField({
         type="color"
         value={value}
       />
+    </div>
+  );
+}
+
+function InteractKeyField({
+  value,
+  onChange
+}: {
+  value: string;
+  onChange: (code: string) => void;
+}) {
+  const [listening, setListening] = useState(false);
+
+  useEffect(() => {
+    if (!listening) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onChange(event.code);
+      setListening(false);
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [listening, onChange]);
+
+  const displayLabel = value.replace(/^Key/, "").replace(/^Digit/, "");
+
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl bg-white/3 px-3 py-2">
+      <span className="text-xs text-foreground/72">Interact Key</span>
+      <Button
+        className={cn(listening && "bg-emerald-500/18 text-emerald-200")}
+        onClick={() => setListening((current) => !current)}
+        size="xs"
+        variant="ghost"
+      >
+        {listening ? "Press a key..." : displayLabel}
+      </Button>
     </div>
   );
 }

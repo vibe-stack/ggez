@@ -27,14 +27,14 @@ export const GAMEPLAY_SYSTEM_BLUEPRINTS: GameplaySystemBlueprint[] = [
     description: "Selects current interact target and emits interact.requested with actor context.",
     hookTypes: ["interactable"],
     id: "interaction",
-    implemented: false,
+    implemented: true,
     label: "InteractionSystem"
   },
   {
     description: "Evaluates keys, items, flags, and codes and emits allow or deny results.",
     hookTypes: ["lock"],
     id: "lock",
-    implemented: false,
+    implemented: true,
     label: "LockSystem"
   },
   {
@@ -62,7 +62,7 @@ export const GAMEPLAY_SYSTEM_BLUEPRINTS: GameplaySystemBlueprint[] = [
     description: "Handles pickups and grants inventory or state rewards.",
     hookTypes: ["pickup"],
     id: "pickup",
-    implemented: false,
+    implemented: true,
     label: "PickupSystem"
   },
   {
@@ -76,28 +76,28 @@ export const GAMEPLAY_SYSTEM_BLUEPRINTS: GameplaySystemBlueprint[] = [
     description: "Tracks health state and zero transitions.",
     hookTypes: ["health"],
     id: "health",
-    implemented: false,
+    implemented: true,
     label: "HealthSystem"
   },
   {
     description: "Applies damage and kill events with typed payloads.",
     hookTypes: ["damageable"],
     id: "damage",
-    implemented: false,
+    implemented: true,
     label: "DamageSystem"
   },
   {
     description: "Creates runtime entities or prefabs and enforces spawn rules.",
     hookTypes: ["spawner"],
     id: "spawner",
-    implemented: false,
+    implemented: true,
     label: "SpawnerSystem"
   },
   {
     description: "Manages AI enablement and target assignment.",
     hookTypes: ["ai_agent"],
     id: "ai",
-    implemented: false,
+    implemented: true,
     label: "AiSystem"
   },
   {
@@ -111,7 +111,7 @@ export const GAMEPLAY_SYSTEM_BLUEPRINTS: GameplaySystemBlueprint[] = [
     description: "Manages world and mission flag writes or queries.",
     hookTypes: ["flag_setter", "flag_condition"],
     id: "flag",
-    implemented: false,
+    implemented: true,
     label: "FlagSystem"
   },
   {
@@ -125,8 +125,22 @@ export const GAMEPLAY_SYSTEM_BLUEPRINTS: GameplaySystemBlueprint[] = [
     description: "Tracks allOf or anyOf event conditions and fires actions when met.",
     hookTypes: ["condition_listener"],
     id: "condition",
-    implemented: false,
+    implemented: true,
     label: "ConditionSystem"
+  },
+  {
+    description: "Handles destruction lifecycle when targets are killed or destroy-requested.",
+    hookTypes: ["destructible"],
+    id: "destructible",
+    implemented: true,
+    label: "DestructibleSystem"
+  },
+  {
+    description: "Routes gameplay events to VFX playback via vfx_emitter hooks.",
+    hookTypes: ["vfx_emitter"],
+    id: "vfx",
+    implemented: true,
+    label: "VfxEmitterSystem"
   }
 ];
 
@@ -310,6 +324,13 @@ export function createOpenableSystemDefinition(): GameplayRuntimeSystemDefinitio
           context.getHookTargetsByType("openable")
             .filter((target) => target.targetId === event.targetId && target.hook.enabled !== false)
             .forEach((target) => {
+              // If target has a lock hook, only process lock-forwarded events
+              const hasLock = context.getHookTargetsByType("lock")
+                .some((lt) => lt.targetId === target.targetId && lt.hook.enabled !== false);
+              if (hasLock && readPayloadField(event.payload, "fromLock") !== true) {
+                return;
+              }
+
               const currentState = readOpenableState(
                 context.getLocalState(target.targetId, "openable:state"),
                 resolveOpenableInitialState(target.hook.config)
@@ -955,7 +976,7 @@ function readStringArray(value: GameplayValue | undefined) {
 }
 
 function readNumber(value: GameplayValue | undefined, fallback: number) {
-  return typeof value === "number" ? value : fallback;
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
 function readBoolean(value: GameplayValue | undefined, fallback: boolean) {
@@ -987,11 +1008,7 @@ function clampProgress(value: number) {
 }
 
 function wrapProgress(value: number) {
-  if (value < 0) {
-    return 1 - (Math.abs(value) % 1);
-  }
-
-  return value % 1;
+  return ((value % 1) + 1) % 1;
 }
 
 export function createAudioSystemDefinition(): GameplayRuntimeSystemDefinition {
@@ -1093,4 +1110,1035 @@ function emitAudioPlay(
     spatial: readBoolean(target.hook.config.spatial, false),
     volume: readNumber(target.hook.config.volume, 1)
   });
+}
+
+// ---------------------------------------------------------------------------
+// InteractionSystem
+// ---------------------------------------------------------------------------
+
+export function createInteractionSystemDefinition(): GameplayRuntimeSystemDefinition {
+  return {
+    description: "Validates interact requests against range and emits started or denied events.",
+    hookTypes: ["interactable"],
+    id: "interaction",
+    label: "InteractionSystem",
+    create(context) {
+      const unsubscribe = context.eventBus.subscribe(
+        { event: "interact.requested" },
+        (event) => {
+          if (!event.targetId) {
+            return;
+          }
+
+          context.getHookTargetsByType("interactable")
+            .filter((target) => target.targetId === event.targetId && target.hook.enabled !== false)
+            .forEach((target) => {
+              const range = readNumber(target.hook.config.range, 3);
+              const allowedActors = readStringArray(target.hook.config.allowedActors);
+              const worldTransform = context.getTargetWorldTransform(target.targetId);
+
+              if (!worldTransform) {
+                return;
+              }
+
+              const player = context.getActors().find((actor) => {
+                const tags = actor.tags ?? [];
+
+                if (allowedActors.length > 0) {
+                  return allowedActors.some((allowed) => tags.includes(allowed));
+                }
+
+                return tags.includes("player");
+              });
+
+              if (!player) {
+                context.emitFromHookTarget(target, "interact.denied", { reason: "no_player" });
+                return;
+              }
+
+              const dist = Math.sqrt(distanceSquared(player.position, worldTransform.position));
+
+              if (dist > range) {
+                context.emitFromHookTarget(target, "interact.denied", { reason: "out_of_range", distance: dist });
+                return;
+              }
+
+              context.emitFromHookTarget(target, "interact.started", {
+                actorId: player.id,
+                prompt: readString(target.hook.config.prompt, "Interact")
+              });
+            });
+        }
+      );
+
+      return {
+        stop() {
+          unsubscribe();
+        }
+      };
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// LockSystem
+// ---------------------------------------------------------------------------
+
+export function createLockSystemDefinition(): GameplayRuntimeSystemDefinition {
+  return {
+    description: "Evaluates lock conditions and emits allow or deny results.",
+    hookTypes: ["lock"],
+    id: "lock",
+    label: "LockSystem",
+    create(context) {
+      const unsubscribe = context.eventBus.subscribe(
+        { event: ["open.requested", "unlock.requested", "toggle.requested"] },
+        (event) => {
+          if (!event.targetId) {
+            return;
+          }
+
+          // Skip events already forwarded by the lock to avoid infinite loop
+          if (readPayloadField(event.payload, "fromLock") === true) {
+            return;
+          }
+
+          context.getHookTargetsByType("lock")
+            .filter((target) => target.targetId === event.targetId && target.hook.enabled !== false)
+            .forEach((target) => {
+              const mode = readString(target.hook.config.mode, "key");
+              let allowed = false;
+
+              if (mode === "key") {
+                const keyId = readString(target.hook.config.keyId, "");
+                allowed = Boolean(context.getPlayerState("key:" + keyId));
+
+                if (allowed && readBoolean(target.hook.config.consumesKey, false)) {
+                  context.setPlayerState("key:" + keyId, false);
+                }
+              } else if (mode === "flag") {
+                const flag = readString(target.hook.config.flag, "");
+                const expectedValue = target.hook.config.expectedValue;
+                const currentValue = context.getWorldState(flag);
+                allowed = expectedValue !== undefined ? currentValue === expectedValue : Boolean(currentValue);
+              } else if (mode === "item") {
+                const itemId = readString(target.hook.config.itemId, "");
+                allowed = Boolean(context.getPlayerState("item:" + itemId));
+              } else if (mode === "code" || mode === "team") {
+                allowed = true;
+              }
+
+              if (allowed) {
+                context.emitFromHookTarget(target, "lock.allowed");
+
+                if (readBoolean(target.hook.config.autoUnlock, false)) {
+                  context.emitFromHookTarget(target, "lock.unlocked");
+                }
+
+                context.emitEvent({
+                  event: event.event,
+                  payload: { fromLock: true },
+                  sourceHookType: target.hook.type,
+                  sourceId: target.targetId,
+                  sourceKind: target.targetKind,
+                  targetId: target.targetId
+                });
+              } else {
+                context.emitFromHookTarget(target, "lock.denied", { mode });
+              }
+            });
+        }
+      );
+
+      return {
+        stop() {
+          unsubscribe();
+        }
+      };
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// PickupSystem
+// ---------------------------------------------------------------------------
+
+export function createPickupSystemDefinition(): GameplayRuntimeSystemDefinition {
+  return {
+    description: "Handles pickups and grants inventory or state rewards.",
+    hookTypes: ["pickup"],
+    id: "pickup",
+    label: "PickupSystem",
+    create(context) {
+      const unsubscribeTrigger = context.eventBus.subscribe(
+        { event: "trigger.enter" },
+        (event) => {
+          processPickupEvent(context, event.targetId, false);
+        }
+      );
+      const unsubscribeInteract = context.eventBus.subscribe(
+        { event: "interact.started" },
+        (event) => {
+          processPickupEvent(context, event.targetId, true);
+        }
+      );
+
+      return {
+        stop() {
+          unsubscribeTrigger();
+          unsubscribeInteract();
+        }
+      };
+    }
+  };
+}
+
+function processPickupEvent(
+  context: GameplayRuntimeSystemContext,
+  targetId: string | undefined,
+  isInteraction: boolean
+) {
+  if (!targetId) {
+    return;
+  }
+
+  context.getHookTargetsByType("pickup")
+    .filter((target) => target.targetId === targetId && target.hook.enabled !== false)
+    .forEach((target) => {
+      const requiresInteract = readBoolean(target.hook.config.requiresInteract, false);
+
+      if (requiresInteract && !isInteraction) {
+        return;
+      }
+
+      if (!requiresInteract && isInteraction) {
+        return;
+      }
+
+      const grants = asObjectArray(target.hook.config.grants);
+
+      grants.forEach((grant) => {
+        const kind = readString(grant.kind, "");
+        const id = readString(grant.id, "");
+
+        if (!kind || !id) {
+          return;
+        }
+
+        if (kind === "key") {
+          context.setPlayerState("key:" + id, true);
+        } else if (kind === "item") {
+          context.setPlayerState("item:" + id, true);
+        } else if (kind === "health") {
+          const healAmount = readNumber(grant.amount, 25);
+          context.emitEvent({
+            event: "health.changed",
+            payload: { delta: healAmount, source: "pickup" },
+            sourceHookType: target.hook.type,
+            sourceId: target.targetId,
+            sourceKind: target.targetKind,
+            targetId: target.targetId
+          });
+        } else if (kind === "ammo") {
+          const current = context.getPlayerState("ammo:" + id);
+          context.setPlayerState("ammo:" + id, (typeof current === "number" ? current : 0) + 1);
+        } else if (kind === "flag") {
+          context.setWorldState(id, true);
+        }
+      });
+
+      context.emitFromHookTarget(target, "pickup.completed");
+
+      if (readBoolean(target.hook.config.consumeOnPickup, true)) {
+        target.hook.enabled = false;
+      }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// HealthSystem
+// ---------------------------------------------------------------------------
+
+export function createHealthSystemDefinition(): GameplayRuntimeSystemDefinition {
+  return {
+    description: "Tracks health state and zero transitions.",
+    hookTypes: ["health"],
+    id: "health",
+    label: "HealthSystem",
+    create(context) {
+      const unsubscribe = context.eventBus.subscribe(
+        { event: "health.changed" },
+        (event) => {
+          if (!event.targetId) {
+            return;
+          }
+
+          context.getHookTargetsByType("health")
+            .filter((target) => target.targetId === event.targetId && target.hook.enabled !== false)
+            .forEach((target) => {
+              const max = readNumber(target.hook.config.max, readNumber(target.hook.config.initial, 100));
+              const current = readNumber(
+                context.getLocalState(target.targetId, "health:current") as number | undefined,
+                readNumber(target.hook.config.initial, 100)
+              );
+              const delta = readNumber(readPayloadField(event.payload, "delta"), 0);
+
+              let newHealth = Math.min(max, Math.max(0, current + delta));
+
+              context.setLocalState(target.targetId, "health:current", newHealth);
+
+              if (newHealth <= 0 && current > 0) {
+                context.emitFromHookTarget(target, "health.zero");
+                context.emitFromHookTarget(target, "damage.killed");
+              }
+            });
+        }
+      );
+
+      return {
+        start() {
+          context.getHookTargetsByType("health")
+            .filter((target) => target.hook.enabled !== false)
+            .forEach((target) => {
+              const initial = readNumber(target.hook.config.initial, 100);
+              context.setLocalState(target.targetId, "health:current", initial);
+            });
+        },
+        stop() {
+          unsubscribe();
+        }
+      };
+    }
+  };
+}
+
+function readPayloadField(payload: unknown, field: string): GameplayValue | undefined {
+  if (payload && typeof payload === "object" && field in payload) {
+    return (payload as Record<string, GameplayValue>)[field];
+  }
+
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// DamageSystem
+// ---------------------------------------------------------------------------
+
+export function createDamageSystemDefinition(): GameplayRuntimeSystemDefinition {
+  return {
+    description: "Applies damage and kill events with typed payloads.",
+    hookTypes: ["damageable"],
+    id: "damage",
+    label: "DamageSystem",
+    create(context) {
+      const unsubscribe = context.eventBus.subscribe(
+        { event: "damage.apply" },
+        (event) => {
+          if (!event.targetId) {
+            return;
+          }
+
+          context.getHookTargetsByType("damageable")
+            .filter((target) => target.targetId === event.targetId && target.hook.enabled !== false)
+            .forEach((target) => {
+              const baseAmount = readNumber(readPayloadField(event.payload, "amount"), 0);
+              const damageType = readString(
+                readPayloadField(event.payload, "damageType") as string | undefined,
+                "default"
+              );
+              const multipliers = asObject(target.hook.config.multipliers);
+              const multiplier = multipliers ? readNumber(multipliers[damageType], 1) : 1;
+              const finalAmount = baseAmount * multiplier;
+
+              context.emitFromHookTarget(target, "damage.received", {
+                amount: finalAmount,
+                damageType
+              });
+
+              // Delegate health bookkeeping to HealthSystem via health.changed
+              context.emitEvent({
+                event: "health.changed",
+                payload: { delta: -finalAmount, source: "damage" },
+                sourceHookType: target.hook.type,
+                sourceId: target.targetId,
+                sourceKind: target.targetKind,
+                targetId: target.targetId
+              });
+            });
+        }
+      );
+
+      return {
+        stop() {
+          unsubscribe();
+        }
+      };
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// SpawnerSystem
+// ---------------------------------------------------------------------------
+
+export function createSpawnerSystemDefinition(): GameplayRuntimeSystemDefinition {
+  return {
+    description: "Creates runtime entities or prefabs and enforces spawn rules.",
+    hookTypes: ["spawner"],
+    id: "spawner",
+    label: "SpawnerSystem",
+    create(context) {
+      const respawnTimers = new Map<string, number>();
+      const unsubscribeSpawn = context.eventBus.subscribe(
+        { event: "spawn.requested" },
+        (event) => {
+          if (!event.targetId) {
+            return;
+          }
+
+          context.getHookTargetsByType("spawner")
+            .filter((target) => target.targetId === event.targetId && target.hook.enabled !== false)
+            .forEach((target) => {
+              attemptSpawn(context, target);
+            });
+        }
+      );
+      const unsubscribeActivate = context.eventBus.subscribe(
+        { event: "spawner.activate" },
+        (event) => {
+          if (!event.targetId) {
+            return;
+          }
+
+          context.getHookTargetsByType("spawner")
+            .filter((target) => target.targetId === event.targetId && target.hook.enabled !== false)
+            .forEach((target) => {
+              context.setLocalState(target.targetId, "spawner:active", true);
+              context.emitFromHookTarget(target, "spawner.activated");
+              attemptSpawn(context, target);
+            });
+        }
+      );
+      const unsubscribeDeactivate = context.eventBus.subscribe(
+        { event: "spawner.deactivate" },
+        (event) => {
+          if (!event.targetId) {
+            return;
+          }
+
+          context.getHookTargetsByType("spawner")
+            .filter((target) => target.targetId === event.targetId && target.hook.enabled !== false)
+            .forEach((target) => {
+              context.setLocalState(target.targetId, "spawner:active", false);
+              context.emitFromHookTarget(target, "spawner.deactivated");
+            });
+        }
+      );
+      const unsubscribeDeath = context.eventBus.subscribe(
+        { event: ["damage.killed", "destroy.completed"] },
+        () => {
+          context.getHookTargetsByType("spawner")
+            .filter((target) => target.hook.enabled !== false)
+            .forEach((target) => {
+              const alive = readNumber(
+                context.getLocalState(target.targetId, "spawner:alive") as number | undefined,
+                0
+              );
+              if (alive > 0) {
+                context.setLocalState(target.targetId, "spawner:alive", alive - 1);
+              }
+            });
+        }
+      );
+
+      function attemptSpawn(spawnContext: GameplayRuntimeSystemContext, target: GameplayHookTarget) {
+        const maxAlive = readNumber(target.hook.config.maxAlive, Infinity);
+        const maxTotal = readNumber(target.hook.config.maxTotal, Infinity);
+        const currentCount = readNumber(
+          spawnContext.getLocalState(target.targetId, "spawner:count") as number | undefined,
+          0
+        );
+        const currentAlive = readNumber(
+          spawnContext.getLocalState(target.targetId, "spawner:alive") as number | undefined,
+          0
+        );
+
+        if (currentAlive >= maxAlive || currentCount >= maxTotal) {
+          spawnContext.emitFromHookTarget(target, "spawn.failed", { reason: "limit_reached" });
+          return;
+        }
+
+        const prefabId = readString(target.hook.config.prefabId, "");
+        spawnContext.setLocalState(target.targetId, "spawner:count", currentCount + 1);
+        spawnContext.setLocalState(target.targetId, "spawner:alive", currentAlive + 1);
+        spawnContext.emitFromHookTarget(target, "spawn.completed", { prefabId });
+
+        if (readBoolean(target.hook.config.respawn, false)) {
+          const delay = readNumber(target.hook.config.respawnDelay, 5);
+          respawnTimers.set(target.hook.id, delay);
+        }
+      }
+
+      return {
+        stop() {
+          unsubscribeSpawn();
+          unsubscribeActivate();
+          unsubscribeDeactivate();
+          unsubscribeDeath();
+          respawnTimers.clear();
+        },
+        update(deltaSeconds) {
+          respawnTimers.forEach((remaining, hookId) => {
+            const next = remaining - deltaSeconds;
+
+            if (next <= 0) {
+              respawnTimers.delete(hookId);
+
+              const target = context.getHookTargetsByType("spawner").find((t) => t.hook.id === hookId);
+
+              if (target && target.hook.enabled !== false) {
+                const active = context.getLocalState(target.targetId, "spawner:active");
+
+                if (active !== false) {
+                  attemptSpawn(context, target);
+                }
+              }
+            } else {
+              respawnTimers.set(hookId, next);
+            }
+          });
+        }
+      };
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// AiSystem
+// ---------------------------------------------------------------------------
+
+export function createAiSystemDefinition(): GameplayRuntimeSystemDefinition {
+  return {
+    description: "Manages AI enablement and target assignment.",
+    hookTypes: ["ai_agent"],
+    id: "ai",
+    label: "AiSystem",
+    create(context) {
+      const unsubscribeEnable = context.eventBus.subscribe(
+        { event: "ai.enable" },
+        (event) => {
+          if (!event.targetId) {
+            return;
+          }
+
+          context.getHookTargetsByType("ai_agent")
+            .filter((target) => target.targetId === event.targetId && target.hook.enabled !== false)
+            .forEach((target) => {
+              context.setLocalState(target.targetId, "ai:active", true);
+              context.emitFromHookTarget(target, "ai.enabled");
+            });
+        }
+      );
+      const unsubscribeDisable = context.eventBus.subscribe(
+        { event: "ai.disable" },
+        (event) => {
+          if (!event.targetId) {
+            return;
+          }
+
+          context.getHookTargetsByType("ai_agent")
+            .filter((target) => target.targetId === event.targetId && target.hook.enabled !== false)
+            .forEach((target) => {
+              context.setLocalState(target.targetId, "ai:active", false);
+              context.emitFromHookTarget(target, "ai.disabled");
+            });
+        }
+      );
+      const unsubscribeSetTarget = context.eventBus.subscribe(
+        { event: "ai.set_target" },
+        (event) => {
+          if (!event.targetId) {
+            return;
+          }
+
+          context.getHookTargetsByType("ai_agent")
+            .filter((target) => target.targetId === event.targetId && target.hook.enabled !== false)
+            .forEach((target) => {
+              const aiTarget = readString(
+                readPayloadField(event.payload, "target") as string | undefined,
+                ""
+              );
+              context.setLocalState(target.targetId, "ai:target", aiTarget);
+              context.emitFromHookTarget(target, "ai.target_acquired", { target: aiTarget });
+            });
+        }
+      );
+
+      return {
+        start() {
+          context.getHookTargetsByType("ai_agent")
+            .filter((target) => target.hook.enabled !== false)
+            .forEach((target) => {
+              const enabled = readBoolean(target.hook.config.enabled, false);
+
+              if (enabled) {
+                context.setLocalState(target.targetId, "ai:active", true);
+                context.emitFromHookTarget(target, "ai.enabled");
+              }
+            });
+        },
+        stop() {
+          unsubscribeEnable();
+          unsubscribeDisable();
+          unsubscribeSetTarget();
+        }
+      };
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// FlagSystem
+// ---------------------------------------------------------------------------
+
+export function createFlagSystemDefinition(): GameplayRuntimeSystemDefinition {
+  return {
+    description: "Manages world and mission flag writes or queries.",
+    hookTypes: ["flag_setter", "flag_condition"],
+    id: "flag",
+    label: "FlagSystem",
+    create(context) {
+      const unsubscribeSet = context.eventBus.subscribe(
+        { event: "flag.set" },
+        (event) => {
+          if (!event.targetId) {
+            return;
+          }
+
+          context.getHookTargetsByType("flag_setter")
+            .filter((target) => target.targetId === event.targetId && target.hook.enabled !== false)
+            .forEach((target) => {
+              const flag = readString(target.hook.config.flag, "");
+
+              if (!flag) {
+                return;
+              }
+
+              const value = target.hook.config.value ?? true;
+              context.setWorldState(flag, value);
+              context.emitFromHookTarget(target, "flag.changed", { flag, value });
+            });
+        }
+      );
+      const unsubscribeCheck = context.eventBus.subscribe(
+        { event: "condition.check" },
+        (event) => {
+          if (!event.targetId) {
+            return;
+          }
+
+          context.getHookTargetsByType("flag_condition")
+            .filter((target) => target.targetId === event.targetId && target.hook.enabled !== false)
+            .forEach((target) => {
+              const flag = readString(target.hook.config.flag, "");
+
+              if (!flag) {
+                return;
+              }
+
+              const expected = target.hook.config.expected;
+              const current = context.getWorldState(flag);
+              const matched = expected !== undefined ? current === expected : Boolean(current);
+
+              if (matched) {
+                context.emitFromHookTarget(target, "condition.true", { flag, value: current });
+              } else {
+                context.emitFromHookTarget(target, "condition.false", { flag, value: current, expected });
+              }
+            });
+        }
+      );
+
+      return {
+        stop() {
+          unsubscribeSet();
+          unsubscribeCheck();
+        }
+      };
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// ConditionListenerSystem
+// ---------------------------------------------------------------------------
+
+export function createConditionListenerSystemDefinition(): GameplayRuntimeSystemDefinition {
+  return {
+    description: "Tracks allOf or anyOf event conditions and fires actions when met.",
+    hookTypes: ["condition_listener"],
+    id: "condition",
+    label: "ConditionListenerSystem",
+    create(context) {
+      const conditionStates = new Map<string, ConditionListenerState>();
+      const unsubscribes: Array<() => void> = [];
+
+      return {
+        start() {
+          context.getHookTargetsByType("condition_listener")
+            .filter((target) => target.hook.enabled !== false)
+            .forEach((target) => {
+              const allOf = asObjectArray(target.hook.config.allOf);
+              const anyOf = asObjectArray(target.hook.config.anyOf);
+              const once = readBoolean(target.hook.config.once, false);
+
+              const state: ConditionListenerState = {
+                allOfMet: new Set<number>(),
+                anyOfMet: false,
+                fired: false
+              };
+
+              conditionStates.set(target.hook.id, state);
+
+              allOf.forEach((condition, index) => {
+                const eventName = readString(condition.event, "");
+                const fromEntity = readString(condition.fromEntity, "");
+
+                if (!eventName) {
+                  return;
+                }
+
+                const unsub = context.eventBus.subscribe(
+                  (event) => {
+                    if (event.event !== eventName) {
+                      return;
+                    }
+
+                    if (fromEntity && event.sourceId !== fromEntity) {
+                      return;
+                    }
+
+                    if (target.hook.enabled === false) {
+                      return;
+                    }
+
+                    state.allOfMet.add(index);
+                    evaluateConditionListener(context, target, state, allOf.length, anyOf.length, once);
+                  }
+                );
+
+                unsubscribes.push(unsub);
+              });
+
+              anyOf.forEach((condition) => {
+                const eventName = readString(condition.event, "");
+                const fromEntity = readString(condition.fromEntity, "");
+
+                if (!eventName) {
+                  return;
+                }
+
+                const unsub = context.eventBus.subscribe(
+                  (event) => {
+                    if (event.event !== eventName) {
+                      return;
+                    }
+
+                    if (fromEntity && event.sourceId !== fromEntity) {
+                      return;
+                    }
+
+                    if (target.hook.enabled === false) {
+                      return;
+                    }
+
+                    state.anyOfMet = true;
+                    evaluateConditionListener(context, target, state, allOf.length, anyOf.length, once);
+                  }
+                );
+
+                unsubscribes.push(unsub);
+              });
+            });
+        },
+        stop() {
+          unsubscribes.forEach((unsub) => unsub());
+          unsubscribes.length = 0;
+          conditionStates.clear();
+        }
+      };
+    }
+  };
+}
+
+type ConditionListenerState = {
+  allOfMet: Set<number>;
+  anyOfMet: boolean;
+  fired: boolean;
+};
+
+function evaluateConditionListener(
+  context: GameplayRuntimeSystemContext,
+  target: GameplayHookTarget,
+  state: ConditionListenerState,
+  allOfCount: number,
+  anyOfCount: number,
+  once: boolean
+) {
+  if (once && state.fired) {
+    return;
+  }
+
+  const allOfSatisfied = allOfCount === 0 || state.allOfMet.size >= allOfCount;
+  const anyOfSatisfied = anyOfCount === 0 || state.anyOfMet;
+
+  if (!allOfSatisfied || !anyOfSatisfied) {
+    return;
+  }
+
+  state.fired = true;
+  context.emitFromHookTarget(target, "condition.met");
+
+  const actions = asObjectArray(target.hook.config.actions);
+
+  actions.forEach((action) => {
+    executeConditionAction(context, target, action);
+  });
+
+  // Reset state for non-once conditions so they can fire again
+  if (!once) {
+    state.allOfMet.clear();
+    state.anyOfMet = false;
+    state.fired = false;
+  }
+}
+
+function executeConditionAction(
+  context: GameplayRuntimeSystemContext,
+  hookTarget: GameplayHookTarget,
+  action: GameplayObject
+) {
+  const actionType = readString(action.type, "");
+
+  if (actionType === "emit") {
+    const eventName = readString(action.event, "");
+    const targetId = readString(action.target, hookTarget.targetId);
+
+    if (!eventName) {
+      return;
+    }
+
+    context.emitEvent({
+      event: eventName,
+      payload: action.payload,
+      sourceHookType: hookTarget.hook.type,
+      sourceId: hookTarget.targetId,
+      sourceKind: hookTarget.targetKind,
+      targetId
+    });
+    return;
+  }
+
+  if (actionType === "set_flag") {
+    const flag = readString(action.flag, "");
+
+    if (!flag) {
+      return;
+    }
+
+    context.setWorldState(flag, action.value ?? null);
+    context.emitFromHookTarget(hookTarget, "flag.changed", {
+      flag,
+      value: action.value ?? null
+    });
+    return;
+  }
+
+  if (actionType === "enable" || actionType === "disable") {
+    const targetId = readString(action.target, "");
+
+    if (!targetId) {
+      return;
+    }
+
+    context.getHookTargets()
+      .filter((target) => target.targetId === targetId)
+      .forEach((target) => {
+        target.hook.enabled = actionType === "enable";
+      });
+    return;
+  }
+
+  if (actionType === "spawn") {
+    const targetId = readString(action.target, "");
+
+    if (targetId) {
+      context.emitEvent({
+        event: "spawn.requested",
+        sourceHookType: hookTarget.hook.type,
+        sourceId: hookTarget.targetId,
+        sourceKind: hookTarget.targetKind,
+        targetId
+      });
+    }
+
+    return;
+  }
+
+  if (actionType === "destroy") {
+    const targetId = readString(action.target, "");
+
+    if (targetId) {
+      context.emitEvent({
+        event: "destroy.requested",
+        sourceHookType: hookTarget.hook.type,
+        sourceId: hookTarget.targetId,
+        sourceKind: hookTarget.targetKind,
+        targetId
+      });
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// DestructibleSystem
+// ---------------------------------------------------------------------------
+
+export function createDestructibleSystemDefinition(): GameplayRuntimeSystemDefinition {
+  return {
+    description: "Handles destruction lifecycle when targets are killed or destroy-requested.",
+    hookTypes: ["destructible"],
+    id: "destructible",
+    label: "DestructibleSystem",
+    create(context) {
+      const unsubscribe = context.eventBus.subscribe(
+        { event: ["damage.killed", "destroy.requested"] },
+        (event) => {
+          if (!event.targetId) {
+            return;
+          }
+
+          context.getHookTargetsByType("destructible")
+            .filter((target) => target.targetId === event.targetId && target.hook.enabled !== false)
+            .forEach((target) => {
+              context.emitFromHookTarget(target, "destroy.started");
+
+              const mode = readString(target.hook.config.mode, "disable");
+
+              if (mode === "disable") {
+                disableAllHooks(context, target.targetId);
+              } else if (mode === "spawn_prefab") {
+                const prefabId = readString(target.hook.config.destroyedPrefabId, "");
+
+                if (prefabId) {
+                  context.emitEvent({
+                    event: "spawn.requested",
+                    payload: { prefabId },
+                    sourceHookType: target.hook.type,
+                    sourceId: target.targetId,
+                    sourceKind: target.targetKind,
+                    targetId: target.targetId
+                  });
+                }
+              } else if (mode === "swap_mesh" || mode === "explode") {
+                context.emitFromHookTarget(target, `destroy.${mode}`, {
+                  prefabId: readString(target.hook.config.destroyedPrefabId, "")
+                });
+              }
+
+              if (readBoolean(target.hook.config.disableOnDestroy, true)) {
+                disableAllHooks(context, target.targetId);
+              }
+
+              context.emitFromHookTarget(target, "destroy.completed");
+            });
+        }
+      );
+
+      return {
+        stop() {
+          unsubscribe();
+        }
+      };
+    }
+  };
+}
+
+function disableAllHooks(context: GameplayRuntimeSystemContext, targetId: string) {
+  context.getHookTargets()
+    .filter((target) => target.targetId === targetId)
+    .forEach((target) => {
+      target.hook.enabled = false;
+    });
+}
+
+// ---------------------------------------------------------------------------
+// VfxEmitterSystem
+// ---------------------------------------------------------------------------
+
+export function createVfxEmitterSystemDefinition(): GameplayRuntimeSystemDefinition {
+  return {
+    description: "Routes gameplay events to VFX playback via vfx_emitter hooks.",
+    hookTypes: ["vfx_emitter"],
+    id: "vfx",
+    label: "VfxEmitterSystem",
+    create(context) {
+      const unsubscribes: Array<() => void> = [];
+
+      return {
+        start() {
+          context.getHookTargetsByType("vfx_emitter")
+            .filter((target) => target.hook.enabled !== false)
+            .forEach((target) => {
+              const eventMap = asObject(target.hook.config.eventMap);
+
+              if (!eventMap) {
+                return;
+              }
+
+              for (const [triggerEvent, vfxId] of Object.entries(eventMap)) {
+                if (typeof vfxId !== "string" || !vfxId) {
+                  continue;
+                }
+
+                const unsub = context.eventBus.subscribe(
+                  { event: triggerEvent, targetId: target.targetId },
+                  () => {
+                    if (target.hook.enabled === false) {
+                      return;
+                    }
+
+                    const worldTransform = context.getTargetWorldTransform(target.targetId);
+
+                    context.emitFromHookTarget(target, "vfx.play", {
+                      hookId: target.hook.id,
+                      position: worldTransform
+                        ? [worldTransform.position.x, worldTransform.position.y, worldTransform.position.z]
+                        : null,
+                      vfxId
+                    });
+                  }
+                );
+
+                unsubscribes.push(unsub);
+              }
+            });
+
+          unsubscribes.push(
+            context.eventBus.subscribe({ event: "vfx.stop_all" }, () => {
+              context.getHookTargetsByType("vfx_emitter").forEach((vfxTarget) => {
+                context.emitFromHookTarget(vfxTarget, "vfx.stop", {
+                  hookId: vfxTarget.hook.id
+                });
+              });
+            })
+          );
+        },
+        stop() {
+          unsubscribes.forEach((unsub) => unsub());
+          unsubscribes.length = 0;
+        }
+      };
+    }
+  };
 }

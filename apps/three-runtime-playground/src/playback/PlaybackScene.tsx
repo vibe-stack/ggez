@@ -54,6 +54,7 @@ export function PlaybackScene({
       />
       <group ref={worldRootRef}>
         <PlaybackWorld
+          gameplayRuntime={gameplayRuntime}
           onNodeObjectChange={onNodeObjectChange}
           onNodePhysicsBodyChange={onNodePhysicsBodyChange}
           onPlayerActorChange={onPlayerActorChange}
@@ -100,6 +101,7 @@ function PlaybackWorldSettings({
 }
 
 function PlaybackWorld({
+  gameplayRuntime,
   onNodeObjectChange,
   onNodePhysicsBodyChange,
   onPlayerActorChange,
@@ -110,7 +112,7 @@ function PlaybackWorld({
   sceneSettings
 }: Pick<
   PlaybackSceneProps,
-  "onNodeObjectChange" | "onNodePhysicsBodyChange" | "onPlayerActorChange" | "physicsPlayback" | "physicsRevision" | "renderScene" | "resolveAssetPath" | "sceneSettings"
+  "gameplayRuntime" | "onNodeObjectChange" | "onNodePhysicsBodyChange" | "onPlayerActorChange" | "physicsPlayback" | "physicsRevision" | "renderScene" | "resolveAssetPath" | "sceneSettings"
 >) {
   const physicsActive = physicsPlayback !== "stopped" && sceneSettings.world.physicsEnabled;
   const playerSpawn = physicsActive ? renderScene.entityMarkers.find((entity) => entity.entityType === "player-spawn") : undefined;
@@ -146,6 +148,7 @@ function PlaybackWorld({
           ))}
           {playerSpawn ? (
             <RuntimePlayer
+              gameplayRuntime={gameplayRuntime}
               onActorChange={onPlayerActorChange}
               physicsPlayback={physicsPlayback}
               sceneSettings={sceneSettings}

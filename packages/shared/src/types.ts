@@ -190,7 +190,7 @@ export type GeometryNode = BrushNode | GroupNode | MeshNode | ModelNode | Primit
 
 export type Asset = {
   id: AssetID;
-  type: "model" | "material" | "prefab";
+  type: "audio" | "material" | "model" | "prefab";
   path: string;
   metadata: Record<string, MetadataValue>;
 };
@@ -276,10 +276,12 @@ export type ScenePathDefinition = {
 export type PlayerSettings = {
   cameraMode: PlayerCameraMode;
   canCrouch: boolean;
+  canInteract: boolean;
   canJump: boolean;
   canRun: boolean;
   crouchHeight: number;
   height: number;
+  interactKey: string;
   jumpHeight: number;
   movementSpeed: number;
   runningSpeed: number;

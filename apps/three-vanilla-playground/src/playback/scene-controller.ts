@@ -442,6 +442,22 @@ export class PlaybackSceneController {
         cameraMode: config.cameraMode,
         domElement: this.renderer.domElement,
         onActorChange: this.options.onPlayerActorChange,
+        onInteract: () => {
+          if (!config.gameplayRuntime) {
+            return;
+          }
+
+          config.gameplayRuntime.getHookTargetsByType("interactable")
+            .filter((t) => t.hook.enabled !== false)
+            .forEach((t) => {
+              config.gameplayRuntime!.emitEvent({
+                event: "interact.requested",
+                sourceId: "player",
+                sourceKind: "system",
+                targetId: t.targetId
+              });
+            });
+        },
         sceneSettings: config.sceneSettings,
         spawnPosition: vec3(playerSpawn.position.x, playerSpawn.position.y, playerSpawn.position.z),
         spawnRotationY: playerSpawn.rotation.y,
@@ -1188,6 +1204,7 @@ type RuntimePlayerControllerOptions = {
   cameraMode: SceneRuntimeConfig["cameraMode"];
   domElement: HTMLCanvasElement;
   onActorChange?: (actor: PlayerActor | null) => void;
+  onInteract?: () => void;
   sceneSettings: SceneRuntimeConfig["sceneSettings"];
   spawnPosition: { x: number; y: number; z: number };
   spawnRotationY: number;
@@ -1203,6 +1220,7 @@ class RuntimePlayerController {
   private readonly footOffset: number;
   private readonly halfHeight: number;
   private readonly onActorChange?: (actor: PlayerActor | null) => void;
+  private readonly onInteract?: () => void;
   private readonly radius: number;
   private readonly sceneSettings: SceneRuntimeConfig["sceneSettings"];
   private readonly standingHeight: number;
@@ -1238,6 +1256,7 @@ class RuntimePlayerController {
     this.cameraMode = options.cameraMode;
     this.domElement = options.domElement;
     this.onActorChange = options.onActorChange;
+    this.onInteract = options.onInteract;
     this.sceneSettings = options.sceneSettings;
     this.world = options.world;
     this.standingHeight = Math.max(1.2, options.sceneSettings.player.height);
@@ -1518,6 +1537,14 @@ class RuntimePlayerController {
       publishVanillaDebug("jump-input", {
         pointerLocked: this.pointerLocked
       });
+      event.preventDefault();
+    }
+
+    if (
+      event.code === (this.sceneSettings.player.interactKey || "KeyE") &&
+      this.sceneSettings.player.canInteract !== false
+    ) {
+      this.onInteract?.();
       event.preventDefault();
     }
   };

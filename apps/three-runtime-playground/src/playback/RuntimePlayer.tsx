@@ -2,6 +2,7 @@ import { useBeforePhysicsStep, CapsuleCollider, CuboidCollider, RigidBody, type 
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
 import { CapsuleGeometry, Group, MathUtils, Object3D, Quaternion, Vector3 } from "three";
+import type { GameplayRuntime } from "@ggez/gameplay-runtime";
 import type { DerivedEntityMarker } from "@ggez/render-pipeline";
 import { vec3, type SceneSettings } from "@ggez/shared";
 import type { PlaybackPhysicsState, PlayerActor } from "./types";
@@ -9,11 +10,13 @@ import type { PlaybackPhysicsState, PlayerActor } from "./types";
 const PHYSICS_STEP_SECONDS = 1 / 60;
 
 export function RuntimePlayer({
+  gameplayRuntime,
   onActorChange,
   physicsPlayback,
   sceneSettings,
   spawn
 }: {
+  gameplayRuntime?: GameplayRuntime;
   onActorChange?: (actor: PlayerActor | null) => void;
   physicsPlayback: PlaybackPhysicsState;
   sceneSettings: SceneSettings;
@@ -92,6 +95,24 @@ export function RuntimePlayer({
         jumpQueuedRef.current = true;
         event.preventDefault();
       }
+
+      if (
+        event.code === (sceneSettings.player.interactKey || "KeyE") &&
+        sceneSettings.player.canInteract !== false &&
+        gameplayRuntime
+      ) {
+        gameplayRuntime.getHookTargetsByType("interactable")
+          .filter((t) => t.hook.enabled !== false)
+          .forEach((t) => {
+            gameplayRuntime!.emitEvent({
+              event: "interact.requested",
+              sourceId: "player",
+              sourceKind: "system",
+              targetId: t.targetId
+            });
+          });
+        event.preventDefault();
+      }
     };
 
     const handleKeyUp = (event: KeyboardEvent) => {
@@ -115,7 +136,7 @@ export function RuntimePlayer({
       window.removeEventListener("keyup", handleKeyUp);
       window.removeEventListener("blur", handleWindowBlur);
     };
-  }, []);
+  }, [gameplayRuntime, sceneSettings.player.interactKey, sceneSettings.player.canInteract]);
 
   useEffect(() => {
     const domElement = gl.domElement;

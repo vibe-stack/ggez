@@ -457,10 +457,12 @@ export function createSampleScene(): WebHammerEngineScene {
       player: {
         cameraMode: "third-person",
         canCrouch: true,
+        canInteract: true,
         canJump: true,
         canRun: true,
         crouchHeight: 1.2,
         height: 1.8,
+        interactKey: "KeyE",
         jumpHeight: 1.1,
         movementSpeed: 4.5,
         runningSpeed: 7
