@@ -30,7 +30,8 @@
       "@ggez/runtime-streaming": ["packages/runtime-streaming/src/index.ts"],
       "@ggez/three-runtime": ["packages/three-runtime/src/index.ts"],
       "@ggez/tool-system": ["packages/tool-system/src/index.ts"],
-      "@ggez/workers": ["packages/workers/src/index.ts"]
+      "@ggez/workers": ["packages/workers/src/index.ts"],
+      "@ggez/runtime-audio": ["packages/runtime-audio/src/index.ts"]
     }
   }
 }

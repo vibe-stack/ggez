@@ -1,0 +1,13 @@
+{
+  "name": "@ggez/runtime-audio",
+  "version": "0.0.0",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@ggez/gameplay-runtime": "workspace:*",
+    "@ggez/shared": "workspace:*"
+  }
+}

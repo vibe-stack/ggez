@@ -1,6 +1,7 @@
 import type {
   BrushNode,
   Entity,
+  GameplayValue,
   GeometryNode,
   GroupNode,
   InstancingNode,
@@ -520,4 +521,28 @@ function matrixToTransform(matrix: Matrix4, pivot?: Vec3): Transform {
     rotation: vec3(rotation.x, rotation.y, rotation.z),
     scale: vec3(tempScale.x, tempScale.y, tempScale.z)
   };
+}
+
+export function readGameplayString(value: GameplayValue | undefined, fallback: string): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+export function readGameplayNumber(value: GameplayValue | undefined, fallback: number): number {
+  return typeof value === "number" ? value : fallback;
+}
+
+export function readGameplayBoolean(value: GameplayValue | undefined, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+export function readGameplayVec3(value: GameplayValue | undefined, fallback: Vec3): Vec3 {
+  if (!Array.isArray(value) || value.length < 3) {
+    return fallback;
+  }
+
+  return vec3(
+    typeof value[0] === "number" ? value[0] : fallback.x,
+    typeof value[1] === "number" ? value[1] : fallback.y,
+    typeof value[2] === "number" ? value[2] : fallback.z
+  );
 }

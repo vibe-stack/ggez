@@ -761,21 +761,42 @@ const hookDefinitionEntries: Array<HookDefinition & { defaultConfig: SceneHook["
   {
     category: "Feedback",
     defaultConfig: {
-      eventMap: {
-        "open.started": "door_metal_open"
-      },
+      autoplay: false,
       loop: false,
-      spatial: true
+      maxDistance: 50,
+      refDistance: 1,
+      rolloffFactor: 1,
+      spatial: true,
+      src: "",
+      stopEvent: "",
+      triggerEvent: "",
+      volume: 1
     },
-    description: "Plays audio cues in response to gameplay events.",
-    emits: ["audio.started", "audio.stopped"],
+    description: "Plays spatial or 2D audio, triggered by events or on scene start.",
+    emits: ["audio.started", "audio.ended", "audio.stopped"],
     fields: [
       {
-        kind: "event-map",
-        label: "Event Map",
-        path: "eventMap",
-        valueLabel: "Audio Cue",
-        valuePlaceholder: "door_metal_open"
+        kind: "text",
+        label: "Source URL",
+        path: "src",
+        placeholder: "/sounds/ambient.mp3"
+      },
+      {
+        kind: "number",
+        label: "Volume",
+        min: 0,
+        path: "volume",
+        step: 0.05
+      },
+      {
+        kind: "boolean",
+        label: "Autoplay",
+        path: "autoplay"
+      },
+      {
+        kind: "boolean",
+        label: "Loop",
+        path: "loop"
       },
       {
         kind: "boolean",
@@ -783,13 +804,41 @@ const hookDefinitionEntries: Array<HookDefinition & { defaultConfig: SceneHook["
         path: "spatial"
       },
       {
-        kind: "boolean",
-        label: "Loop",
-        path: "loop"
+        kind: "number",
+        label: "Ref Distance",
+        min: 0,
+        path: "refDistance",
+        step: 0.5
+      },
+      {
+        kind: "number",
+        label: "Max Distance",
+        min: 0,
+        path: "maxDistance",
+        step: 1
+      },
+      {
+        kind: "number",
+        label: "Rolloff Factor",
+        min: 0,
+        path: "rolloffFactor",
+        step: 0.1
+      },
+      {
+        kind: "text",
+        label: "Trigger Event",
+        path: "triggerEvent",
+        placeholder: "trigger.enter"
+      },
+      {
+        kind: "text",
+        label: "Stop Event",
+        path: "stopEvent",
+        placeholder: "trigger.exit"
       }
     ],
     label: "Audio Emitter",
-    listens: ["audio.play", "audio.stop"],
+    listens: ["audio.play", "audio.stop", "audio.stop_all"],
     type: "audio_emitter"
   },
   {
@@ -991,6 +1040,7 @@ export const STANDARD_GAMEPLAY_EVENTS: SceneEventDefinition[] = [
   createStandardEvent("audio.stop", "Feedback", "Audio stop request."),
   createStandardEvent("audio.started", "Feedback", "Audio playback started."),
   createStandardEvent("audio.stopped", "Feedback", "Audio playback stopped."),
+  createStandardEvent("audio.ended", "Feedback", "Audio playback ended naturally."),
   createStandardEvent("vfx.play", "Feedback", "VFX play request."),
   createStandardEvent("vfx.stop", "Feedback", "VFX stop request."),
   createStandardEvent("flag.set", "Flags", "Flag set request."),
@@ -1004,6 +1054,44 @@ export const STANDARD_GAMEPLAY_EVENTS: SceneEventDefinition[] = [
   createStandardEvent("condition.met", "Logic", "Condition listener completed successfully."),
   createStandardEvent("condition.failed", "Logic", "Condition listener failed or timed out.")
 ];
+
+export type HookPreset = {
+  config: SceneHook["config"];
+  hookType: string;
+  label: string;
+};
+
+export const HOOK_PRESETS: HookPreset[] = [
+  {
+    config: { autoplay: true, loop: true, maxDistance: 50, refDistance: 1, rolloffFactor: 1, spatial: true, src: "", volume: 0.3 },
+    hookType: "audio_emitter",
+    label: "Ambient Loop"
+  },
+  {
+    config: { autoplay: false, loop: false, maxDistance: 30, refDistance: 1, rolloffFactor: 1, spatial: true, src: "", triggerEvent: "trigger.enter", volume: 0.8 },
+    hookType: "audio_emitter",
+    label: "Trigger Sound"
+  },
+  {
+    config: { autoplay: false, loop: false, maxDistance: 20, refDistance: 1, rolloffFactor: 1, spatial: true, src: "", triggerEvent: "open.started", volume: 0.7 },
+    hookType: "audio_emitter",
+    label: "Door Sound"
+  },
+  {
+    config: { autoplay: false, loop: false, maxDistance: 15, refDistance: 0.5, rolloffFactor: 1.5, spatial: true, src: "", triggerEvent: "damage.received", volume: 1 },
+    hookType: "audio_emitter",
+    label: "Hit Sound"
+  },
+  {
+    config: { autoplay: true, loop: true, spatial: false, src: "", volume: 0.4 },
+    hookType: "audio_emitter",
+    label: "Music (2D)"
+  }
+];
+
+export function getPresetsForHookType(hookType: string): HookPreset[] {
+  return HOOK_PRESETS.filter((preset) => preset.hookType === hookType);
+}
 
 export function createGameplayEventDefinition(
   input: Pick<SceneEventDefinition, "description" | "name"> & Partial<Omit<SceneEventDefinition, "description" | "name">>

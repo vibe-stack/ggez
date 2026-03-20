@@ -104,7 +104,7 @@ export const GAMEPLAY_SYSTEM_BLUEPRINTS: GameplaySystemBlueprint[] = [
     description: "Routes gameplay events to audio playback.",
     hookTypes: ["audio_emitter"],
     id: "audio",
-    implemented: false,
+    implemented: true,
     label: "AudioSystem"
   },
   {
