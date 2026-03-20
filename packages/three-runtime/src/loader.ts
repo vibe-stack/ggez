@@ -37,9 +37,11 @@ import { HDRLoader } from "three/examples/jsm/loaders/HDRLoader.js";
 import { MTLLoader } from "three/examples/jsm/loaders/MTLLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import {
+  getRuntimeAudioDescriptors,
   isRuntimeBundle,
   isRuntimeScene,
   parseRuntimeScene,
+  type RuntimeAudioDescriptor,
   type RuntimeScene
 } from "@ggez/runtime-format";
 import {
@@ -95,6 +97,7 @@ export type WebHammerSceneLodOptions = {
 };
 
 export type ThreeRuntimeSceneInstance = {
+  audioDescriptors: RuntimeAudioDescriptor[];
   dispose: () => void;
   entities: WebHammerEngineScene["entities"];
   lights: Object3D[];
@@ -254,6 +257,7 @@ export async function createThreeRuntimeSceneInstance(
   }
 
   return {
+    audioDescriptors: getRuntimeAudioDescriptors(engineScene),
     dispose() {
       disposeThreeRuntimeSceneInstance(root);
     },

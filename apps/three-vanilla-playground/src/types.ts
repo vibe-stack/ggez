@@ -16,6 +16,7 @@ export type PlayerActor = {
 };
 
 export type EnabledSystemsState = {
+  audio: boolean;
   mover: boolean;
   openable: boolean;
   pathMover: boolean;

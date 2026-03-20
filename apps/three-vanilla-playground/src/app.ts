@@ -1,4 +1,5 @@
 import { createGameplayRuntime, createGameplayRuntimeSceneFromRuntimeScene } from "@ggez/gameplay-runtime";
+import { createAudioManager, type AudioManager } from "@ggez/runtime-audio";
 import { normalizeSceneSettings } from "@ggez/shared";
 import {
   createWebHammerBundleAssetResolver,
@@ -14,6 +15,7 @@ import { createSampleScene, resolveSampleAssetPath } from "./sample-scene";
 import type { AssetPathResolver, EnabledSystemKey, EnabledSystemsState, PlaybackPhysicsState, StageStats } from "./types";
 
 const DEFAULT_SYSTEMS: EnabledSystemsState = {
+  audio: true,
   mover: true,
   openable: true,
   pathMover: true,
@@ -26,7 +28,8 @@ const SYSTEM_OPTIONS: Array<{ key: EnabledSystemKey; label: string }> = [
   { key: "sequence", label: "Sequence" },
   { key: "openable", label: "Openable" },
   { key: "mover", label: "Mover" },
-  { key: "pathMover", label: "Path Mover" }
+  { key: "pathMover", label: "Path Mover" },
+  { key: "audio", label: "Audio" }
 ];
 
 export function createRuntimePlaygroundApp(root: HTMLElement) {
@@ -40,6 +43,7 @@ class RuntimePlaygroundApp {
   private readonly root: HTMLElement;
   private readonly sceneController: PlaybackSceneController;
 
+  private audioManager?: AudioManager;
   private bundleResolver?: ReturnType<typeof createWebHammerBundleAssetResolver>;
   private drawerOpen = false;
   private enabledSystems: EnabledSystemsState = { ...DEFAULT_SYSTEMS };
@@ -55,11 +59,20 @@ class RuntimePlaygroundApp {
   constructor(root: HTMLElement) {
     this.root = root;
     this.refs = createShell(root);
-    this.fileInput.accept = ".zip,.json";
+    this.fileInput.accept = ".zip,.json,.whmap";
     this.fileInput.className = "hidden";
     this.fileInput.type = "file";
     this.fileInput.addEventListener("change", this.handleFileInput);
     this.refs.topBar.append(this.fileInput);
+
+    // Resume AudioContext on first user gesture (browsers require this).
+    const resumeAudio = () => {
+      void this.audioManager?.resume();
+      window.removeEventListener("pointerdown", resumeAudio);
+      window.removeEventListener("keydown", resumeAudio);
+    };
+    window.addEventListener("pointerdown", resumeAudio, { once: true });
+    window.addEventListener("keydown", resumeAudio, { once: true });
     this.sceneController = new PlaybackSceneController(this.refs.stage, {
       host: this.host,
       onError: (message) => {
@@ -96,19 +109,60 @@ class RuntimePlaygroundApp {
 
   private async rebuildRuntime() {
     this.gameplayRuntime?.dispose();
+    this.audioManager?.dispose();
+    this.audioManager = undefined;
+
     const renderScene = createPlaybackRenderScene(this.scene);
     const sceneSettings = normalizeSceneSettings(this.scene.settings);
+    const resolveAssetPath = this.resolveAssetPath;
     const gameplayRuntime = createGameplayRuntime({
       host: this.host.host,
       scene: createGameplayRuntimeSceneFromRuntimeScene(this.scene),
       systems: createPlaybackGameplaySystems(this.scene, this.enabledSystems)
     });
 
+    // Wire AudioManager to gameplay audio events.
+    const audioManager = createAudioManager({
+      clipResolver: async (clipId) => {
+        const url = await Promise.resolve(resolveAssetPath(clipId));
+        const response = await fetch(url);
+        return response.arrayBuffer();
+      }
+    });
+    this.audioManager = audioManager;
+
     this.host.reset();
     this.runtimeEvents = [];
     gameplayRuntime.onEvent((event) => {
       this.runtimeEvents = [`${event.event}${event.targetId ? ` -> ${event.targetId}` : ""}`, ...this.runtimeEvents].slice(0, 12);
       this.render();
+
+      if (event.event === "audio.play") {
+        const p = event.payload as Record<string, unknown> | undefined;
+        if (p?.clip && typeof p.clip === "string") {
+          void audioManager.play({
+            channel: (p.channel as "sfx" | "music" | "ambient" | "ui" | "voice") ?? "sfx",
+            clip: p.clip as string,
+            distanceModel: (p.distanceModel as "inverse" | "linear" | "exponential") ?? "inverse",
+            id: p.hookId as string | undefined,
+            loop: p.loop === true,
+            maxDistance: typeof p.maxDistance === "number" ? p.maxDistance : 10000,
+            pitch: typeof p.pitch === "number" ? p.pitch : 1,
+            position: Array.isArray(p.position) ? { x: p.position[0], y: p.position[1], z: p.position[2] } : undefined,
+            refDistance: typeof p.refDistance === "number" ? p.refDistance : 1,
+            rolloffFactor: typeof p.rolloffFactor === "number" ? p.rolloffFactor : 1,
+            spatial: p.spatial === true,
+            volume: typeof p.volume === "number" ? p.volume : 1
+          });
+        }
+      }
+
+      if (event.event === "audio.stop") {
+        const p = event.payload as Record<string, unknown> | undefined;
+        if (p?.hookId && typeof p.hookId === "string") {
+          audioManager.stop(p.hookId);
+        }
+      }
     });
     gameplayRuntime.start();
     this.gameplayRuntime = gameplayRuntime;
@@ -146,7 +200,7 @@ class RuntimePlaygroundApp {
         const text = await file.text();
         this.bundleResolver?.dispose();
         this.bundleResolver = undefined;
-        nextScene = parseWebHammerEngineScene(text);
+        nextScene = parseSceneText(text);
       }
 
       this.scene = nextScene;
@@ -444,4 +498,23 @@ function escapeHtml(value: string) {
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
+}
+
+/** Parse scene text — handles both runtime format and .whmap editor format. */
+function parseSceneText(text: string): WebHammerEngineScene {
+  const parsed = JSON.parse(text);
+
+  // .whmap editor format: { format: "whmap", scene: { ... } }
+  if (parsed?.format === "whmap" && parsed.scene) {
+    const scene = parsed.scene;
+    // Inject runtime metadata so parseWebHammerEngineScene accepts it.
+    scene.metadata = {
+      exportedAt: new Date().toISOString(),
+      format: "web-hammer-engine",
+      version: 6
+    };
+    return parseWebHammerEngineScene(JSON.stringify(scene));
+  }
+
+  return parseWebHammerEngineScene(text);
 }

@@ -761,21 +761,64 @@ const hookDefinitionEntries: Array<HookDefinition & { defaultConfig: SceneHook["
   {
     category: "Feedback",
     defaultConfig: {
-      eventMap: {
-        "open.started": "door_metal_open"
-      },
+      autoPlay: false,
+      channel: "sfx",
+      clip: "",
+      distanceModel: "inverse",
       loop: false,
-      spatial: true
+      maxDistance: 10000,
+      pitch: 1,
+      refDistance: 1,
+      rolloffFactor: 1,
+      spatial: false,
+      stopEvent: "",
+      triggerEvent: "",
+      volume: 1
     },
-    description: "Plays audio cues in response to gameplay events.",
-    emits: ["audio.started", "audio.stopped"],
+    description: "Plays audio clips in response to gameplay events with optional 3D spatial positioning.",
+    emits: ["audio.play", "audio.stop"],
     fields: [
       {
-        kind: "event-map",
-        label: "Event Map",
-        path: "eventMap",
-        valueLabel: "Audio Cue",
-        valuePlaceholder: "door_metal_open"
+        kind: "text",
+        label: "Clip",
+        path: "clip",
+        placeholder: "door_open.ogg"
+      },
+      {
+        kind: "enum",
+        label: "Channel",
+        options: [
+          { label: "SFX", value: "sfx" },
+          { label: "Music", value: "music" },
+          { label: "Ambient", value: "ambient" },
+          { label: "UI", value: "ui" },
+          { label: "Voice", value: "voice" }
+        ],
+        path: "channel"
+      },
+      {
+        kind: "number",
+        label: "Volume",
+        min: 0,
+        path: "volume",
+        step: 0.05
+      },
+      {
+        kind: "number",
+        label: "Pitch",
+        min: 0.1,
+        path: "pitch",
+        step: 0.05
+      },
+      {
+        kind: "boolean",
+        label: "Loop",
+        path: "loop"
+      },
+      {
+        kind: "boolean",
+        label: "Auto Play",
+        path: "autoPlay"
       },
       {
         kind: "boolean",
@@ -783,13 +826,55 @@ const hookDefinitionEntries: Array<HookDefinition & { defaultConfig: SceneHook["
         path: "spatial"
       },
       {
-        kind: "boolean",
-        label: "Loop",
-        path: "loop"
+        kind: "enum",
+        label: "Distance Model",
+        options: [
+          { label: "Inverse", value: "inverse" },
+          { label: "Linear", value: "linear" },
+          { label: "Exponential", value: "exponential" }
+        ],
+        path: "distanceModel",
+        showWhen: { path: "spatial", equals: true }
+      },
+      {
+        kind: "number",
+        label: "Ref Distance",
+        min: 0,
+        path: "refDistance",
+        step: 0.5,
+        showWhen: { path: "spatial", equals: true }
+      },
+      {
+        kind: "number",
+        label: "Max Distance",
+        min: 0,
+        path: "maxDistance",
+        step: 1,
+        showWhen: { path: "spatial", equals: true }
+      },
+      {
+        kind: "number",
+        label: "Rolloff Factor",
+        min: 0,
+        path: "rolloffFactor",
+        step: 0.1,
+        showWhen: { path: "spatial", equals: true }
+      },
+      {
+        kind: "text",
+        label: "Trigger Event",
+        path: "triggerEvent",
+        placeholder: "open.started"
+      },
+      {
+        kind: "text",
+        label: "Stop Event",
+        path: "stopEvent",
+        placeholder: "close.completed"
       }
     ],
     label: "Audio Emitter",
-    listens: ["audio.play", "audio.stop"],
+    listens: ["audio.play", "audio.stop", "audio.stop_all"],
     type: "audio_emitter"
   },
   {

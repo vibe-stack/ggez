@@ -104,7 +104,7 @@ export const GAMEPLAY_SYSTEM_BLUEPRINTS: GameplaySystemBlueprint[] = [
     description: "Routes gameplay events to audio playback.",
     hookTypes: ["audio_emitter"],
     id: "audio",
-    implemented: false,
+    implemented: true,
     label: "AudioSystem"
   },
   {
@@ -992,4 +992,105 @@ function wrapProgress(value: number) {
   }
 
   return value % 1;
+}
+
+export function createAudioSystemDefinition(): GameplayRuntimeSystemDefinition {
+  return {
+    description: "Routes gameplay events to audio playback via audio_emitter hooks.",
+    hookTypes: ["audio_emitter"],
+    id: "audio",
+    label: "AudioSystem",
+    create(context) {
+      const unsubscribes: Array<() => void> = [];
+
+      return {
+        start() {
+          context.getHookTargetsByType("audio_emitter")
+            .filter((target) => target.hook.enabled !== false)
+            .forEach((target) => {
+              const autoPlay = readBoolean(target.hook.config.autoPlay, false);
+
+              if (autoPlay) {
+                emitAudioPlay(context, target);
+              }
+
+              const triggerEvent = readString(target.hook.config.triggerEvent, "");
+
+              if (triggerEvent) {
+                const unsub = context.eventBus.subscribe(
+                  { event: triggerEvent, targetId: target.targetId },
+                  () => {
+                    if (target.hook.enabled === false) {
+                      return;
+                    }
+
+                    emitAudioPlay(context, target);
+                  }
+                );
+
+                unsubscribes.push(unsub);
+              }
+
+              const stopEvent = readString(target.hook.config.stopEvent, "");
+
+              if (stopEvent) {
+                const unsub = context.eventBus.subscribe(
+                  { event: stopEvent, targetId: target.targetId },
+                  () => {
+                    context.emitFromHookTarget(target, "audio.stop", {
+                      hookId: target.hook.id
+                    });
+                  }
+                );
+
+                unsubscribes.push(unsub);
+              }
+            });
+
+          // Global audio control events.
+          unsubscribes.push(
+            context.eventBus.subscribe({ event: "audio.stop_all" }, () => {
+              context.getHookTargetsByType("audio_emitter").forEach((target) => {
+                context.emitFromHookTarget(target, "audio.stop", {
+                  hookId: target.hook.id
+                });
+              });
+            })
+          );
+        },
+        stop() {
+          unsubscribes.forEach((unsub) => unsub());
+          unsubscribes.length = 0;
+        }
+      };
+    }
+  };
+}
+
+function emitAudioPlay(
+  context: GameplayRuntimeSystemContext,
+  target: GameplayHookTarget
+) {
+  const clip = readString(target.hook.config.clip, "");
+
+  if (!clip) {
+    return;
+  }
+
+  const worldTransform = context.getTargetWorldTransform(target.targetId);
+
+  context.emitFromHookTarget(target, "audio.play", {
+    channel: readString(target.hook.config.channel, "sfx"),
+    clip,
+    distanceModel: readString(target.hook.config.distanceModel, "inverse"),
+    hookId: target.hook.id,
+    loop: readBoolean(target.hook.config.loop, false),
+    maxDistance: readNumber(target.hook.config.maxDistance, 10000),
+    pitch: readNumber(target.hook.config.pitch, 1),
+    position: worldTransform ? [worldTransform.position.x, worldTransform.position.y, worldTransform.position.z] : null,
+    refDistance: readNumber(target.hook.config.refDistance, 1),
+    rolloffFactor: readNumber(target.hook.config.rolloffFactor, 1),
+    spatial: readBoolean(target.hook.config.spatial, false),
+    volume: readNumber(target.hook.config.volume, 1)
+  });
 }
