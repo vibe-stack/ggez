@@ -16,8 +16,10 @@ export type PlayerActor = {
 };
 
 export type EnabledSystemsState = {
+  audio: boolean;
   mover: boolean;
   openable: boolean;
+  particle: boolean;
   pathMover: boolean;
   sequence: boolean;
   trigger: boolean;
@@ -35,6 +37,7 @@ export type StageStats = {
 export type SceneRuntimeConfig = {
   cameraMode: "fps" | "third-person" | "top-down";
   gameplayRuntime?: GameplayRuntime;
+  particleSystem?: import("@ggez/runtime-particles").ParticleSystemApi;
   physicsPlayback: PlaybackPhysicsState;
   renderScene: DerivedRenderScene;
   resolveAssetPath: AssetPathResolver;

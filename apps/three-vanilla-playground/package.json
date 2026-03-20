@@ -14,6 +14,8 @@
     "@dimforge/rapier3d-compat": "^0.19.2",
     "@ggez/gameplay-runtime": "workspace:*",
     "@ggez/render-pipeline": "workspace:*",
+    "@ggez/runtime-audio": "workspace:*",
+    "@ggez/runtime-particles": "workspace:*",
     "@ggez/runtime-physics-rapier": "workspace:*",
     "@ggez/shared": "workspace:*",
     "@ggez/three-runtime": "workspace:*",

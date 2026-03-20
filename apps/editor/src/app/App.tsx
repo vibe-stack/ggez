@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useSnapshot } from "valtio";
+import { createDemoSceneDocument } from "./demo-scene";
 import {
   analyzeSceneSpatialLayout,
   axisDelta,
@@ -30,7 +31,6 @@ import {
   createPlaceBrushNodeCommand,
   createPlaceMeshNodeCommand,
   createPlaceModelNodeCommand,
-  createSeedSceneDocument,
   createSetUvOffsetCommand,
   createSetUvScaleCommand,
   createSplitBrushNodeAtCoordinateCommand,
@@ -127,7 +127,7 @@ import {
 } from "@/viewport/viewports";
 
 export function App() {
-  const [editor] = useState(() => createEditorCore(createSeedSceneDocument()));
+  const [editor] = useState(() => createEditorCore(createDemoSceneDocument()));
   const [activeToolId, setActiveToolId] = useState<ToolId>(defaultToolId);
   const [activeBrushShape, setActiveBrushShape] = useState<BrushShape>("cube");
   const [aiModelPlacementArmed, setAiModelPlacementArmed] = useState(false);

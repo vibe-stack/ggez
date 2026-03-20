@@ -60,6 +60,7 @@ import {
 import { createBlockoutTextureDataUri, resolveSceneGraph, resolveTransformPivot, vec3, type Asset, type MaterialRenderSide } from "@ggez/shared";
 import type { DerivedLight, DerivedRenderMesh } from "@ggez/render-pipeline";
 import type { PlaybackGameplayHost } from "../gameplay-host";
+import { createThreeParticleHost, type ParticleSystemApi, type ThreeParticleHost } from "@ggez/runtime-particles";
 import type { AssetPathResolver, PlayerActor, SceneRuntimeConfig } from "../types";
 
 type SceneControllerOptions = {
@@ -165,6 +166,7 @@ export class PlaybackSceneController {
   private ambientLight?: AmbientLight;
   private autoFitEnabled = true;
   private config?: SceneRuntimeConfig;
+  private particleHost?: ThreeParticleHost;
   private dynamicBodies: DynamicBodyBinding[] = [];
   private fitFramesRemaining = 90;
   private frameHandle = 0;
@@ -314,6 +316,28 @@ export class PlaybackSceneController {
       this.options.host.bindNodeObject(created.nodeId, created.object);
       this.lightObjects.push(created);
     });
+
+    this.particleHost?.dispose();
+    this.particleHost = undefined;
+
+    if (config.particleSystem) {
+      const particleHost = createThreeParticleHost(this.worldRoot);
+      this.particleHost = particleHost;
+
+      const hooks = config.scene.nodes
+        .flatMap((node) => (node.hooks ?? []).filter((h) => h.type === "particle_emitter").map((h) => ({
+          config: h.config,
+          enabled: h.enabled !== false,
+          hookId: h.id,
+          targetId: node.id
+        })));
+
+      config.particleSystem.start(hooks);
+
+      config.particleSystem.getEmitterStates().forEach((state, emitterId) => {
+        particleHost.addEmitter(emitterId, state.config);
+      });
+    }
   }
 
   setPlaybackState(nextPlayback: SceneRuntimeConfig["physicsPlayback"]) {
@@ -466,6 +490,10 @@ export class PlaybackSceneController {
   }
 
   private disposeRuntimeBindings() {
+    this.particleHost?.dispose();
+    this.particleHost = undefined;
+    this.config?.particleSystem?.dispose();
+
     this.player?.dispose();
     this.player = undefined;
 
@@ -516,6 +544,14 @@ export class PlaybackSceneController {
 
     if (config?.gameplayRuntime) {
       config.gameplayRuntime.update(delta);
+    }
+
+    if (config?.particleSystem && this.particleHost) {
+      config.particleSystem.update(delta, (targetId) => {
+        const transform = config.gameplayRuntime?.getNodeWorldTransform?.(targetId);
+        return transform?.position;
+      });
+      this.particleHost.update(config.particleSystem.getEmitterStates());
     }
 
     if (this.world) {

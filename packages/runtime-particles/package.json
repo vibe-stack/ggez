@@ -1,0 +1,16 @@
+{
+  "name": "@ggez/runtime-particles",
+  "version": "0.0.0",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "devDependencies": {
+    "@types/three": "^0.181.0"
+  },
+  "dependencies": {
+    "@ggez/shared": "workspace:*",
+    "three": "^0.181.1"
+  }
+}

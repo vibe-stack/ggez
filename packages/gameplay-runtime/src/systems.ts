@@ -104,8 +104,15 @@ export const GAMEPLAY_SYSTEM_BLUEPRINTS: GameplaySystemBlueprint[] = [
     description: "Routes gameplay events to audio playback.",
     hookTypes: ["audio_emitter"],
     id: "audio",
-    implemented: false,
+    implemented: true,
     label: "AudioSystem"
+  },
+  {
+    description: "Manages particle emitter lifecycle, emission rates, bursts, and event-driven VFX.",
+    hookTypes: ["particle_emitter"],
+    id: "particle",
+    implemented: true,
+    label: "ParticleSystem"
   },
   {
     description: "Manages world and mission flag writes or queries.",

@@ -19,6 +19,7 @@ import {
   formatGameplayValue,
   getGameplayValue,
   getHookDefinition,
+  getPresetsForHookType,
   HOOK_DEFINITIONS,
   isGameplayObject,
   isHookFieldVisible,
@@ -604,8 +605,40 @@ function HookCard({
           </Button>
         </div>
       </div>
+      <PresetSelector hook={hook} onUpdate={onUpdate} />
       <div className="mt-3 grid gap-2">
         {children}
+      </div>
+    </div>
+  );
+}
+
+function PresetSelector({ hook, onUpdate }: { hook: SceneHook; onUpdate: (hook: SceneHook) => void }) {
+  const presets = getPresetsForHookType(hook.type);
+
+  if (presets.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-2 flex items-center gap-2">
+      <span className="text-[11px] text-foreground/50">Preset</span>
+      <div className="flex flex-wrap gap-1">
+        {presets.map((preset) => (
+          <button
+            className="rounded-md border border-foreground/10 bg-foreground/[0.04] px-2 py-0.5 text-[11px] text-foreground/70 transition hover:bg-foreground/[0.08] hover:text-foreground"
+            key={preset.label}
+            onClick={() => {
+              onUpdate({
+                ...hook,
+                config: structuredClone(preset.config)
+              });
+            }}
+            type="button"
+          >
+            {preset.label}
+          </button>
+        ))}
       </div>
     </div>
   );

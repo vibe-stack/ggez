@@ -795,24 +795,168 @@ const hookDefinitionEntries: Array<HookDefinition & { defaultConfig: SceneHook["
   {
     category: "Feedback",
     defaultConfig: {
-      eventMap: {
-        "damage.received": "sparks_hit"
-      }
+      autoplay: true,
+      blending: "additive",
+      burst: 0,
+      direction: [0, 1, 0],
+      emissionRate: 10,
+      endColor: "#ffffff",
+      endOpacity: 0,
+      endSize: 0,
+      gravity: [0, -9.8, 0],
+      lifetime: 2,
+      lifetimeVariance: 0.5,
+      maxParticles: 100,
+      speed: 5,
+      speedVariance: 1,
+      spread: 0.5,
+      startColor: "#ffffff",
+      startOpacity: 1,
+      startSize: 0.1,
+      stopEvent: "",
+      triggerEvent: ""
     },
-    description: "Triggers particles or visual effects from gameplay events.",
-    emits: [],
+    description: "Emits particles with configurable rate, velocity, color, and lifetime.",
+    emits: ["particle.started", "particle.stopped"],
     fields: [
       {
-        kind: "event-map",
-        label: "Event Map",
-        path: "eventMap",
-        valueLabel: "VFX Id",
-        valuePlaceholder: "sparks_hit"
+        kind: "boolean",
+        label: "Autoplay",
+        path: "autoplay"
+      },
+      {
+        kind: "number",
+        label: "Max Particles",
+        min: 1,
+        path: "maxParticles",
+        step: 1
+      },
+      {
+        kind: "number",
+        label: "Emission Rate",
+        min: 0,
+        path: "emissionRate",
+        step: 1
+      },
+      {
+        kind: "number",
+        label: "Burst Count",
+        min: 0,
+        path: "burst",
+        step: 1
+      },
+      {
+        kind: "number",
+        label: "Lifetime",
+        min: 0,
+        path: "lifetime",
+        step: 0.1
+      },
+      {
+        kind: "number",
+        label: "Lifetime Variance",
+        min: 0,
+        path: "lifetimeVariance",
+        step: 0.1
+      },
+      {
+        kind: "number",
+        label: "Speed",
+        min: 0,
+        path: "speed",
+        step: 0.1
+      },
+      {
+        kind: "number",
+        label: "Speed Variance",
+        min: 0,
+        path: "speedVariance",
+        step: 0.1
+      },
+      {
+        kind: "number",
+        label: "Spread",
+        min: 0,
+        path: "spread",
+        step: 0.05
+      },
+      {
+        kind: "vec3",
+        label: "Direction",
+        path: "direction",
+        step: 0.1
+      },
+      {
+        kind: "vec3",
+        label: "Gravity",
+        path: "gravity",
+        step: 0.1
+      },
+      {
+        kind: "text",
+        label: "Start Color",
+        path: "startColor",
+        placeholder: "#ffcc44"
+      },
+      {
+        kind: "text",
+        label: "End Color",
+        path: "endColor",
+        placeholder: "#ff2200"
+      },
+      {
+        kind: "number",
+        label: "Start Opacity",
+        min: 0,
+        path: "startOpacity",
+        step: 0.05
+      },
+      {
+        kind: "number",
+        label: "End Opacity",
+        min: 0,
+        path: "endOpacity",
+        step: 0.05
+      },
+      {
+        kind: "number",
+        label: "Start Size",
+        min: 0,
+        path: "startSize",
+        step: 0.01
+      },
+      {
+        kind: "number",
+        label: "End Size",
+        min: 0,
+        path: "endSize",
+        step: 0.01
+      },
+      {
+        kind: "enum",
+        label: "Blending",
+        options: [
+          { label: "Additive", value: "additive" },
+          { label: "Normal", value: "normal" }
+        ],
+        path: "blending"
+      },
+      {
+        kind: "text",
+        label: "Trigger Event",
+        path: "triggerEvent",
+        placeholder: "trigger.enter"
+      },
+      {
+        kind: "text",
+        label: "Stop Event",
+        path: "stopEvent",
+        placeholder: "trigger.exit"
       }
     ],
-    label: "VFX Emitter",
-    listens: ["vfx.play", "vfx.stop"],
-    type: "vfx_emitter"
+    label: "Particle Emitter",
+    listens: ["particle.play", "particle.stop"],
+    type: "particle_emitter"
   },
   {
     category: "Flags",
@@ -991,8 +1135,10 @@ export const STANDARD_GAMEPLAY_EVENTS: SceneEventDefinition[] = [
   createStandardEvent("audio.stop", "Feedback", "Audio stop request."),
   createStandardEvent("audio.started", "Feedback", "Audio playback started."),
   createStandardEvent("audio.stopped", "Feedback", "Audio playback stopped."),
-  createStandardEvent("vfx.play", "Feedback", "VFX play request."),
-  createStandardEvent("vfx.stop", "Feedback", "VFX stop request."),
+  createStandardEvent("particle.play", "Feedback", "Particle emitter play request."),
+  createStandardEvent("particle.stop", "Feedback", "Particle emitter stop request."),
+  createStandardEvent("particle.started", "Feedback", "Particle emitter started."),
+  createStandardEvent("particle.stopped", "Feedback", "Particle emitter stopped."),
   createStandardEvent("flag.set", "Flags", "Flag set request."),
   createStandardEvent("flag.changed", "Flags", "Flag value changed."),
   createStandardEvent("condition.check", "Logic", "Condition evaluation request."),
@@ -1004,6 +1150,91 @@ export const STANDARD_GAMEPLAY_EVENTS: SceneEventDefinition[] = [
   createStandardEvent("condition.met", "Logic", "Condition listener completed successfully."),
   createStandardEvent("condition.failed", "Logic", "Condition listener failed or timed out.")
 ];
+
+export type HookPreset = {
+  config: SceneHook["config"];
+  hookType: string;
+  label: string;
+};
+
+export const HOOK_PRESETS: HookPreset[] = [
+  {
+    config: {
+      autoplay: true, blending: "additive", burst: 0, direction: [0, 1, 0], emissionRate: 20,
+      endColor: "#ff2200", endOpacity: 0, endSize: 0.3, gravity: [0, 2, 0],
+      lifetime: 0.8, lifetimeVariance: 0.3, maxParticles: 40, speed: 0.5,
+      speedVariance: 0.3, spread: 0.5, startColor: "#ffcc44", startOpacity: 0.9, startSize: 0.1
+    },
+    hookType: "particle_emitter",
+    label: "Fire"
+  },
+  {
+    config: {
+      autoplay: true, blending: "normal", burst: 0, direction: [0, 1, 0], emissionRate: 5,
+      endColor: "#555555", endOpacity: 0, endSize: 1.2, gravity: [0, 0.4, 0],
+      lifetime: 3, lifetimeVariance: 1, maxParticles: 30, speed: 0.3,
+      speedVariance: 0.1, spread: 0.3, startColor: "#888888", startOpacity: 0.4, startSize: 0.2
+    },
+    hookType: "particle_emitter",
+    label: "Smoke"
+  },
+  {
+    config: {
+      autoplay: false, blending: "additive", burst: 12, direction: [0, 1, 0], emissionRate: 0,
+      endColor: "#884400", endOpacity: 0, endSize: 0.05, gravity: [0, -6, 0],
+      lifetime: 0.5, lifetimeVariance: 0.2, maxParticles: 20, speed: 4,
+      speedVariance: 2, spread: 1.2, startColor: "#ffaa44", startOpacity: 0.9, startSize: 0.06,
+      triggerEvent: "open.started"
+    },
+    hookType: "particle_emitter",
+    label: "Sparks"
+  },
+  {
+    config: {
+      autoplay: true, blending: "normal", burst: 0, direction: [0, 0.3, 0], emissionRate: 2,
+      endColor: "#bbbbbb", endOpacity: 0, endSize: 0.4, gravity: [0, 0.1, 0],
+      lifetime: 6, lifetimeVariance: 2, maxParticles: 20, speed: 0.1,
+      speedVariance: 0.05, spread: 1.5, startColor: "#cccccc", startOpacity: 0.12, startSize: 0.06
+    },
+    hookType: "particle_emitter",
+    label: "Dust"
+  },
+  {
+    config: {
+      autoplay: true, blending: "normal", burst: 0, direction: [0, 1, 0], emissionRate: 8,
+      endColor: "#ffffff", endOpacity: 0, endSize: 0.8, gravity: [0, 1.5, 0],
+      lifetime: 1.5, lifetimeVariance: 0.5, maxParticles: 25, speed: 1.2,
+      speedVariance: 0.4, spread: 0.2, startColor: "#eeeeee", startOpacity: 0.5, startSize: 0.1
+    },
+    hookType: "particle_emitter",
+    label: "Steam"
+  },
+  {
+    config: {
+      autoplay: true, blending: "normal", burst: 0, direction: [0, -1, 0], emissionRate: 40,
+      endColor: "#aaccff", endOpacity: 0, endSize: 0.02, gravity: [0, -12, 0],
+      lifetime: 1.5, lifetimeVariance: 0.3, maxParticles: 200, speed: 6,
+      speedVariance: 1, spread: 1.4, startColor: "#ccddff", startOpacity: 0.3, startSize: 0.03
+    },
+    hookType: "particle_emitter",
+    label: "Rain"
+  },
+  {
+    config: {
+      autoplay: false, blending: "additive", burst: 30, direction: [0, 0.5, 0], emissionRate: 0,
+      endColor: "#331100", endOpacity: 0, endSize: 0.6, gravity: [0, -4, 0],
+      lifetime: 0.8, lifetimeVariance: 0.3, maxParticles: 40, speed: 6,
+      speedVariance: 3, spread: 3.14, startColor: "#ff6600", startOpacity: 1, startSize: 0.15,
+      triggerEvent: "destroy.started"
+    },
+    hookType: "particle_emitter",
+    label: "Explosion"
+  }
+];
+
+export function getPresetsForHookType(hookType: string): HookPreset[] {
+  return HOOK_PRESETS.filter((preset) => preset.hookType === hookType);
+}
 
 export function createGameplayEventDefinition(
   input: Pick<SceneEventDefinition, "description" | "name"> & Partial<Omit<SceneEventDefinition, "description" | "name">>

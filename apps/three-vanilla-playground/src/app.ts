@@ -14,8 +14,10 @@ import { createSampleScene, resolveSampleAssetPath } from "./sample-scene";
 import type { AssetPathResolver, EnabledSystemKey, EnabledSystemsState, PlaybackPhysicsState, StageStats } from "./types";
 
 const DEFAULT_SYSTEMS: EnabledSystemsState = {
+  audio: true,
   mover: true,
   openable: true,
+  particle: true,
   pathMover: true,
   sequence: true,
   trigger: true
@@ -26,7 +28,9 @@ const SYSTEM_OPTIONS: Array<{ key: EnabledSystemKey; label: string }> = [
   { key: "sequence", label: "Sequence" },
   { key: "openable", label: "Openable" },
   { key: "mover", label: "Mover" },
-  { key: "pathMover", label: "Path Mover" }
+  { key: "pathMover", label: "Path Mover" },
+  { key: "audio", label: "Audio" },
+  { key: "particle", label: "Particles" }
 ];
 
 export function createRuntimePlaygroundApp(root: HTMLElement) {
@@ -40,6 +44,7 @@ class RuntimePlaygroundApp {
   private readonly root: HTMLElement;
   private readonly sceneController: PlaybackSceneController;
 
+  private audioEngine?: import("@ggez/runtime-audio").AudioEngine;
   private bundleResolver?: ReturnType<typeof createWebHammerBundleAssetResolver>;
   private drawerOpen = false;
   private enabledSystems: EnabledSystemsState = { ...DEFAULT_SYSTEMS };
@@ -98,16 +103,24 @@ class RuntimePlaygroundApp {
     this.gameplayRuntime?.dispose();
     const renderScene = createPlaybackRenderScene(this.scene);
     const sceneSettings = normalizeSceneSettings(this.scene.settings);
+    const systemsBundle = createPlaybackGameplaySystems(this.scene, this.enabledSystems);
     const gameplayRuntime = createGameplayRuntime({
       host: this.host.host,
       scene: createGameplayRuntimeSceneFromRuntimeScene(this.scene),
-      systems: createPlaybackGameplaySystems(this.scene, this.enabledSystems)
+      systems: systemsBundle.systems
     });
+
+    this.audioEngine?.dispose();
+    this.audioEngine = systemsBundle.audioEngine;
+    if (this.audioEngine && this.physicsPlayback !== "stopped") {
+      this.audioEngine.resume();
+    }
 
     this.host.reset();
     this.runtimeEvents = [];
     gameplayRuntime.onEvent((event) => {
       this.runtimeEvents = [`${event.event}${event.targetId ? ` -> ${event.targetId}` : ""}`, ...this.runtimeEvents].slice(0, 12);
+      systemsBundle.particleSystem?.handleEvent(event.event, event.targetId);
       this.render();
     });
     gameplayRuntime.start();
@@ -116,6 +129,7 @@ class RuntimePlaygroundApp {
     await this.sceneController.load({
       cameraMode: sceneSettings.player.cameraMode,
       gameplayRuntime,
+      particleSystem: systemsBundle.particleSystem,
       physicsPlayback: this.physicsPlayback,
       renderScene,
       resolveAssetPath: this.resolveAssetPath,
