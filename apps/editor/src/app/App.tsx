@@ -1482,6 +1482,10 @@ export function App() {
     uiStore.copilotPanelOpen = !uiStore.copilotPanelOpen;
   };
 
+  const handleToggleLogicViewer = () => {
+    uiStore.logicViewerOpen = !uiStore.logicViewerOpen;
+  };
+
   useAppHotkeys({
     activeToolId,
     editor,
@@ -1493,6 +1497,7 @@ export function App() {
     handleInvertSelectionNormals,
     handleRedo,
     handleToggleCopilot,
+    handleToggleLogicViewer,
     handleTranslateSelection,
     handleUndo,
     setActiveToolId: handleSetToolId,
@@ -1529,7 +1534,9 @@ export function App() {
             selectedGameId={gameConnection.selectedGameId}
           />
         }
+        logicViewerOpen={ui.logicViewerOpen}
         onToggleCopilot={handleToggleCopilot}
+        onToggleLogicViewer={handleToggleLogicViewer}
         aiModelPlacementActive={Boolean(aiModelDraft)}
         aiModelPlacementArmed={aiModelPlacementArmed}
         aiModelPrompt={aiModelDraft?.prompt ?? ""}

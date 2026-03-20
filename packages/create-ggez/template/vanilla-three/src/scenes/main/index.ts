@@ -16,10 +16,6 @@ const assetUrls = normalizeBundledAssetUrls(
 export const mainScene = defineGameScene({
   id: "main",
   mount({ gotoScene, player, setStatus }) {
-    if (player) {
-      setStatus("Click inside the game to capture the cursor. WASD to move, Space to jump, Shift to run. Press 2 for Arena.");
-    }
-
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.code === "Digit2") {
         void gotoScene("arena");

@@ -1,6 +1,5 @@
 import {
   ReactFlow,
-  Background,
   Controls,
   MiniMap,
   type Node,
@@ -156,6 +155,8 @@ export function LogicViewer({
   return (
     <div className="size-full">
       <ReactFlow
+        colorMode="dark"
+        className="bg-transparent"
         nodes={rfNodes}
         edges={rfEdges}
         onNodesChange={handleNodesChange}
@@ -181,22 +182,22 @@ export function LogicViewer({
           return src.direction === "emit" && tgt.direction === "listen";
         }}
         connectionLineStyle={{ stroke: "rgba(16,185,129,0.5)", strokeWidth: 2 }}
+        style={{ backgroundColor: "transparent" }}
       >
-        <Background color="rgba(255,255,255,0.025)" gap={32} size={1} />
         <MiniMap
           nodeColor={(node) =>
             node.type === "cluster" ? "transparent" : "rgba(16,185,129,0.25)"
           }
           maskColor="rgba(0,0,0,0.65)"
-          style={{ background: "rgba(6,13,11,0.7)", borderRadius: 12, border: "1px solid rgba(255,255,255,0.06)" }}
+          style={{ background: "transparent", borderRadius: 12, border: "none" }}
         />
         <Controls
           showInteractive={false}
           style={{
-            background: "rgba(6,13,11,0.7)",
+            background: "transparent",
             borderRadius: 12,
-            border: "1px solid rgba(255,255,255,0.06)",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.4)"
+            border: "none",
+            boxShadow: "none"
           }}
         />
       </ReactFlow>

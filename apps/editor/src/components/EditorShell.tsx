@@ -27,6 +27,7 @@ import { InspectorSidebar } from "@/components/editor-shell/InspectorSidebar";
 import { SpatialAnalysisPanel } from "@/components/editor-shell/SpatialAnalysisPanel";
 import { StatusBar } from "@/components/editor-shell/StatusBar";
 import { ToolPalette } from "@/components/editor-shell/ToolPalette";
+import { LogicViewerSheet } from "@/components/editor-shell/logic-viewer/LogicViewerSheet";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { ViewportCanvas } from "@/viewport/ViewportCanvas";
 import type { MeshEditMode } from "@/viewport/editing";
@@ -53,6 +54,7 @@ type EditorShellProps = {
   };
   copilotPanelOpen: boolean;
   gameConnectionControl?: ReactNode;
+  logicViewerOpen: boolean;
   aiModelPlacementArmed: boolean;
   aiModelPrompt: string;
   aiModelPromptBusy: boolean;
@@ -132,6 +134,7 @@ type EditorShellProps = {
   onSetTransformMode: (mode: "rotate" | "scale" | "translate") => void;
   onSetToolId: (toolId: ToolId) => void;
   onToggleCopilot: () => void;
+  onToggleLogicViewer: () => void;
   onToggleViewportQuality: () => void;
   onSetViewMode: (viewMode: ViewModeId) => void;
   onSplitBrushAtCoordinate: (nodeId: string, axis: TransformAxis, coordinate: number) => void;
@@ -174,6 +177,7 @@ export function EditorShell({
   copilot,
   copilotPanelOpen,
   gameConnectionControl,
+  logicViewerOpen,
   aiModelPrompt,
   aiModelPromptBusy,
   aiModelPromptError,
@@ -252,6 +256,7 @@ export function EditorShell({
   onSetTransformMode,
   onSetToolId,
   onToggleCopilot,
+  onToggleLogicViewer,
   onToggleViewportQuality,
   onSetViewMode,
   onSplitBrushAtCoordinate,
@@ -375,6 +380,7 @@ export function EditorShell({
           canUndo={canUndo}
           copilotOpen={copilotPanelOpen}
           gameConnectionControl={gameConnectionControl}
+          logicViewerOpen={logicViewerOpen}
           onClearSelection={onClearSelection}
           onCreateBrush={onCreateBrush}
           onDeleteSelection={onDeleteSelection}
@@ -391,6 +397,7 @@ export function EditorShell({
           onRedo={onRedo}
           onSaveWhmap={onSaveWhmap}
           onToggleCopilot={onToggleCopilot}
+          onToggleLogicViewer={onToggleLogicViewer}
           onToggleViewportQuality={onToggleViewportQuality}
           onUndo={onUndo}
           viewportQuality={viewportQuality}
@@ -523,6 +530,22 @@ export function EditorShell({
           viewModeLabel={getViewModePreset(viewMode).shortLabel}
           viewport={activeViewport}
         />
+
+        {logicViewerOpen && (
+          <LogicViewerSheet
+            entities={entities}
+            nodes={nodes}
+            onClose={onToggleLogicViewer}
+            onNodeClick={(objectId) => {
+              onSelectNodes([objectId]);
+              if (editor.scene.getNode(objectId)) {
+                onFocusNode(objectId);
+              }
+            }}
+            onUpdateEntityHooks={onUpdateEntityHooks}
+            onUpdateNodeHooks={onUpdateNodeHooks}
+          />
+        )}
         </div>
 
         {copilotPanelOpen && (

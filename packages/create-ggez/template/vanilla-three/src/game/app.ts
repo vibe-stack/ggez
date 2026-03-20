@@ -63,7 +63,7 @@ export function createGameApp(options: GameAppOptions) {
 
   const setStatus = (message: string) => {
     status.hidden = message.length === 0;
-    status.textContent = message;
+    status.textContent = "";
   };
 
   const stepActiveScene = (deltaSeconds: number) => {
@@ -244,15 +244,9 @@ export function createGameApp(options: GameAppOptions) {
         previousScene.physicsWorld.free();
       }
 
-      if (!customStatusApplied) {
-        setStatus(
-          player
-            ? "Click inside the game to capture the cursor. WASD to move, Space to jump, Shift to run."
-            : ""
-        );
-      }
+
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : `Failed to load ${definition.title}.`);
+
       throw error;
     }
   };

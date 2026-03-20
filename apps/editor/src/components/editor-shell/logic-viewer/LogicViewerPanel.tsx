@@ -21,20 +21,20 @@ export function LogicViewerPanel({
   onUpdateEntityHooks
 }: LogicViewerPanelProps) {
   return (
-    <div className="flex size-full flex-col bg-[#060d0b]">
+    <div className="flex size-full flex-col bg-transparent">
       {/* Header bar */}
-      <div className="flex h-8 shrink-0 items-center justify-between border-b border-white/6 px-3">
+      <div className="flex h-8 shrink-0 items-center justify-between px-3">
         <div className="flex items-center gap-2">
           <Cable className="size-3.5 text-emerald-400" />
           <span className="text-[11px] font-medium tracking-wide text-foreground/80 uppercase">
-            Logic
+            HookFlow
           </span>
         </div>
         <div className="flex items-center gap-1">
           <button
-            className="rounded-md p-1 text-foreground/50 transition hover:bg-white/6 hover:text-foreground/80"
+            className="rounded-md p-1 text-foreground/50 transition hover:text-foreground/80"
             onClick={onClose}
-            title="Close logic viewer"
+            title="Close HookFlow"
             type="button"
           >
             <X className="size-3.5" />
@@ -43,7 +43,7 @@ export function LogicViewerPanel({
       </div>
 
       {/* Graph canvas */}
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1 bg-transparent">
         <ReactFlowProvider>
           <LogicViewer
             nodes={nodes}

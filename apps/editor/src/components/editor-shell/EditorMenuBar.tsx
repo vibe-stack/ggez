@@ -1,4 +1,4 @@
-import { Bot, Gauge } from "lucide-react";
+import { Bot, Cable, Gauge } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,6 +17,7 @@ type EditorMenuBarProps = {
   canUndo: boolean;
   copilotOpen: boolean;
   gameConnectionControl?: ReactNode;
+  logicViewerOpen: boolean;
   onClearSelection: () => void;
   onCreateBrush: () => void;
   onDeleteSelection: () => void;
@@ -29,6 +30,7 @@ type EditorMenuBarProps = {
   onRedo: () => void;
   onSaveWhmap: () => void;
   onToggleCopilot: () => void;
+  onToggleLogicViewer: () => void;
   onToggleViewportQuality: () => void;
   onUndo: () => void;
   viewportQuality: ViewportQuality;
@@ -39,6 +41,7 @@ export function EditorMenuBar({
   canUndo,
   copilotOpen,
   gameConnectionControl,
+  logicViewerOpen,
   onClearSelection,
   onCreateBrush,
   onDeleteSelection,
@@ -51,6 +54,7 @@ export function EditorMenuBar({
   onRedo,
   onSaveWhmap,
   onToggleCopilot,
+  onToggleLogicViewer,
   onToggleViewportQuality,
   viewportQuality,
   onUndo
@@ -132,6 +136,22 @@ export function EditorMenuBar({
 
           <MenubarMenu>
             <MenubarTrigger className="h-7 rounded-lg px-2.5 text-[11px] text-foreground/70 hover:bg-white/5 hover:text-foreground">
+              View
+            </MenubarTrigger>
+            <MenubarContent className="min-w-48 rounded-xl bg-popover/96 p-1.5 shadow-[0_18px_48px_rgba(4,12,10,0.46)] backdrop-blur-xl">
+              <MenubarItem className="rounded-lg text-xs" onClick={onToggleLogicViewer}>
+                {logicViewerOpen ? "Hide" : "Show"} Logic Graph
+                <MenubarShortcut>Cmd+Shift+L</MenubarShortcut>
+              </MenubarItem>
+              <MenubarItem className="rounded-lg text-xs" onClick={onToggleCopilot}>
+                {copilotOpen ? "Hide" : "Show"} AI Vibe
+                <MenubarShortcut>Cmd+L</MenubarShortcut>
+              </MenubarItem>
+            </MenubarContent>
+          </MenubarMenu>
+
+          <MenubarMenu>
+            <MenubarTrigger className="h-7 rounded-lg px-2.5 text-[11px] text-foreground/70 hover:bg-white/5 hover:text-foreground">
               Help
             </MenubarTrigger>
             <MenubarContent className="min-w-52 rounded-xl bg-popover/96 p-1.5 shadow-[0_18px_48px_rgba(4,12,10,0.46)] backdrop-blur-xl">
@@ -164,6 +184,16 @@ export function EditorMenuBar({
         >
           <Gauge className="size-3.5" />
           {viewportQuality.toFixed(2)}
+        </Button>
+        <Button
+          aria-label="Logic Graph"
+          className={`size-7 rounded-lg ${logicViewerOpen ? "text-emerald-400 hover:text-emerald-300" : "text-foreground/65 hover:text-foreground"}`}
+          onClick={onToggleLogicViewer}
+          title="Logic Graph (Cmd+Shift+L)"
+          size="icon-sm"
+          variant="ghost"
+        >
+          <Cable className="size-3.5" />
         </Button>
         <Button
           aria-label="AI Vibe"
