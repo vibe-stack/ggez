@@ -10,6 +10,7 @@
   ],
   "scripts": {
     "dev": "bun run --cwd apps/editor dev",
+    "dev:all": "bun run --filter '@ggez/editor' --filter '@ggez/three-runtime-playground' --filter '@ggez/three-vanilla-playground' dev",
     "build": "bun run --cwd apps/editor build",
     "typecheck": "bun run --cwd apps/editor typecheck",
     "build:packages": "bun ./scripts/release-packages.mjs build",
