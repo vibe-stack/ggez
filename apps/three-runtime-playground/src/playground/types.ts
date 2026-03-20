@@ -3,6 +3,7 @@ import type { RefObject } from "react";
 export type PlaygroundPhysicsPlayback = "paused" | "running" | "stopped";
 
 export type EnabledSystemsState = {
+  audio: boolean;
   mover: boolean;
   openable: boolean;
   pathMover: boolean;

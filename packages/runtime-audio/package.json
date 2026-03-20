@@ -1,0 +1,40 @@
+{
+  "name": "@ggez/runtime-audio",
+  "version": "0.1.1",
+  "description": "Web Audio API adapter for Web Hammer runtime scenes with 3D spatial audio support.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup --config ../../scripts/tsup.package.config.mjs",
+    "prepublishOnly": "bun run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vibe-stack/trident.git",
+    "directory": "packages/runtime-audio"
+  },
+  "bugs": {
+    "url": "https://github.com/vibe-stack/trident/issues"
+  },
+  "homepage": "https://github.com/vibe-stack/trident/tree/main/packages/runtime-audio",
+  "dependencies": {
+    "@ggez/runtime-format": "workspace:*",
+    "@ggez/shared": "workspace:*"
+  }
+}

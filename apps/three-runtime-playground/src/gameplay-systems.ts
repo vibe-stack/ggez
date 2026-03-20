@@ -1,4 +1,5 @@
 import {
+  createAudioSystemDefinition,
   createMoverSystemDefinition,
   createOpenableSystemDefinition,
   createPathMoverSystemDefinition,
@@ -10,6 +11,7 @@ import {
 import type { WebHammerEngineScene } from "@ggez/three-runtime";
 
 export type PlaybackGameplaySystemsState = {
+  audio: boolean;
   mover: boolean;
   openable: boolean;
   pathMover: boolean;
@@ -41,6 +43,10 @@ export function createPlaybackGameplaySystems(
 
   if (enabledSystems.pathMover) {
     systems.push(createPathMoverSystemDefinition(createScenePathResolver(scene.settings.paths ?? [])));
+  }
+
+  if (enabledSystems.audio) {
+    systems.push(createAudioSystemDefinition());
   }
 
   return systems;

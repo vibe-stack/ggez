@@ -122,6 +122,25 @@ export type RuntimeWorldIndex = {
   version: number;
 };
 
+export type RuntimeAudioDescriptor = {
+  autoPlay: boolean;
+  channel: string;
+  clip: string;
+  distanceModel: string;
+  hookId: string;
+  loop: boolean;
+  maxDistance: number;
+  pitch: number;
+  position?: { x: number; y: number; z: number };
+  refDistance: number;
+  rolloffFactor: number;
+  spatial: boolean;
+  stopEvent?: string;
+  targetId: string;
+  triggerEvent?: string;
+  volume: number;
+};
+
 export type WebHammerExportMaterial = RuntimeMaterial;
 export type WebHammerExportPrimitive = RuntimePrimitive;
 export type WebHammerExportGeometry = RuntimeGeometry;

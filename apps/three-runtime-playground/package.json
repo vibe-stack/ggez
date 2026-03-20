@@ -16,6 +16,7 @@
     "@react-three/rapier": "^2.2.0",
     "@ggez/gameplay-runtime": "workspace:*",
     "@ggez/render-pipeline": "workspace:*",
+    "@ggez/runtime-audio": "workspace:*",
     "@ggez/shared": "workspace:*",
     "@ggez/three-runtime": "workspace:*",
     "lucide-react": "^0.542.0",

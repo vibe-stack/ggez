@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createGameplayRuntime, createGameplayRuntimeSceneFromRuntimeScene } from "@ggez/gameplay-runtime";
+import { createAudioManager, type AudioManager } from "@ggez/runtime-audio";
 import {
   createWebHammerBundleAssetResolver,
   parseWebHammerEngineBundleZip,
@@ -22,6 +23,7 @@ type PlayerActor = {
 };
 
 const DEFAULT_SYSTEMS: EnabledSystemsState = {
+  audio: true,
   mover: true,
   openable: true,
   pathMover: true,
@@ -62,22 +64,74 @@ export function useRuntimePlayground() {
     bundleResolverRef.current?.dispose();
   }, []);
 
+  const audioManagerRef = useRef<AudioManager | undefined>(undefined);
+
   useEffect(() => {
+    audioManagerRef.current?.dispose();
+
+    const audioManager = createAudioManager({
+      clipResolver: async (clipId) => {
+        const url = await Promise.resolve(resolveAssetPath(clipId));
+        const response = await fetch(url);
+        return response.arrayBuffer();
+      }
+    });
+    audioManagerRef.current = audioManager;
+
     hostRef.current.reset();
     setRuntimeEvents([]);
     const unsubscribe = gameplayRuntime.onEvent((event) => {
       setRuntimeEvents((current) =>
         [`${event.event}${event.targetId ? ` -> ${event.targetId}` : ""}`, ...current].slice(0, 12)
       );
+
+      if (event.event === "audio.play") {
+        const p = event.payload as Record<string, unknown> | undefined;
+        if (p?.clip && typeof p.clip === "string") {
+          void audioManager.play({
+            channel: (p.channel as "sfx" | "music" | "ambient" | "ui" | "voice") ?? "sfx",
+            clip: p.clip as string,
+            distanceModel: (p.distanceModel as "inverse" | "linear" | "exponential") ?? "inverse",
+            id: p.hookId as string | undefined,
+            loop: p.loop === true,
+            maxDistance: typeof p.maxDistance === "number" ? p.maxDistance : 10000,
+            pitch: typeof p.pitch === "number" ? p.pitch : 1,
+            position: Array.isArray(p.position) ? { x: p.position[0], y: p.position[1], z: p.position[2] } : undefined,
+            refDistance: typeof p.refDistance === "number" ? p.refDistance : 1,
+            rolloffFactor: typeof p.rolloffFactor === "number" ? p.rolloffFactor : 1,
+            spatial: p.spatial === true,
+            volume: typeof p.volume === "number" ? p.volume : 1
+          });
+        }
+      }
+
+      if (event.event === "audio.stop") {
+        const p = event.payload as Record<string, unknown> | undefined;
+        if (p?.hookId && typeof p.hookId === "string") {
+          audioManager.stop(p.hookId);
+        }
+      }
     });
 
     gameplayRuntime.start();
 
+    // Resume AudioContext on first user gesture (browsers require this).
+    const resumeAudio = () => {
+      void audioManager.resume();
+      window.removeEventListener("pointerdown", resumeAudio);
+      window.removeEventListener("keydown", resumeAudio);
+    };
+    window.addEventListener("pointerdown", resumeAudio);
+    window.addEventListener("keydown", resumeAudio);
+
     return () => {
       unsubscribe();
       gameplayRuntime.dispose();
+      audioManager.dispose();
+      window.removeEventListener("pointerdown", resumeAudio);
+      window.removeEventListener("keydown", resumeAudio);
     };
-  }, [gameplayRuntime]);
+  }, [gameplayRuntime, resolveAssetPath]);
 
   const resetPhysics = useCallback(() => {
     setPhysicsPlayback("stopped");
@@ -104,7 +158,7 @@ export function useRuntimePlayground() {
         const text = await file.text();
         bundleResolverRef.current?.dispose();
         bundleResolverRef.current = undefined;
-        nextScene = parseWebHammerEngineScene(text);
+        nextScene = parseSceneText(text);
       }
 
       setScene(nextScene);
@@ -182,4 +236,21 @@ export function useRuntimePlayground() {
     stageStats,
     status
   };
+}
+
+/** Parse scene text — handles both runtime format and .whmap editor format. */
+function parseSceneText(text: string): WebHammerEngineScene {
+  const parsed = JSON.parse(text);
+
+  if (parsed?.format === "whmap" && parsed.scene) {
+    const scene = parsed.scene;
+    scene.metadata = {
+      exportedAt: new Date().toISOString(),
+      format: "web-hammer-engine",
+      version: 6
+    };
+    return parseWebHammerEngineScene(JSON.stringify(scene));
+  }
+
+  return parseWebHammerEngineScene(text);
 }
