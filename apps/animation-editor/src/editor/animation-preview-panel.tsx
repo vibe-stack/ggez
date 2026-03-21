@@ -5,8 +5,10 @@ import { applyPoseBufferToSkeleton, applyPoseToSkeleton } from "@ggez/anim-three
 import type { AnimationEditorStore } from "@ggez/anim-editor-core";
 import type { AnimationEditorDocument } from "@ggez/anim-schema";
 import type { AnimatorInstance } from "@ggez/anim-runtime";
-import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import {
   AmbientLight,
   Box3,
@@ -26,30 +28,9 @@ import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { useEditorStoreValue } from "./use-editor-store-value";
 import type { ImportedCharacterAsset, ImportedPreviewClip } from "./preview-assets";
 import { findPrimarySkeleton } from "./preview-assets";
+import { PropertyField, StudioSection, editorInputClassName, editorSelectClassName, sectionHintClassName } from "./workspace/shared";
 
 type PreviewMode = "graph" | "clip";
-
-const panelStyle: CSSProperties = {
-  border: "1px solid rgba(167, 243, 208, 0.12)",
-  borderRadius: 16,
-  padding: 12,
-  background: "linear-gradient(180deg, rgba(8, 16, 13, 0.92) 0%, rgba(6, 11, 9, 0.98) 100%)",
-  color: "#ecfdf5",
-  display: "flex",
-  flexDirection: "column",
-  gap: 10,
-  boxShadow: "inset 0 1px 0 rgba(255, 255, 255, 0.03)",
-};
-
-const fieldStyle: CSSProperties = {
-  width: "100%",
-  border: "1px solid rgba(167, 243, 208, 0.16)",
-  borderRadius: 10,
-  padding: "8px 10px",
-  fontSize: 13,
-  color: "#ecfdf5",
-  background: "rgba(255, 255, 255, 0.06)",
-};
 
 function fitCameraToObject(camera: PerspectiveCamera, controls: OrbitControls, object: Object3D): void {
   const bounds = new Box3().setFromObject(object);
@@ -82,7 +63,7 @@ function setAnimatorParameter(animator: AnimatorInstance, name: string, value: n
     return;
   }
 
-  if (Boolean(value)) {
+  if (value) {
     animator.trigger(name);
   }
 }
@@ -119,46 +100,37 @@ export function AnimationPreviewPanel(props: {
     playbackSpeedRef.current = playbackSpeed;
   }, [playbackSpeed]);
 
-  useEffect(() => {
-    selectedClipIdRef.current = selectedClipId;
-  }, [selectedClipId]);
-
-  useEffect(() => {
-    parameterValuesRef.current = parameterValues;
-  }, [parameterValues]);
-
-  useEffect(() => {
-    if (!selectedClipId && importedClips.length > 0) {
-      setSelectedClipId(importedClips[0]!.id);
-    }
-  }, [importedClips, selectedClipId]);
-
-  useEffect(() => {
-    setParameterValues((current) => {
-      const next = { ...current };
-      const validNames = new Set(document.parameters.map((parameter) => parameter.name));
-
-      for (const parameter of document.parameters) {
-        if (!(parameter.name in next)) {
-          next[parameter.name] =
-            parameter.type === "bool" || parameter.type === "trigger"
-              ? Boolean(parameter.defaultValue ?? false)
-              : Number(parameter.defaultValue ?? 0);
-        }
-      }
-
-      for (const name of Object.keys(next)) {
-        if (!validNames.has(name)) {
-          delete next[name];
-        }
-      }
-
-      return next;
-    });
-  }, [document.parameters]);
-
   const compileResult = useMemo(() => compileAnimationEditorDocument(document), [document]);
   const clipMap = useMemo(() => new Map(importedClips.map((clip) => [clip.id, clip])), [importedClips]);
+  const activeSelectedClipId = useMemo(() => {
+    if (selectedClipId && clipMap.has(selectedClipId)) {
+      return selectedClipId;
+    }
+
+    return importedClips[0]?.id ?? "";
+  }, [clipMap, importedClips, selectedClipId]);
+  const resolvedParameterValues = useMemo(() => {
+    const next: Record<string, number | boolean> = {};
+
+    for (const parameter of document.parameters) {
+      next[parameter.name] =
+        parameter.name in parameterValues
+          ? parameterValues[parameter.name]!
+          : parameter.type === "bool" || parameter.type === "trigger"
+            ? Boolean(parameter.defaultValue ?? false)
+            : Number(parameter.defaultValue ?? 0);
+    }
+
+    return next;
+  }, [document.parameters, parameterValues]);
+
+  useEffect(() => {
+    selectedClipIdRef.current = activeSelectedClipId;
+  }, [activeSelectedClipId]);
+
+  useEffect(() => {
+    parameterValuesRef.current = resolvedParameterValues;
+  }, [resolvedParameterValues]);
 
   const graphPreview = useMemo(() => {
     if (!character) {
@@ -219,6 +191,9 @@ export function AnimationPreviewPanel(props: {
     const renderer = new WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = SRGBColorSpace;
+    renderer.domElement.style.display = "block";
+    renderer.domElement.style.width = "100%";
+    renderer.domElement.style.height = "100%";
     host.innerHTML = "";
     host.appendChild(renderer.domElement);
 
@@ -253,8 +228,8 @@ export function AnimationPreviewPanel(props: {
     }
 
     function resize() {
-      const width = host.clientWidth;
-      const height = host.clientHeight;
+      const width = Math.max(host.clientWidth, 1);
+      const height = Math.max(host.clientHeight, 1);
       renderer.setSize(width, height, false);
       camera.aspect = width / Math.max(height, 1);
       camera.updateProjectionMatrix();
@@ -327,119 +302,89 @@ export function AnimationPreviewPanel(props: {
           : "Raw clip preview is active.";
 
   return (
-    <section style={panelStyle}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, letterSpacing: "0.02em" }}>Preview</h3>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button
-            onClick={() => setMode("graph")}
-            style={{
-              ...fieldStyle,
-              width: "auto",
-              cursor: "pointer",
-              background: mode === "graph" ? "rgba(52, 211, 153, 0.22)" : "rgba(255, 255, 255, 0.06)",
-            }}
-          >
+    <StudioSection title="Preview">
+      <div className="flex items-center justify-between gap-2">
+        <div className="inline-flex border border-white/10 bg-black/35 p-0.5">
+          <Button variant={mode === "graph" ? "secondary" : "ghost"} size="xs" onClick={() => setMode("graph")}>
             Graph
-          </button>
-          <button
-            onClick={() => setMode("clip")}
-            style={{
-              ...fieldStyle,
-              width: "auto",
-              cursor: "pointer",
-              background: mode === "clip" ? "rgba(52, 211, 153, 0.22)" : "rgba(255, 255, 255, 0.06)",
-            }}
-          >
+          </Button>
+          <Button variant={mode === "clip" ? "secondary" : "ghost"} size="xs" onClick={() => setMode("clip")}>
             Clip
-          </button>
+          </Button>
         </div>
+        <Button variant="outline" size="xs" onClick={() => setIsPlaying((current) => !current)}>
+          {isPlaying ? "Pause" : "Play"}
+        </Button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
-        <button onClick={() => setIsPlaying((current) => !current)} style={{ ...fieldStyle, cursor: "pointer" }}>
-          {isPlaying ? "Pause" : "Play"}
-        </button>
-        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <span style={{ fontSize: 12, color: "rgba(236, 253, 245, 0.62)" }}>Speed</span>
-          <input
+      <div className="grid grid-cols-1 gap-2 xl:grid-cols-3">
+        <PropertyField label="Speed">
+          <Input
             type="number"
             min={0.1}
             max={4}
             step={0.1}
             value={playbackSpeed}
             onChange={(event) => setPlaybackSpeed(Number(event.target.value))}
-            style={fieldStyle}
+            className={editorInputClassName}
           />
-        </label>
+        </PropertyField>
+
         {mode === "clip" ? (
-          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <span style={{ fontSize: 12, color: "rgba(236, 253, 245, 0.62)" }}>Clip</span>
-            <select
-              value={selectedClipId}
-              onChange={(event) => setSelectedClipId(event.target.value)}
-              style={fieldStyle}
-            >
+          <PropertyField label="Clip" className="xl:col-span-2">
+            <select value={activeSelectedClipId} onChange={(event) => setSelectedClipId(event.target.value)} className={editorSelectClassName}>
               {importedClips.map((clip) => (
                 <option key={clip.id} value={clip.id}>
                   {clip.name}
                 </option>
               ))}
             </select>
-          </label>
+          </PropertyField>
         ) : (
-          <div style={{ ...fieldStyle, display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(236, 253, 245, 0.72)" }}>
-            Runtime graph playback
+          <div className="flex items-end xl:col-span-2">
+            <div className="flex h-8 w-full items-center border border-white/10 bg-black/35 px-2.5 text-[12px] text-zinc-400">Runtime graph playback</div>
           </div>
         )}
       </div>
 
       {mode === "graph" && document.parameters.length > 0 ? (
-        <div style={{ display: "grid", gap: 8 }}>
+        <div className="grid gap-2 border-t border-white/8 pt-3">
           {document.parameters.map((parameter) => (
-            <label key={parameter.id} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              <span style={{ fontSize: 12, color: "rgba(236, 253, 245, 0.62)" }}>{parameter.name}</span>
+            <PropertyField key={parameter.id} label={parameter.name}>
               {parameter.type === "bool" || parameter.type === "trigger" ? (
-                <input
-                  type="checkbox"
-                  checked={Boolean(parameterValues[parameter.name])}
-                  onChange={(event) =>
-                    setParameterValues((current) => ({
-                      ...current,
-                      [parameter.name]: event.target.checked,
-                    }))
-                  }
-                />
+                <label className="flex h-8 items-center gap-2 border border-white/10 bg-black/35 px-2.5 text-[12px] text-zinc-200">
+                  <Checkbox
+                    checked={Boolean(resolvedParameterValues[parameter.name])}
+                    onCheckedChange={(checked) =>
+                      setParameterValues((current) => ({
+                        ...current,
+                        [parameter.name]: Boolean(checked),
+                      }))
+                    }
+                  />
+                  <span>{parameter.type === "trigger" ? "Trigger armed" : "Enabled"}</span>
+                </label>
               ) : (
-                <input
+                <Input
                   type="number"
-                  value={Number(parameterValues[parameter.name] ?? 0)}
+                  value={Number(resolvedParameterValues[parameter.name] ?? 0)}
                   onChange={(event) =>
                     setParameterValues((current) => ({
                       ...current,
                       [parameter.name]: Number(event.target.value),
                     }))
                   }
-                  style={fieldStyle}
+                  className={editorInputClassName}
                 />
               )}
-            </label>
+            </PropertyField>
           ))}
         </div>
       ) : null}
 
-      <div
-        ref={mountRef}
-        style={{
-          minHeight: 320,
-          borderRadius: 16,
-          overflow: "hidden",
-          border: "1px solid rgba(167, 243, 208, 0.12)",
-          background: "linear-gradient(180deg, rgba(3, 7, 6, 1) 0%, rgba(5, 10, 9, 1) 100%)",
-        }}
-      />
+      <div ref={mountRef} className="relative h-80 max-h-[38vh] min-h-80 overflow-hidden border border-white/10 bg-[#050608]" />
 
-      <div style={{ fontSize: 12, color: "rgba(236, 253, 245, 0.72)" }}>{previewStatus}</div>
-    </section>
+      <div className={sectionHintClassName}>{previewStatus}</div>
+    </StudioSection>
   );
 }
