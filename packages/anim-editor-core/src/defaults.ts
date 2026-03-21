@@ -69,6 +69,7 @@ export function createDefaultNode(kind: EditorGraphNode["kind"], name?: string):
 
 export function createDefaultAnimationEditorDocument(): AnimationEditorDocument {
   const graphId = createStableId("graph");
+  const speedParameterId = createStableId("param");
   const idleNodeId = createStableId("clip");
   const walkNodeId = createStableId("clip");
   const runNodeId = createStableId("clip");
@@ -80,23 +81,10 @@ export function createDefaultAnimationEditorDocument(): AnimationEditorDocument 
     name: "Animation Graph",
     entryGraphId: graphId,
     parameters: [
-      { id: createStableId("param"), name: "speed", type: "float", defaultValue: 0 },
-      { id: createStableId("param"), name: "grounded", type: "bool", defaultValue: true }
+      { id: speedParameterId, name: "speed", type: "float", defaultValue: 0 },
     ],
-    clips: [
-      { id: "idle", name: "Idle", duration: 1 },
-      { id: "walk", name: "Walk", duration: 1 },
-      { id: "run", name: "Run", duration: 1 }
-    ],
-    masks: [
-      {
-        id: createStableId("mask"),
-        name: "UpperBody",
-        includeChildren: true,
-        rootBoneName: "spine",
-        weights: []
-      }
-    ],
+    clips: [],
+    masks: [],
     graphs: [
       {
         id: graphId,
@@ -114,7 +102,7 @@ export function createDefaultAnimationEditorDocument(): AnimationEditorDocument 
             id: idleNodeId,
             name: "Idle",
             kind: "clip",
-            clipId: "idle",
+            clipId: "",
             speed: 1,
             loop: true,
             position: { x: 64, y: 48 }
@@ -123,7 +111,7 @@ export function createDefaultAnimationEditorDocument(): AnimationEditorDocument 
             id: walkNodeId,
             name: "Walk",
             kind: "clip",
-            clipId: "walk",
+            clipId: "",
             speed: 1,
             loop: true,
             position: { x: 64, y: 184 }
@@ -132,7 +120,7 @@ export function createDefaultAnimationEditorDocument(): AnimationEditorDocument 
             id: runNodeId,
             name: "Run",
             kind: "clip",
-            clipId: "run",
+            clipId: "",
             speed: 1,
             loop: true,
             position: { x: 64, y: 320 }
@@ -141,7 +129,7 @@ export function createDefaultAnimationEditorDocument(): AnimationEditorDocument 
             id: blendNodeId,
             name: "Locomotion Blend",
             kind: "blend1d",
-            parameterId: "",
+            parameterId: speedParameterId,
             children: [
               { nodeId: idleNodeId, threshold: 0, label: "Idle" },
               { nodeId: walkNodeId, threshold: 0.5, label: "Walk" },

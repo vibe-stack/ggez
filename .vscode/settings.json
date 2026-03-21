@@ -1,6 +1,7 @@
 {
     "search.useIgnoreFiles": true,
     "chat.tools.terminal.autoApprove": {
-        "npm publish": true
+        "npm publish": true,
+        "bunx": true
     }
 }
