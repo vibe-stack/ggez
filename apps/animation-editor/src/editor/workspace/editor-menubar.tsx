@@ -17,7 +17,7 @@ export function EditorMenubar(props: {
   onCompile: () => void;
   onImportCharacter: () => void;
   onImportAnimations: () => void;
-  onAddNode: (kind: "clip" | "blend1d" | "blend2d" | "subgraph") => void;
+  onAddNode: (kind: "clip" | "blend1d" | "blend2d" | "stateMachine" | "subgraph") => void;
 }) {
   const { store } = props;
 
@@ -82,6 +82,7 @@ export function EditorMenubar(props: {
             <MenubarItem onClick={() => props.onAddNode("clip")}>Clip Node</MenubarItem>
             <MenubarItem onClick={() => props.onAddNode("blend1d")}>Blend 1D</MenubarItem>
             <MenubarItem onClick={() => props.onAddNode("blend2d")}>Blend 2D</MenubarItem>
+            <MenubarItem onClick={() => props.onAddNode("stateMachine")}>State Machine</MenubarItem>
             <MenubarItem onClick={() => props.onAddNode("subgraph")}>Subgraph</MenubarItem>
             <MenubarSeparator />
             <MenubarItem onClick={() => store.addGraph()}>Graph</MenubarItem>

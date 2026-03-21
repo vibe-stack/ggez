@@ -46,6 +46,7 @@ type Snapshot = Pick<AnimationEditorState, "document" | "selection">;
 
 export interface AnimationEditorStore {
   getState(): Readonly<AnimationEditorState>;
+  getRevision(): number;
   subscribe(listener: () => void, topics?: EditorTopic[]): Unsubscribe;
   selectGraph(graphId: string): void;
   selectNodes(nodeIds: string[]): void;
@@ -96,6 +97,7 @@ export function createAnimationEditorStore(initialDocument = createDefaultAnimat
   const emitter = new Emitter<Set<EditorTopic>>();
   const historyPast: Snapshot[] = [];
   const historyFuture: Snapshot[] = [];
+  let revision = 0;
   const state: AnimationEditorState = {
     document: initialDocument,
     selection: {
@@ -106,6 +108,7 @@ export function createAnimationEditorStore(initialDocument = createDefaultAnimat
   };
 
   function notify(topics: EditorTopic[]): void {
+    revision += 1;
     emitter.emit(new Set(topics));
   }
 
@@ -139,6 +142,9 @@ export function createAnimationEditorStore(initialDocument = createDefaultAnimat
   return {
     getState() {
       return state;
+    },
+    getRevision() {
+      return revision;
     },
     subscribe(listener, topics = ["document"]) {
       return emitter.subscribe((changedTopics) => {

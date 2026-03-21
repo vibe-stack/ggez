@@ -35,11 +35,20 @@ export function createDefaultNode(kind: EditorGraphNode["kind"], name?: string):
         children: []
       };
     case "stateMachine":
+      const initialStateId = createStableId("state");
       return {
         ...base,
         kind,
-        entryStateId: createStableId("state"),
-        states: [],
+        entryStateId: initialStateId,
+        states: [
+          {
+            id: initialStateId,
+            name: "State 1",
+            motionNodeId: "unassigned-motion",
+            speed: 1,
+            cycleOffset: 0,
+          },
+        ],
         transitions: [],
         anyStateTransitions: []
       };
