@@ -1,7 +1,7 @@
 {
   "name": "create-ggez",
   "version": "0.1.2",
-  "description": "Scaffold a GGEZ starter project with a vanilla Three.js runtime setup.",
+  "description": "Bootstrap GGEZ apps with an interactive framework-style CLI.",
   "license": "MIT",
   "type": "module",
   "files": [
@@ -14,6 +14,7 @@
   },
   "scripts": {
     "build": "tsup --config ../../scripts/tsup.package.config.mjs",
+    "test": "bun test src/cli.test.ts",
     "prepublishOnly": "bun run build"
   },
   "repository": {
@@ -27,5 +28,9 @@
   "homepage": "https://github.com/vibe-stack/trident/tree/main/packages/create-ggez",
   "devDependencies": {
     "@types/node": "^24.10.1"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.1.0",
+    "picocolors": "^1.1.1"
   }
 }
