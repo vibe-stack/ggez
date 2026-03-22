@@ -1,7 +1,7 @@
 import { clamp, inverseLerp } from "@ggez/anim-utils";
 import type { AnimationClipAsset, AnimationTrack, PoseBuffer, RigDefinition } from "./types";
 import { extractRootMotionDelta, type RootMotionMode } from "./root-motion";
-import { copyRigBindPose } from "./pose-buffer";
+import { copyPose, copyRigBindPose } from "./pose-buffer";
 
 function findKeyframeIndex(times: Float32Array, time: number): number {
   if (times.length <= 1) {
@@ -139,6 +139,23 @@ export function sampleClipPose(
   loop = true
 ): PoseBuffer {
   copyRigBindPose(rig, out);
+  const normalizedTime = normalizeClipTime(clip, time, loop);
+
+  for (const track of clip.tracks) {
+    sampleTrackChannel(track, normalizedTime, out);
+  }
+
+  return out;
+}
+
+export function sampleClipPoseOnBase(
+  clip: AnimationClipAsset,
+  time: number,
+  basePose: PoseBuffer,
+  out: PoseBuffer,
+  loop = true
+): PoseBuffer {
+  copyPose(basePose, out);
   const normalizedTime = normalizeClipTime(clip, time, loop);
 
   for (const track of clip.tracks) {

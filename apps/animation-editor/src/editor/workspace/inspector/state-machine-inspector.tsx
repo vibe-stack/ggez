@@ -340,9 +340,9 @@ function StatesEditor(props: {
   graph: EditorGraph;
   node: StateMachineNode;
 }) {
-  const motionOptions = props.graph.nodes
+  const motionOptions = [{ value: "", label: "None (Passthrough)" }, ...props.graph.nodes
     .filter((candidate) => candidate.id !== props.node.id && candidate.kind !== "output")
-    .map((candidate) => ({ value: candidate.id, label: `${candidate.name} (${candidate.kind})` }));
+    .map((candidate) => ({ value: candidate.id, label: `${candidate.name} (${candidate.kind})` }))];
 
   return (
     <div className="space-y-2 rounded-[22px] bg-white/4 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
@@ -358,7 +358,7 @@ function StatesEditor(props: {
             const nextState: StateMachineState = {
               id: createStableId("state"),
               name: `State ${props.node.states.length + 1}`,
-              motionNodeId: motionOptions[0]?.value ?? "unassigned-motion",
+              motionNodeId: motionOptions[0]?.value ?? "",
               position: { x: 220 + props.node.states.length * 56, y: 160 + props.node.states.length * 32 },
               speed: 1,
               cycleOffset: 0,

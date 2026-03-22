@@ -251,7 +251,7 @@ export const compiledTransitionSchema = z.object({
 
 export const compiledStateSchema = z.object({
   name: z.string().min(1),
-  motionNodeIndex: z.number().int().nonnegative(),
+  motionNodeIndex: z.number().int().min(-1),
   speed: z.number(),
   cycleOffset: z.number()
 });

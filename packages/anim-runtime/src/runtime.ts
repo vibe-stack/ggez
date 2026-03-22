@@ -1,4 +1,4 @@
-import { addPoseAdditive, blendPoses, blendPosesMasked, copyPose, createPoseBufferFromRig, createRootMotionDelta, estimateClipDuration, extractRootMotionDelta, sampleClipPose } from "@ggez/anim-core";
+import { addPoseAdditive, blendPoses, blendPosesMasked, copyPose, createPoseBufferFromRig, createRootMotionDelta, estimateClipDuration, extractRootMotionDelta, sampleClipPose, sampleClipPoseOnBase } from "@ggez/anim-core";
 import type { AnimationClipAsset, BoneMask, PoseBuffer, RigDefinition, RootMotionDelta } from "@ggez/anim-core";
 import type {
   CompiledAnimatorGraph,
@@ -14,8 +14,10 @@ interface LayerRuntimeState {
 }
 
 interface MachineTransitionState {
+  readonly fromStateIndex: number;
   readonly toStateIndex: number;
   readonly duration: number;
+  readonly interruptionSource: "none" | "current" | "next" | "both";
   elapsed: number;
   nextStateTime: number;
 }
@@ -262,6 +264,10 @@ function evaluateCondition(parameters: AnimatorParameterStore, condition: Compil
 }
 
 function getNodeDuration(context: EvaluationContext, graphIndex: number, nodeIndex: number, visited = new Set<string>()): number {
+  if (nodeIndex < 0) {
+    return 0;
+  }
+
   const cacheKey = `${graphIndex}:${nodeIndex}`;
   const cached = context.durationCache.get(cacheKey);
   if (cached !== undefined) {
@@ -297,6 +303,35 @@ function getNodeDuration(context: EvaluationContext, graphIndex: number, nodeInd
 
   context.durationCache.set(cacheKey, duration);
   return duration;
+}
+
+function remapBlendChildTime(
+  context: EvaluationContext,
+  graphIndex: number,
+  parentNodeIndex: number,
+  childNodeIndex: number,
+  time: number,
+  previousTime: number
+): { time: number; previousTime: number; deltaTime: number } {
+  const parentDuration = getNodeDuration(context, graphIndex, parentNodeIndex);
+  const childDuration = getNodeDuration(context, graphIndex, childNodeIndex);
+
+  if (parentDuration <= 0 || childDuration <= 0 || Math.abs(parentDuration - childDuration) < 1e-5) {
+    return {
+      time,
+      previousTime,
+      deltaTime: time - previousTime
+    };
+  }
+
+  const remappedTime = (time / parentDuration) * childDuration;
+  const remappedPreviousTime = (previousTime / parentDuration) * childDuration;
+
+  return {
+    time: remappedTime,
+    previousTime: remappedPreviousTime,
+    deltaTime: remappedTime - remappedPreviousTime
+  };
 }
 
 function findBlend1DChildren(
@@ -341,14 +376,19 @@ function evaluateNode(
   previousTime: number,
   deltaTime: number,
   outPose: PoseBuffer,
-  outRootMotion: RootMotionDelta
+  outRootMotion: RootMotionDelta,
+  fallbackPose: PoseBuffer | undefined = undefined
 ): void {
   const node = compiledGraph.nodes[nodeIndex]!;
 
   switch (node.type) {
     case "clip": {
       const clip = context.clips[node.clipIndex]!;
-      sampleClipPose(clip, context.rig, time * node.speed, outPose, node.loop);
+      if (fallbackPose) {
+        sampleClipPoseOnBase(clip, time * node.speed, fallbackPose, outPose, node.loop);
+      } else {
+        sampleClipPose(clip, context.rig, time * node.speed, outPose, node.loop);
+      }
       const rootBoneIndex = getEffectiveRootBoneIndex(clip, context.rig);
       if (node.inPlace) {
         forceRootMotionChainToBindPose(context, rootBoneIndex, outPose);
@@ -400,17 +440,19 @@ function evaluateNode(
     }
     case "subgraph": {
       const subgraph = context.graph.graphs[node.graphIndex]!;
-      evaluateNode(context, subgraph, node.graphIndex, subgraph.rootNodeIndex, time, previousTime, deltaTime, outPose, outRootMotion);
+      evaluateNode(context, subgraph, node.graphIndex, subgraph.rootNodeIndex, time, previousTime, deltaTime, outPose, outRootMotion, fallbackPose);
       break;
     }
     case "blend1d": {
       const value = Number(context.parameters.getValue(node.parameterIndex) ?? 0);
       const pair = findBlend1DChildren(node.children, value);
-      evaluateNode(context, compiledGraph, graphIndex, pair.a.nodeIndex, time, previousTime, deltaTime, outPose, outRootMotion);
+      const childATime = remapBlendChildTime(context, graphIndex, nodeIndex, pair.a.nodeIndex, time, previousTime);
+      evaluateNode(context, compiledGraph, graphIndex, pair.a.nodeIndex, childATime.time, childATime.previousTime, childATime.deltaTime, outPose, outRootMotion, fallbackPose);
       if (pair.a.nodeIndex !== pair.b.nodeIndex) {
         const tempPose = ensureScratchPose(context);
         const tempMotion = ensureScratchMotion(context);
-        evaluateNode(context, compiledGraph, graphIndex, pair.b.nodeIndex, time, previousTime, deltaTime, tempPose, tempMotion);
+        const childBTime = remapBlendChildTime(context, graphIndex, nodeIndex, pair.b.nodeIndex, time, previousTime);
+        evaluateNode(context, compiledGraph, graphIndex, pair.b.nodeIndex, childBTime.time, childBTime.previousTime, childBTime.deltaTime, tempPose, tempMotion, fallbackPose);
         blendPoses(outPose, tempPose, pair.t, outPose);
         blendRootMotion(outRootMotion, tempMotion, pair.t, outRootMotion);
         releaseScratchMotion(context);
@@ -430,7 +472,8 @@ function evaluateNode(
       const exact = weights.find((entry) => entry.weight === Number.POSITIVE_INFINITY);
 
       if (exact) {
-        evaluateNode(context, compiledGraph, graphIndex, exact.child.nodeIndex, time, previousTime, deltaTime, outPose, outRootMotion);
+        const childTime = remapBlendChildTime(context, graphIndex, nodeIndex, exact.child.nodeIndex, time, previousTime);
+        evaluateNode(context, compiledGraph, graphIndex, exact.child.nodeIndex, childTime.time, childTime.previousTime, childTime.deltaTime, outPose, outRootMotion, fallbackPose);
         break;
       }
 
@@ -440,15 +483,16 @@ function evaluateNode(
 
       weights.forEach((entry, index) => {
         const normalizedWeight = entry.weight / weightSum;
+        const childTime = remapBlendChildTime(context, graphIndex, nodeIndex, entry.child.nodeIndex, time, previousTime);
         if (index === 0) {
-          evaluateNode(context, compiledGraph, graphIndex, entry.child.nodeIndex, time, previousTime, deltaTime, outPose, outRootMotion);
+          evaluateNode(context, compiledGraph, graphIndex, entry.child.nodeIndex, childTime.time, childTime.previousTime, childTime.deltaTime, outPose, outRootMotion, fallbackPose);
           accumulatedWeight = normalizedWeight;
           return;
         }
 
         const tempPose = ensureScratchPose(context);
         const tempMotion = ensureScratchMotion(context);
-        evaluateNode(context, compiledGraph, graphIndex, entry.child.nodeIndex, time, previousTime, deltaTime, tempPose, tempMotion);
+        evaluateNode(context, compiledGraph, graphIndex, entry.child.nodeIndex, childTime.time, childTime.previousTime, childTime.deltaTime, tempPose, tempMotion, fallbackPose);
         const blendWeight = normalizedWeight / (accumulatedWeight + normalizedWeight);
         blendPoses(outPose, tempPose, blendWeight, outPose);
         blendRootMotion(outRootMotion, tempMotion, blendWeight, outRootMotion);
@@ -459,7 +503,7 @@ function evaluateNode(
       break;
     }
     case "stateMachine": {
-      evaluateStateMachine(context, compiledGraph, graphIndex, node, time, previousTime, deltaTime, outPose, outRootMotion);
+      evaluateStateMachine(context, compiledGraph, graphIndex, node, time, previousTime, deltaTime, outPose, outRootMotion, fallbackPose);
       break;
     }
   }
@@ -494,12 +538,109 @@ function tryStartTransition(
     }
 
     machineState.transition = {
+      fromStateIndex: machineState.currentStateIndex,
       toStateIndex: transition.toStateIndex,
       duration: transition.duration,
+      interruptionSource: transition.interruptionSource,
       elapsed: 0,
       nextStateTime: 0
     };
     return;
+  }
+}
+
+function tryInterruptTransition(
+  context: EvaluationContext,
+  graphIndex: number,
+  machineNode: Extract<CompiledGraphNode, { type: "stateMachine" }>,
+  machineState: StateMachineRuntimeState
+): void {
+  const activeTransition = machineState.transition;
+  if (!activeTransition || activeTransition.interruptionSource === "none") {
+    return;
+  }
+
+  const allowCurrent = activeTransition.interruptionSource === "current" || activeTransition.interruptionSource === "both";
+  const allowNext = activeTransition.interruptionSource === "next" || activeTransition.interruptionSource === "both";
+
+  const currentState = machineNode.states[machineState.currentStateIndex]!;
+  const currentDuration = getNodeDuration(context, graphIndex, currentState.motionNodeIndex);
+  const currentNormalizedTime = currentDuration > 0 ? machineState.stateTime / currentDuration : 0;
+
+  const nextState = machineNode.states[activeTransition.toStateIndex]!;
+  const nextDuration = getNodeDuration(context, graphIndex, nextState.motionNodeIndex);
+  const nextNormalizedTime = nextDuration > 0 ? activeTransition.nextStateTime / nextDuration : 0;
+
+  const transitionCanStart = (
+    transition: (typeof machineNode.transitions)[number] | (typeof machineNode.anyStateTransitions)[number],
+    sourceStateIndex: number,
+    normalizedTime: number
+  ) => {
+    if (transition.hasExitTime && normalizedTime < Number(transition.exitTime ?? 1)) {
+      return false;
+    }
+
+    return transition.conditions.every((condition: CompiledCondition) => evaluateCondition(context.parameters, condition));
+  };
+
+  const startInterruptedTransition = (
+    transition: (typeof machineNode.transitions)[number] | (typeof machineNode.anyStateTransitions)[number],
+    sourceStateIndex: number,
+    sourceStateTime: number
+  ) => {
+    machineState.currentStateIndex = sourceStateIndex;
+    machineState.stateTime = sourceStateTime;
+    machineState.transition = {
+      fromStateIndex: sourceStateIndex,
+      toStateIndex: transition.toStateIndex,
+      duration: transition.duration,
+      interruptionSource: transition.interruptionSource,
+      elapsed: 0,
+      nextStateTime: 0
+    };
+  };
+
+  for (const transition of machineNode.anyStateTransitions) {
+    const sourceStateIndex = allowNext ? activeTransition.toStateIndex : machineState.currentStateIndex;
+    const normalizedTime = allowNext ? nextNormalizedTime : currentNormalizedTime;
+    const sourceStateTime = allowNext ? activeTransition.nextStateTime : machineState.stateTime;
+
+    if (!transitionCanStart(transition, sourceStateIndex, normalizedTime)) {
+      continue;
+    }
+
+    startInterruptedTransition(transition, sourceStateIndex, sourceStateTime);
+    return;
+  }
+
+  if (allowCurrent) {
+    for (const transition of machineNode.transitions) {
+      if (transition.fromStateIndex !== machineState.currentStateIndex) {
+        continue;
+      }
+
+      if (!transitionCanStart(transition, machineState.currentStateIndex, currentNormalizedTime)) {
+        continue;
+      }
+
+      startInterruptedTransition(transition, machineState.currentStateIndex, machineState.stateTime);
+      return;
+    }
+  }
+
+  if (allowNext) {
+    for (const transition of machineNode.transitions) {
+      if (transition.fromStateIndex !== activeTransition.toStateIndex) {
+        continue;
+      }
+
+      if (!transitionCanStart(transition, activeTransition.toStateIndex, nextNormalizedTime)) {
+        continue;
+      }
+
+      startInterruptedTransition(transition, activeTransition.toStateIndex, activeTransition.nextStateTime);
+      return;
+    }
   }
 }
 
@@ -512,7 +653,8 @@ function evaluateStateMachine(
   _previousTime: number,
   deltaTime: number,
   outPose: PoseBuffer,
-  outRootMotion: RootMotionDelta
+  outRootMotion: RootMotionDelta,
+  fallbackPose: PoseBuffer | undefined
 ): void {
   const machineState = context.machineStates[machineNode.machineIndex]!;
 
@@ -527,20 +669,34 @@ function evaluateStateMachine(
   const stateSpeed = currentState.speed;
   const previousStateTime = machineState.stateTime;
   machineState.stateTime += deltaTime * stateSpeed;
-  tryStartTransition(context, graphIndex, machineNode, machineState);
+  if (machineState.transition) {
+    tryInterruptTransition(context, graphIndex, machineNode, machineState);
+  } else {
+    tryStartTransition(context, graphIndex, machineNode, machineState);
+  }
 
   if (!machineState.transition) {
-    evaluateNode(
-      context,
-      compiledGraph,
-      graphIndex,
-      currentState.motionNodeIndex,
-      machineState.stateTime + currentState.cycleOffset,
-      previousStateTime + currentState.cycleOffset,
-      deltaTime * stateSpeed,
-      outPose,
-      outRootMotion
-    );
+    if (currentState.motionNodeIndex < 0) {
+      if (fallbackPose) {
+        copyPose(fallbackPose, outPose);
+      } else {
+        copyPose(createPoseBufferFromRig(context.rig), outPose);
+      }
+      resetRootMotion(outRootMotion);
+    } else {
+      evaluateNode(
+        context,
+        compiledGraph,
+        graphIndex,
+        currentState.motionNodeIndex,
+        machineState.stateTime + currentState.cycleOffset,
+        previousStateTime + currentState.cycleOffset,
+        deltaTime * stateSpeed,
+        outPose,
+        outRootMotion,
+        fallbackPose
+      );
+    }
     return;
   }
 
@@ -550,31 +706,51 @@ function evaluateStateMachine(
   transition.elapsed += deltaTime;
   transition.nextStateTime += deltaTime * nextState.speed;
 
-  evaluateNode(
-    context,
-    compiledGraph,
-    graphIndex,
-    currentState.motionNodeIndex,
-    machineState.stateTime + currentState.cycleOffset,
-    previousStateTime + currentState.cycleOffset,
-    deltaTime * stateSpeed,
-    outPose,
-    outRootMotion
-  );
+  if (currentState.motionNodeIndex < 0) {
+    if (fallbackPose) {
+      copyPose(fallbackPose, outPose);
+    } else {
+      copyPose(createPoseBufferFromRig(context.rig), outPose);
+    }
+    resetRootMotion(outRootMotion);
+  } else {
+    evaluateNode(
+      context,
+      compiledGraph,
+      graphIndex,
+      currentState.motionNodeIndex,
+      machineState.stateTime + currentState.cycleOffset,
+      previousStateTime + currentState.cycleOffset,
+      deltaTime * stateSpeed,
+      outPose,
+      outRootMotion,
+      fallbackPose
+    );
+  }
 
   const nextPose = ensureScratchPose(context);
   const nextMotion = ensureScratchMotion(context);
-  evaluateNode(
-    context,
-    compiledGraph,
-    graphIndex,
-    nextState.motionNodeIndex,
-    transition.nextStateTime + nextState.cycleOffset,
-    previousNextStateTime + nextState.cycleOffset,
-    deltaTime * nextState.speed,
-    nextPose,
-    nextMotion
-  );
+  if (nextState.motionNodeIndex < 0) {
+    if (fallbackPose) {
+      copyPose(fallbackPose, nextPose);
+    } else {
+      copyPose(createPoseBufferFromRig(context.rig), nextPose);
+    }
+    resetRootMotion(nextMotion);
+  } else {
+    evaluateNode(
+      context,
+      compiledGraph,
+      graphIndex,
+      nextState.motionNodeIndex,
+      transition.nextStateTime + nextState.cycleOffset,
+      previousNextStateTime + nextState.cycleOffset,
+      deltaTime * nextState.speed,
+      nextPose,
+      nextMotion,
+      fallbackPose
+    );
+  }
 
   const progress = clamp(transition.elapsed / Math.max(0.0001, transition.duration), 0, 1);
   blendPoses(outPose, nextPose, progress, outPose);
@@ -648,8 +824,9 @@ export function createAnimatorInstance(input: {
       const graph = input.graph.graphs[layer.graphIndex]!;
       const layerPose = ensureScratchPose(context);
       const layerMotion = ensureScratchMotion(context);
+      const fallbackPose = layer.blendMode === "override" && layer.maskIndex !== undefined ? outputPose : undefined;
 
-      evaluateNode(context, graph, layer.graphIndex, graph.rootNodeIndex, layerState.time, previousTime, deltaTime, layerPose, layerMotion);
+      evaluateNode(context, graph, layer.graphIndex, graph.rootNodeIndex, layerState.time, previousTime, deltaTime, layerPose, layerMotion, fallbackPose);
 
       const mask = layer.maskIndex === undefined ? undefined : context.masks[layer.maskIndex];
       if (!hasBaseLayer) {

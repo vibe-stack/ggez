@@ -1,6 +1,6 @@
 import { clamp, inverseLerp } from "@ggez/anim-utils";
 import { extractRootMotionDelta } from "./root-motion";
-import { copyRigBindPose } from "./pose-buffer";
+import { copyPose, copyRigBindPose } from "./pose-buffer";
 function findKeyframeIndex(times, time) {
     if (times.length <= 1) {
         return 0;
@@ -108,6 +108,14 @@ export function normalizeClipTime(clip, time, loop) {
 }
 export function sampleClipPose(clip, rig, time, out, loop = true) {
     copyRigBindPose(rig, out);
+    const normalizedTime = normalizeClipTime(clip, time, loop);
+    for (const track of clip.tracks) {
+        sampleTrackChannel(track, normalizedTime, out);
+    }
+    return out;
+}
+export function sampleClipPoseOnBase(clip, time, basePose, out, loop = true) {
+    copyPose(basePose, out);
     const normalizedTime = normalizeClipTime(clip, time, loop);
     for (const track of clip.tracks) {
         sampleTrackChannel(track, normalizedTime, out);

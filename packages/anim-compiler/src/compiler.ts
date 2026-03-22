@@ -349,6 +349,17 @@ export function compileAnimationEditorDocument(input: unknown): CompileResult {
         case "stateMachine": {
           const stateIndexById = new Map(node.states.map((state, index) => [state.id, index]));
           const states = node.states.flatMap((state, stateIndex) => {
+            if (!state.motionNodeId) {
+              return [
+                {
+                  name: state.name,
+                  motionNodeIndex: -1,
+                  speed: state.speed,
+                  cycleOffset: state.cycleOffset
+                }
+              ];
+            }
+
             const motionNodeIndex = nodeIdToCompiledIndex.get(state.motionNodeId);
             if (motionNodeIndex === undefined) {
               diagnostics.push(error(`State "${state.name}" references missing motion node "${state.motionNodeId}".`, `graphs.${graphIndex}.nodes.${nodeIndex}.states.${stateIndex}.motionNodeId`));

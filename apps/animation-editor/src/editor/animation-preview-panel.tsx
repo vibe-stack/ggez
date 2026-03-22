@@ -96,6 +96,7 @@ export function AnimationPreviewPanel(props: {
   const playbackSpeedRef = useRef(playbackSpeed);
   const selectedClipIdRef = useRef(selectedClipId);
   const parameterValuesRef = useRef(parameterValues);
+  const pendingTriggersRef = useRef<Set<string>>(new Set());
   const animatorRef = useRef<AnimatorInstance | null>(null);
 
   useEffect(() => {
@@ -287,6 +288,14 @@ export function AnimationPreviewPanel(props: {
           }
         } else if (animatorRef.current) {
           for (const parameter of document.parameters) {
+            if (parameter.type === "trigger") {
+              if (pendingTriggersRef.current.has(parameter.name)) {
+                animatorRef.current.trigger(parameter.name);
+                pendingTriggersRef.current.delete(parameter.name);
+              }
+              continue;
+            }
+
             const value = parameterValuesRef.current[parameter.name];
             if (value !== undefined) {
               setAnimatorParameter(animatorRef.current, parameter.name, value, parameter.type);
@@ -407,7 +416,19 @@ export function AnimationPreviewPanel(props: {
             <div className="grid gap-2 sm:grid-cols-2">
               {document.parameters.map((parameter) => (
                 <PropertyField key={parameter.id} label={parameter.name}>
-                  {parameter.type === "bool" || parameter.type === "trigger" ? (
+                  {parameter.type === "trigger" ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      className="h-9 w-full justify-start rounded-xl bg-amber-400/10 px-3 text-[12px] text-amber-100 hover:bg-amber-400/16"
+                      onClick={() => {
+                        pendingTriggersRef.current.add(parameter.name);
+                      }}
+                    >
+                      Fire Trigger
+                    </Button>
+                  ) : parameter.type === "bool" ? (
                     <label className="flex h-9 items-center gap-2 rounded-xl bg-white/7 px-3 text-[12px] text-zinc-200">
                       <Checkbox
                         checked={Boolean(resolvedParameterValues[parameter.name])}
@@ -418,7 +439,7 @@ export function AnimationPreviewPanel(props: {
                           }))
                         }
                       />
-                      <span>{parameter.type === "trigger" ? "Trigger armed" : "Enabled"}</span>
+                      <span>Enabled</span>
                     </label>
                   ) : (
                     <DragInput
