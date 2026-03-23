@@ -10,6 +10,7 @@ import { CopilotPanel } from "./copilot/CopilotPanel";
 import { useCopilot } from "./hooks/use-copilot";
 import { useGameConnection } from "./hooks/use-game-connection";
 import { AnimationPreviewPanel } from "./animation-preview-panel";
+import { ClipEditorWorkspace } from "./clip-editor-workspace";
 import { importAnimationFiles, importCharacterFile, type ImportedCharacterAsset, type ImportedPreviewClip } from "./preview-assets";
 import { createProjectBundleJson, parseProjectBundleJson } from "./project-bundle";
 import { createRuntimeBundleSyncResult, createRuntimeBundleZip } from "./runtime-bundle";
@@ -155,8 +156,10 @@ export function AnimationEditorWorkspace(props: { store: AnimationEditorStore })
   const graph = useSelectedGraph(store);
   const gameConnection = useGameConnection();
   const [copilotOpen, setCopilotOpen] = useState(false);
+  const [editorView, setEditorView] = useState<"clip" | "graph">("clip");
   const [character, setCharacter] = useState<ImportedCharacterAsset | null>(null);
   const [importedClips, setImportedClips] = useState<ImportedPreviewClip[]>([]);
+  const [selectedClipId, setSelectedClipId] = useState("");
   const [characterSourceFile, setCharacterSourceFile] = useState<File | null>(null);
   const [assetStatus, setAssetStatus] = useState("Import a rigged character to unlock preview and rig-aware compilation.");
   const [assetError, setAssetError] = useState<string | null>(null);
@@ -238,6 +241,14 @@ export function AnimationEditorWorkspace(props: { store: AnimationEditorStore })
       return;
     }
 
+    await importAnimationFileList(files);
+  }
+
+  async function importAnimationFileList(files: File[]) {
+    if (files.length === 0) {
+      return;
+    }
+
     if (!character) {
       setAssetError("Import a rigged character first so external animation files can be mapped onto its skeleton.");
       return;
@@ -265,6 +276,52 @@ export function AnimationEditorWorkspace(props: { store: AnimationEditorStore })
       const message = error instanceof Error ? error.message : "Failed to import animation files.";
       setAssetError(message);
       setAssetStatus("Animation import failed.");
+    }
+  }
+
+  function updateImportedClip(clipId: string, updater: (clip: ImportedPreviewClip) => ImportedPreviewClip) {
+    let nextClip: ImportedPreviewClip | null = null;
+    let nextDuration: number | null = null;
+    let nextName: string | null = null;
+    let nextSource: string | undefined;
+
+    setImportedClips((current) =>
+      current.map((clip) => {
+        if (clip.id !== clipId) {
+          return clip;
+        }
+
+        nextClip = updater(clip);
+        nextDuration = nextClip.reference.duration;
+        nextName = nextClip.reference.name;
+        nextSource = nextClip.reference.source;
+        return nextClip;
+      })
+    );
+
+    setCharacter((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        clips: current.clips.map((clip) => {
+          if (clip.id !== clipId) {
+            return clip;
+          }
+
+          return nextClip ?? clip;
+        }),
+      };
+    });
+
+    if (nextDuration !== null && nextName !== null) {
+      store.updateClip(clipId, {
+        duration: nextDuration,
+        name: nextName,
+        source: nextSource,
+      });
     }
   }
 
@@ -472,6 +529,19 @@ export function AnimationEditorWorkspace(props: { store: AnimationEditorStore })
     updatePreviewBounds();
   }, [updatePreviewBounds]);
 
+  useEffect(() => {
+    if (importedClips.length === 0) {
+      if (selectedClipId) {
+        setSelectedClipId("");
+      }
+      return;
+    }
+
+    if (!selectedClipId || !importedClips.some((clip) => clip.id === selectedClipId)) {
+      setSelectedClipId(importedClips[0]!.id);
+    }
+  }, [importedClips, selectedClipId]);
+
   const openedStateMachineNode =
     openedStateMachineNodeId
       ? graph.nodes.find((node): node is Extract<EditorGraphNode, { kind: "stateMachine" }> => node.id === openedStateMachineNodeId && node.kind === "stateMachine") ?? null
@@ -568,6 +638,7 @@ export function AnimationEditorWorkspace(props: { store: AnimationEditorStore })
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <EditorMenubar
         store={store}
+        editorView={editorView}
         gameConnectionControl={
           <GameConnectionControl
             activeGame={gameConnection.activeGame}
@@ -589,6 +660,7 @@ export function AnimationEditorWorkspace(props: { store: AnimationEditorStore })
           />
         }
         onCompile={handleCompile}
+        onChangeEditorView={setEditorView}
         onExportRuntimeBundle={() => void handleExportRuntimeBundle()}
         onSaveProject={() => void handleSaveProject()}
         onLoadProject={() => projectInputRef.current?.click()}
@@ -604,39 +676,60 @@ export function AnimationEditorWorkspace(props: { store: AnimationEditorStore })
       <input ref={animationInputRef} type="file" accept=".glb,.gltf,.fbx" multiple hidden onChange={handleAnimationImport} />
 
       <div ref={workspaceRef} className="relative min-h-0 flex-1 overflow-hidden">
-        {openedStateMachineNode ? (
-          <StateMachineCanvas
+        {editorView === "clip" ? (
+          <ClipEditorWorkspace
             store={store}
-            graph={graph}
-            node={openedStateMachineNode}
-            parameters={state.document.parameters}
-            onExit={() => setOpenedStateMachineNodeId(null)}
+            character={character}
+            importedClips={importedClips}
+            selectedClipId={selectedClipId}
+            assetStatus={assetStatus}
+            assetError={assetError}
+            onImportAnimations={() => animationInputRef.current?.click()}
+            onDropAnimationFiles={(files) => {
+              void importAnimationFileList(files);
+            }}
+            onSelectClip={setSelectedClipId}
+            onUpdateClip={updateImportedClip}
           />
         ) : (
-          <GraphCanvas
-            graph={graph}
-            selectedNodeIds={state.selection.nodeIds}
-            onConnect={handleConnect}
-            onSelectionChange={(nodeIds) => store.selectNodes(nodeIds)}
-            onOpenStateMachine={(nodeId) => setOpenedStateMachineNodeId(nodeId)}
-            onNodeDragStop={(nodeId, position) =>
-              store.moveNodes(graph.id, {
-                [nodeId]: position,
-              })
-            }
-            onAddNode={(kind, position) => {
-              const nodeId = store.addNode(graph.id, kind);
-              store.moveNodes(graph.id, { [nodeId]: position });
-            }}
-            onDeleteNodes={() => store.deleteSelectedNodes()}
-            onDeleteEdges={(edgeIds) => store.deleteEdges(graph.id, edgeIds)}
-          />
+          <>
+            {openedStateMachineNode ? (
+              <StateMachineCanvas
+                store={store}
+                graph={graph}
+                node={openedStateMachineNode}
+                parameters={state.document.parameters}
+                onExit={() => setOpenedStateMachineNodeId(null)}
+              />
+            ) : (
+              <GraphCanvas
+                graph={graph}
+                selectedNodeIds={state.selection.nodeIds}
+                onConnect={handleConnect}
+                onSelectionChange={(nodeIds) => store.selectNodes(nodeIds)}
+                onOpenStateMachine={(nodeId) => setOpenedStateMachineNodeId(nodeId)}
+                onNodeDragStop={(nodeId, position) =>
+                  store.moveNodes(graph.id, {
+                    [nodeId]: position,
+                  })
+                }
+                onAddNode={(kind, position) => {
+                  const nodeId = store.addNode(graph.id, kind);
+                  store.moveNodes(graph.id, { [nodeId]: position });
+                }}
+                onDeleteNodes={() => store.deleteSelectedNodes()}
+                onDeleteEdges={(edgeIds) => store.deleteEdges(graph.id, edgeIds)}
+              />
+            )}
+          </>
         )}
 
         <div className="pointer-events-none absolute inset-0">
-          <div className="pointer-events-auto absolute top-12 left-4 z-20 h-[min(68vh,720px)] w-[320px] max-w-[calc(100vw-2rem)]">
-            <LeftSidebar store={store} state={state} characterFileName={character?.fileName} />
-          </div>
+          {editorView === "graph" ? (
+            <div className="pointer-events-auto absolute top-12 left-4 z-20 h-[min(68vh,720px)] w-[320px] max-w-[calc(100vw-2rem)]">
+              <LeftSidebar store={store} state={state} characterFileName={character?.fileName} />
+            </div>
+          ) : null}
 
           {copilotOpen ? (
             <div className="pointer-events-auto absolute top-12 right-4 z-20 h-[min(72vh,760px)] w-88 max-w-[calc(100vw-2rem)]">
@@ -652,46 +745,50 @@ export function AnimationEditorWorkspace(props: { store: AnimationEditorStore })
             </div>
           ) : null}
 
-          <div className="pointer-events-auto absolute top-12 right-4 z-20 h-[min(72vh,760px)] w-72 max-w-[calc(100vw-2rem)]" style={copilotOpen ? { right: "calc(22rem + 2rem)" } : undefined}>
-            <RightSidebar store={store} />
-          </div>
+          {editorView === "graph" ? (
+            <>
+              <div className="pointer-events-auto absolute top-12 right-4 z-20 h-[min(72vh,760px)] w-72 max-w-[calc(100vw-2rem)]" style={copilotOpen ? { right: "calc(22rem + 2rem)" } : undefined}>
+                <RightSidebar store={store} />
+              </div>
 
-          <div
-            className="pointer-events-auto absolute z-30 flex min-h-0 flex-col overflow-hidden rounded-[28px] bg-[#091012]/84 shadow-[0_28px_96px_rgba(0,0,0,0.5)] ring-1 ring-white/8 backdrop-blur-2xl"
-            style={{
-              left: `${previewRect.x}px`,
-              top: `${previewRect.y}px`,
-              width: `${previewRect.width}px`,
-              height: `${previewRect.height}px`,
-            }}
-          >
-            <div
-              className="flex h-11 shrink-0 items-center justify-between px-4 text-[12px] font-medium text-zinc-400 cursor-move pb-6"
-              onPointerDown={(event) => beginPreviewInteraction("move", event)}
-            >
-              <span>Preview</span>
-              <GripHorizontal className="size-4 text-zinc-600" />
-            </div>
+              <div
+                className="pointer-events-auto absolute z-30 flex min-h-0 flex-col overflow-hidden rounded-[28px] bg-[#091012]/84 shadow-[0_28px_96px_rgba(0,0,0,0.5)] ring-1 ring-white/8 backdrop-blur-2xl"
+                style={{
+                  left: `${previewRect.x}px`,
+                  top: `${previewRect.y}px`,
+                  width: `${previewRect.width}px`,
+                  height: `${previewRect.height}px`,
+                }}
+              >
+                <div
+                  className="flex h-11 shrink-0 items-center justify-between px-4 text-[12px] font-medium text-zinc-400 cursor-move pb-6"
+                  onPointerDown={(event) => beginPreviewInteraction("move", event)}
+                >
+                  <span>Preview</span>
+                  <GripHorizontal className="size-4 text-zinc-600" />
+                </div>
 
-            <div className="min-h-0 flex-1 px-3 pb-3">
-              <AnimationPreviewPanel
-                store={store}
-                character={character}
-                importedClips={importedClips}
-                assetStatus={assetStatus}
-                assetError={assetError}
-              />
-            </div>
+                <div className="min-h-0 flex-1 px-3 pb-3">
+                  <AnimationPreviewPanel
+                    store={store}
+                    character={character}
+                    importedClips={importedClips}
+                    assetStatus={assetStatus}
+                    assetError={assetError}
+                  />
+                </div>
 
-            <button
-              type="button"
-              className="absolute right-2 bottom-2 flex size-7 items-center justify-center rounded-full bg-transparent text-zinc-500 hover:bg-white/8 hover:text-zinc-300"
-              onPointerDown={(event) => beginPreviewInteraction("resize", event)}
-              aria-label="Resize preview panel"
-            >
-              <ArrowDownRight className="size-4" />
-            </button>
-          </div>
+                <button
+                  type="button"
+                  className="absolute right-2 bottom-2 flex size-7 items-center justify-center rounded-full bg-transparent text-zinc-500 hover:bg-white/8 hover:text-zinc-300"
+                  onPointerDown={(event) => beginPreviewInteraction("resize", event)}
+                  aria-label="Resize preview panel"
+                >
+                  <ArrowDownRight className="size-4" />
+                </button>
+              </div>
+            </>
+          ) : null}
         </div>
       </div>
     </div>
