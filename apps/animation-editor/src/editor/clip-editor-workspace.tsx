@@ -340,11 +340,27 @@ function findTrack(clip: AnimationClipAsset, boneIndex: number): AnimationTrack 
   return clip.tracks.find((track) => track.boneIndex === boneIndex);
 }
 
-function getFrameComponentValue(frame: ChannelFrame, row: ClipChannelRow): number {
-  return frame.values[row.componentIndex] ?? 0;
+function getChannelDisplayBaseline(row: ClipChannelRow, rig: RigDefinition | null): number {
+  if (!rig || row.channel !== "translation") {
+    return 0;
+  }
+
+  return rig.bindTranslations[row.boneIndex * 3 + row.componentIndex] ?? 0;
 }
 
-function getCurveValueRange(row: ClipChannelRow | null, frames: ChannelFrame[]): ValueRange {
+function toDisplayChannelValue(value: number, row: ClipChannelRow, rig: RigDefinition | null): number {
+  return value - getChannelDisplayBaseline(row, rig);
+}
+
+function toStoredChannelValue(value: number, row: ClipChannelRow, rig: RigDefinition | null): number {
+  return value + getChannelDisplayBaseline(row, rig);
+}
+
+function getFrameComponentValue(frame: ChannelFrame, row: ClipChannelRow, rig: RigDefinition | null): number {
+  return toDisplayChannelValue(frame.values[row.componentIndex] ?? 0, row, rig);
+}
+
+function getCurveValueRange(row: ClipChannelRow | null, frames: ChannelFrame[], rig: RigDefinition | null): ValueRange {
   if (!row || frames.length === 0) {
     return { min: -1, max: 1 };
   }
@@ -352,7 +368,7 @@ function getCurveValueRange(row: ClipChannelRow | null, frames: ChannelFrame[]):
   let min = Number.POSITIVE_INFINITY;
   let max = Number.NEGATIVE_INFINITY;
   for (const frame of frames) {
-    const value = getFrameComponentValue(frame, row);
+    const value = getFrameComponentValue(frame, row, rig);
     min = Math.min(min, value);
     max = Math.max(max, value);
   }
@@ -460,12 +476,13 @@ export function ClipEditorWorkspace(props: {
   const channelRows = useMemo(() => clipSections.flatMap((section) => section.rows), [clipSections]);
   const rowById = useMemo(() => new Map(channelRows.map((row) => [row.id, row])), [channelRows]);
   const selectedRow = selectedRowId ? rowById.get(selectedRowId) ?? null : null;
+  const activeRig = props.character?.rig ?? null;
   const timelineDuration = activeClip ? Math.max(activeClip.duration, 1) : 1;
   const timelineWidth = getTimelineWidth(timelineDuration, pixelsPerSecond);
   const rulerTimes = useMemo(() => buildRulerTimes(timelineDuration, pixelsPerSecond), [timelineDuration, pixelsPerSecond]);
   const baseSelectedRowFrames = useMemo(() => (selectedRow ? buildChannelFrames(selectedRow) : []), [selectedRow]);
   const selectedRowFrames = dragPreviewFrames ?? baseSelectedRowFrames;
-  const baseValueRange = useMemo(() => getCurveValueRange(selectedRow, baseSelectedRowFrames), [selectedRow, baseSelectedRowFrames]);
+  const baseValueRange = useMemo(() => getCurveValueRange(selectedRow, baseSelectedRowFrames, activeRig), [activeRig, selectedRow, baseSelectedRowFrames]);
   const initialViewportCenter = (baseValueRange.min + baseValueRange.max) * 0.5;
   const initialViewportSpan = Math.max(baseValueRange.max - baseValueRange.min, 1);
   const [yViewportCenter, setYViewportCenter] = useState(initialViewportCenter);
@@ -503,19 +520,19 @@ export function ClipEditorWorkspace(props: {
     return selectedRowFrames
       .map((frame, index) => {
         const x = CURVE_PADDING_X + frame.time * pixelsPerSecond;
-        const value = getFrameComponentValue(frame, selectedRow);
+        const value = getFrameComponentValue(frame, selectedRow, activeRig);
         const y = projectCurveValueToY(value, selectedValueRange);
         return `${index === 0 ? "M" : "L"} ${x} ${y}`;
       })
       .join(" ");
-  }, [pixelsPerSecond, selectedRow, selectedRowFrames, selectedValueRange]);
+  }, [activeRig, pixelsPerSecond, selectedRow, selectedRowFrames, selectedValueRange]);
   const curvePoints = useMemo(() => {
     if (!selectedRow) {
       return [];
     }
 
     return selectedRowFrames.map((frame, keyIndex) => {
-      const value = getFrameComponentValue(frame, selectedRow);
+      const value = getFrameComponentValue(frame, selectedRow, activeRig);
       const y = projectCurveValueToY(value, selectedValueRange);
       return {
         id: `${selectedRow.id}:${keyIndex}:${frame.time}`,
@@ -524,7 +541,7 @@ export function ClipEditorWorkspace(props: {
         isSelected: selectedKeyIndices.includes(keyIndex),
       };
     });
-  }, [selectedKeyIndices, selectedRow, selectedRowFrames, selectedValueRange]);
+  }, [activeRig, selectedKeyIndices, selectedRow, selectedRowFrames, selectedValueRange]);
   const ghostCurvePath = useMemo(() => {
     if (!ghostRow || ghostRowFrames.length === 0) {
       return "";
@@ -533,19 +550,19 @@ export function ClipEditorWorkspace(props: {
     return ghostRowFrames
       .map((frame, index) => {
         const x = CURVE_PADDING_X + frame.time * pixelsPerSecond;
-        const value = getFrameComponentValue(frame, ghostRow);
+        const value = getFrameComponentValue(frame, ghostRow, activeRig);
         const y = projectCurveValueToY(value, selectedValueRange);
         return `${index === 0 ? "M" : "L"} ${x} ${y}`;
       })
       .join(" ");
-  }, [ghostRow, ghostRowFrames, pixelsPerSecond, selectedValueRange]);
+  }, [activeRig, ghostRow, ghostRowFrames, pixelsPerSecond, selectedValueRange]);
   const ghostCurvePoints = useMemo(() => {
     if (!ghostRow) {
       return [];
     }
 
     return ghostRowFrames.map((frame, keyIndex) => {
-      const value = getFrameComponentValue(frame, ghostRow);
+      const value = getFrameComponentValue(frame, ghostRow, activeRig);
       const y = projectCurveValueToY(value, selectedValueRange);
       return {
         id: `${ghostRow.id}:${ghostClip?.id ?? "ghost"}:${keyIndex}:${frame.time}`,
@@ -553,7 +570,7 @@ export function ClipEditorWorkspace(props: {
         value: y,
       };
     });
-  }, [ghostClip?.id, ghostRow, ghostRowFrames, selectedValueRange]);
+  }, [activeRig, ghostClip?.id, ghostRow, ghostRowFrames, selectedValueRange]);
 
   const selectedFrameInfo = useMemo(() => {
     if (!activeClip || !selectedKeyframe) {
@@ -834,7 +851,7 @@ export function ClipEditorWorkspace(props: {
       }
 
       const nextValues = [...target.values];
-      nextValues[selectedFrameInfo.row.componentIndex] = nextValue;
+      nextValues[selectedFrameInfo.row.componentIndex] = toStoredChannelValue(nextValue, selectedFrameInfo.row, activeRig);
       const normalizedValues = selectedFrameInfo.row.channel === "rotation" ? normalizeQuaternion(nextValues) : nextValues;
 
       return {
@@ -869,7 +886,7 @@ export function ClipEditorWorkspace(props: {
         }
 
         const nextValues = [...frame.values];
-        nextValues[selectedFrameInfo.row.componentIndex] = nextValue;
+        nextValues[selectedFrameInfo.row.componentIndex] = toStoredChannelValue(nextValue, selectedFrameInfo.row, activeRig);
         const normalizedValues = selectedFrameInfo.row.channel === "rotation" ? normalizeQuaternion(nextValues) : nextValues;
 
         return {
@@ -1168,7 +1185,7 @@ export function ClipEditorWorkspace(props: {
       const bounds = normalizeSelectionBox(box);
       const selectedIndices = framesAtStart.flatMap((frame, index) => {
         const x = CURVE_PADDING_X + frame.time * pixelsPerSecondRef.current;
-        const y = projectCurveValueToY(getFrameComponentValue(frame, rowAtStart), rangeAtStart);
+        const y = projectCurveValueToY(getFrameComponentValue(frame, rowAtStart, activeRig), rangeAtStart);
         return x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom ? [index] : [];
       });
 
@@ -1496,7 +1513,7 @@ export function ClipEditorWorkspace(props: {
                     componentLabel: selectedFrameInfo.row.componentLabel,
                     channel: selectedFrameInfo.row.channel,
                     time: selectedFrameInfo.frame.time,
-                    value: selectedFrameInfo.frame.values[selectedFrameInfo.row.componentIndex] ?? 0,
+                    value: getFrameComponentValue(selectedFrameInfo.frame, selectedFrameInfo.row, activeRig),
                   }
                 : null
             }

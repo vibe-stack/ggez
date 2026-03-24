@@ -295,6 +295,7 @@ export function AnimationEditorWorkspace(props: { store: AnimationEditorStore })
       const documentClips = store.getState().document.clips;
       const nextClips = await importAnimationFiles(
         files,
+        character.rig,
         character.skeleton,
         new Set([...documentClips.map((clip) => clip.id), ...importedClips.map((clip) => clip.id)])
       );

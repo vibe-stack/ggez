@@ -4,7 +4,6 @@ import type { AnimationEditorStore } from "@ggez/anim-editor-core";
 import { createAnimatorInstance } from "@ggez/anim-runtime";
 import type { AnimatorInstance } from "@ggez/anim-runtime";
 import type { AnimationEditorDocument } from "@ggez/anim-schema";
-import { applyPoseBufferToSkeleton, applyPoseToSkeleton } from "@ggez/anim-three";
 import { Film, Pause, Play, SlidersHorizontal, Workflow } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -23,11 +22,11 @@ import {
   Vector3,
   WebGLRenderer,
 } from "three";
-import type { Object3D, Skeleton } from "three";
+import type { Object3D } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { ImportedCharacterAsset, ImportedPreviewClip } from "./preview-assets";
-import { findPrimarySkeleton } from "./preview-assets";
+import { applyPoseBufferToSceneBones } from "./preview-assets";
 import { useEditorStoreValue } from "./use-editor-store-value";
 import { PropertyField, editorSelectClassName } from "./workspace/shared";
 
@@ -232,7 +231,6 @@ export function AnimationPreviewPanel(props: {
     scene.add(ambient, keyLight, fillLight, grid);
 
     let previewObject: Object3D | null = null;
-    let previewSkeleton: Skeleton | null = null;
     let directClipTime = 0;
     let disposed = false;
     const directPose = character ? createPoseBufferFromRig(character.rig) : null;
@@ -240,7 +238,6 @@ export function AnimationPreviewPanel(props: {
 
     if (character) {
       previewObject = clone(character.scene);
-      previewSkeleton = findPrimarySkeleton(previewObject);
 
       if (previewObject) {
         scene.add(previewObject);
@@ -273,7 +270,7 @@ export function AnimationPreviewPanel(props: {
 
       const delta = Math.min(clock.getDelta(), 1 / 24);
 
-      if (previewSkeleton && character) {
+      if (previewObject && character) {
         if (modeRef.current === "clip") {
           const clip = clipMap.get(selectedClipIdRef.current);
           if (clip) {
@@ -283,7 +280,7 @@ export function AnimationPreviewPanel(props: {
 
             if (directPose) {
               sampleClipPose(clip.asset, character.rig, directClipTime, directPose, true);
-              applyPoseBufferToSkeleton(directPose, previewSkeleton);
+              applyPoseBufferToSceneBones(directPose, character.rig, previewObject);
             }
           }
         } else if (animatorRef.current) {
@@ -314,9 +311,9 @@ export function AnimationPreviewPanel(props: {
               animatorRef.current.rig.bindTranslations,
               animatorRef.current.rig.rootBoneIndex
             );
-            applyPoseBufferToSkeleton(graphDisplayPose, previewSkeleton);
+            applyPoseBufferToSceneBones(graphDisplayPose, animatorRef.current.rig, previewObject);
           } else {
-            applyPoseToSkeleton(animatorRef.current, previewSkeleton);
+            applyPoseBufferToSceneBones(animatorRef.current.outputPose, animatorRef.current.rig, previewObject);
           }
         }
       }

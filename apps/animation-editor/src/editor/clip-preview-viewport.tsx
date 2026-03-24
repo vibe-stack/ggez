@@ -1,5 +1,4 @@
 import { createPoseBufferFromRig, sampleClipPose } from "@ggez/anim-core";
-import { applyPoseBufferToSkeleton } from "@ggez/anim-three";
 import { memo, useEffect, useRef, type RefObject } from "react";
 import {
   AmbientLight,
@@ -13,11 +12,11 @@ import {
   Vector3,
   WebGLRenderer,
 } from "three";
-import type { Object3D, Skeleton } from "three";
+import type { Object3D } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { ImportedCharacterAsset, ImportedPreviewClip } from "./preview-assets";
-import { findPrimarySkeleton } from "./preview-assets";
+import { applyPoseBufferToSceneBones } from "./preview-assets";
 
 function fitCameraToObject(camera: PerspectiveCamera, controls: OrbitControls, object: Object3D): void {
   const bounds = new Box3().setFromObject(object);
@@ -76,13 +75,11 @@ function ClipPreviewViewportInner(props: {
     scene.add(ambientLight, keyLight, fillLight, grid);
 
     let previewObject: Object3D | null = null;
-    let previewSkeleton: Skeleton | null = null;
     let disposed = false;
     const poseBuffer = props.character ? createPoseBufferFromRig(props.character.rig) : null;
 
     if (props.character) {
       previewObject = clone(props.character.scene);
-      previewSkeleton = findPrimarySkeleton(previewObject);
 
       if (previewObject) {
         scene.add(previewObject);
@@ -112,9 +109,9 @@ function ClipPreviewViewportInner(props: {
       }
 
       const activeClip = clipRef.current;
-      if (previewSkeleton && props.character && activeClip && poseBuffer) {
+      if (previewObject && props.character && activeClip && poseBuffer) {
         sampleClipPose(activeClip.asset, props.character.rig, props.currentTimeRef.current, poseBuffer, true);
-        applyPoseBufferToSkeleton(poseBuffer, previewSkeleton);
+        applyPoseBufferToSceneBones(poseBuffer, props.character.rig, previewObject);
       }
 
       controls.update();
