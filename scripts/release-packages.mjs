@@ -41,7 +41,7 @@ switch (command) {
       }
 
       withPublishManifest(pkg, packageVersions, () => {
-        run("npm", args, pkg.dir);
+        runPublish(pkg, args, pkg.dir);
       });
     }
     break;
@@ -136,6 +136,33 @@ function run(binary, args, cwd) {
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }
+}
+
+function runPublish(pkg, args, cwd) {
+  const result = spawnSync("npm", args, {
+    cwd,
+    stdio: "inherit"
+  });
+
+  if (result.status === 0) {
+    return;
+  }
+
+  if (pkg.name.startsWith("@")) {
+    const scope = pkg.name.slice(1).split("/")[0];
+    process.stderr.write(
+      [
+        "",
+        `Publish failed for ${pkg.name}.`,
+        `If npm reported E404 while publishing ${pkg.name}, the @${scope} scope usually is not one your npm user/token can publish to.`,
+        `Verify with: npm whoami`,
+        `Then confirm that you own the ${scope} npm scope or are a member of the ${scope} org with publish rights.`
+      ].join("\n")
+    );
+    process.stderr.write("\n");
+  }
+
+  process.exit(result.status ?? 1);
 }
 
 function withPublishManifest(pkg, packageVersions, callback) {
