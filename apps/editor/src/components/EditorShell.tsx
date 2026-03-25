@@ -18,11 +18,15 @@ import type {
 import type { PrimitiveNodeData, PrimitiveShape } from "@ggez/shared";
 import type { ToolId } from "@ggez/tool-system";
 import type { WorkerJob } from "@ggez/workers";
-import type { ReactNode } from "react";
+import { useState, useCallback, useEffect, type ReactNode } from "react";
+import { useSnapshot } from "valtio";
 import type { CopilotSession } from "@/lib/copilot/types";
 import { AiModelPromptBar } from "@/components/editor-shell/AiModelPromptBar";
 import { CopilotPanel } from "@/components/editor-shell/CopilotPanel";
 import { EditorMenuBar } from "@/components/editor-shell/EditorMenuBar";
+import { FileBrowserPanel } from "@/components/editor-shell/FileBrowserPanel";
+import { MonacoEditorPanel, resolveLanguage, type OpenFile } from "@/components/editor-shell/MonacoEditorPanel";
+import { WelcomeScreen } from "@/components/editor-shell/WelcomeScreen";
 import { InspectorSidebar } from "@/components/editor-shell/InspectorSidebar";
 import { SpatialAnalysisPanel } from "@/components/editor-shell/SpatialAnalysisPanel";
 import { StatusBar } from "@/components/editor-shell/StatusBar";
@@ -32,7 +36,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { ViewportCanvas } from "@/viewport/ViewportCanvas";
 import type { MeshEditMode } from "@/viewport/editing";
 import type { MeshEditToolbarActionRequest } from "@/viewport/types";
-import type { RightPanelId, ViewportQuality } from "@/state/ui-store";
+import { uiStore, type RightPanelId, type ViewportQuality } from "@/state/ui-store";
 import {
   getViewModePreset,
   viewportPaneDefinitions,
@@ -291,6 +295,7 @@ export function EditorShell({
   viewportQuality,
   viewports
 }: EditorShellProps) {
+  const ui = useSnapshot(uiStore);
   const selectionEnabled = physicsPlayback === "stopped";
   const nodes = Array.from(editor.scene.nodes.values());
   const entities = Array.from(editor.scene.entities.values());
@@ -309,6 +314,137 @@ export function EditorShell({
     selectedNode?.kind === "brush" || selectedNode?.kind === "mesh" || selectedNode?.kind === "primitive";
   const selectedIsMesh = selectedNode?.kind === "mesh";
   const activeViewport = viewports[activeViewportId];
+
+  // ── File Browser + Monaco Editor State ──────────────────────────
+
+  const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
+  const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
+  const api = (window as any).electronAPI;
+  const isElectron = !!api?.isElectron;
+
+  // Listen for Electron project:opened events
+  useEffect(() => {
+    if (!isElectron) return;
+    const unsub = api.onProjectOpened?.((projectPath: string) => {
+      uiStore.projectPath = projectPath;
+      uiStore.fileBrowserOpen = true;
+    });
+    return unsub;
+  }, [isElectron]);
+
+  // Listen for menu events to toggle file browser
+  useEffect(() => {
+    if (!isElectron) return;
+    const unsubOpen = api.onOpenProject?.(() => api.openProject());
+    const unsubCreate = api.onCreateProject?.(() => api.createProject());
+    return () => { unsubOpen?.(); unsubCreate?.(); };
+  }, [isElectron]);
+
+  const handleFileOpen = useCallback(async (filePath: string) => {
+    // Don't open binary files in Monaco
+    const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
+    const binaryExts = ["png", "jpg", "jpeg", "gif", "webp", "glb", "gltf", "hdr", "exr", "mp3", "wav", "ogg", "mp4", "webm", "fbx", "obj", "zip"];
+    if (binaryExts.includes(ext)) return;
+
+    // Check if file is already open
+    const existing = openFiles.find((f) => f.path === filePath);
+    if (existing) {
+      setActiveFilePath(filePath);
+      return;
+    }
+
+    if (!isElectron) return;
+
+    try {
+      const content = await api.readFile(filePath, "utf8");
+      const name = filePath.split(/[\\/]/).pop() ?? "file";
+      const newFile: OpenFile = {
+        path: filePath,
+        name,
+        content: typeof content === "string" ? content : "",
+        language: resolveLanguage(name),
+        isDirty: false,
+      };
+      setOpenFiles((prev) => [...prev, newFile]);
+      setActiveFilePath(filePath);
+    } catch (err) {
+      console.error("Failed to open file:", err);
+    }
+  }, [openFiles, isElectron]);
+
+  const handleCloseFile = useCallback((path: string) => {
+    setOpenFiles((prev) => prev.filter((f) => f.path !== path));
+    setActiveFilePath((current) => {
+      if (current !== path) return current;
+      const remaining = openFiles.filter((f) => f.path !== path);
+      return remaining.length > 0 ? remaining[remaining.length - 1].path : null;
+    });
+  }, [openFiles]);
+
+  const handleCloseAllFiles = useCallback(() => {
+    setOpenFiles([]);
+    setActiveFilePath(null);
+  }, []);
+
+  const handleContentChange = useCallback((path: string, content: string) => {
+    setOpenFiles((prev) =>
+      prev.map((f) => (f.path === path ? { ...f, content, isDirty: true } : f))
+    );
+  }, []);
+
+  const handleSaveFile = useCallback(async (path: string, content: string) => {
+    if (!isElectron) return;
+    try {
+      await api.writeFile(path, content);
+      setOpenFiles((prev) =>
+        prev.map((f) => (f.path === path ? { ...f, isDirty: false } : f))
+      );
+    } catch (err) {
+      console.error("Failed to save file:", err);
+    }
+  }, [isElectron]);
+
+  const handleToggleFileBrowser = useCallback(() => {
+    uiStore.fileBrowserOpen = !uiStore.fileBrowserOpen;
+  }, []);
+
+  // ── Project Management Actions ───────────────────────────────────
+
+  const handleOpenProject = useCallback(async () => {
+    if (!isElectron) return;
+    const projectPath = await api.openProject();
+    if (projectPath) {
+      uiStore.projectPath = projectPath;
+      uiStore.fileBrowserOpen = true;
+    }
+  }, [isElectron]);
+
+  const handleCreateProject = useCallback(async () => {
+    if (!isElectron) return;
+    const projectPath = await api.createProject();
+    if (projectPath) {
+      uiStore.projectPath = projectPath;
+      uiStore.fileBrowserOpen = true;
+    }
+  }, [isElectron]);
+
+  // Keyboard shortcuts for project management
+  useEffect(() => {
+    if (!isElectron) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey) {
+        if (e.key === "o" || e.key === "O") {
+          e.preventDefault();
+          void handleOpenProject();
+        } else if (e.key === "n" || e.key === "N") {
+          e.preventDefault();
+          void handleCreateProject();
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isElectron, handleOpenProject, handleCreateProject]);
 
   const renderViewportPane = (viewportId: ViewportPaneId) => {
     const definition = viewportPaneDefinitions[viewportId];
@@ -372,6 +508,16 @@ export function EditorShell({
     );
   };
 
+  // ── Electron: Show WelcomeScreen when no project is open ────────
+  if (isElectron && !ui.projectPath) {
+    return (
+      <WelcomeScreen
+        onOpenProject={handleOpenProject}
+        onCreateProject={handleCreateProject}
+      />
+    );
+  }
+
   return (
     <div className="flex h-screen flex-col bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.08),transparent_24%),linear-gradient(180deg,#08100d_0%,#050807_100%)] text-foreground">
       <header className="shrink-0 bg-black/18 backdrop-blur-xl">
@@ -379,10 +525,13 @@ export function EditorShell({
           canRedo={canRedo}
           canUndo={canUndo}
           copilotOpen={copilotPanelOpen}
+          fileBrowserOpen={ui.fileBrowserOpen}
           gameConnectionControl={gameConnectionControl}
+          isElectron={isElectron}
           logicViewerOpen={logicViewerOpen}
           onClearSelection={onClearSelection}
           onCreateBrush={onCreateBrush}
+          onCreateProject={handleCreateProject}
           onDeleteSelection={onDeleteSelection}
           onDuplicateSelection={onDuplicateSelection}
           onGroupSelection={onGroupSelection}
@@ -394,21 +543,38 @@ export function EditorShell({
             }
           }}
           onLoadWhmap={onLoadWhmap}
+          onOpenProject={handleOpenProject}
           onRedo={onRedo}
           onSaveWhmap={onSaveWhmap}
           onToggleCopilot={onToggleCopilot}
+          onToggleFileBrowser={handleToggleFileBrowser}
           onToggleLogicViewer={onToggleLogicViewer}
           onToggleViewportQuality={onToggleViewportQuality}
           onUndo={onUndo}
+          projectName={ui.projectPath?.split(/[\\/]/).pop() ?? null}
           viewportQuality={viewportQuality}
         />
       </header>
 
       <main className="relative min-h-0 flex-1 flex">
-        <div className="relative min-w-0 flex-1">
-          <div className="absolute inset-0">
-            <ViewportLayout renderViewportPane={renderViewportPane} viewMode={viewMode} />
+        {/* Left: File Browser Panel */}
+        {ui.fileBrowserOpen && (
+          <div className="w-56 shrink-0">
+            <FileBrowserPanel
+              projectPath={ui.projectPath}
+              onFileOpen={handleFileOpen}
+              onClose={handleToggleFileBrowser}
+            />
           </div>
+        )}
+
+        {/* Center: Viewport + Overlays + Monaco */}
+        <div className="relative min-w-0 flex-1 flex flex-col">
+          {/* Viewport + Overlays */}
+          <div className={cn("relative flex-1 min-h-0", openFiles.length > 0 && "flex-[3]")}>
+            <div className="absolute inset-0">
+              <ViewportLayout renderViewportPane={renderViewportPane} viewMode={viewMode} />
+            </div>
 
         <ToolPalette
           activeBrushShape={activeBrushShape}
@@ -470,6 +636,51 @@ export function EditorShell({
 
         {/* <SpatialAnalysisPanel analysis={analysis} /> */}
 
+        <StatusBar
+          activeBrushShape={activeBrushShape}
+          activeToolLabel={activeToolLabel}
+          activeViewportId={activeViewportId}
+          gridSnapValues={gridSnapValues}
+          jobs={jobs}
+          meshEditMode={meshEditMode}
+          selectedNode={selectedNode}
+          viewModeLabel={getViewModePreset(viewMode).shortLabel}
+          viewport={activeViewport}
+        />
+
+        {logicViewerOpen && (
+          <LogicViewerSheet
+            entities={entities}
+            nodes={nodes}
+            onClose={onToggleLogicViewer}
+            onNodeClick={(objectId) => {
+              onSelectNodes([objectId]);
+              if (editor.scene.getNode(objectId)) {
+                onFocusNode(objectId);
+              }
+            }}
+            onUpdateEntityHooks={onUpdateEntityHooks}
+            onUpdateNodeHooks={onUpdateNodeHooks}
+          />
+        )}
+          </div>
+
+          {/* Monaco Editor (bottom split) */}
+          {openFiles.length > 0 && (
+            <div className="flex-[2] min-h-[200px] max-h-[50%]">
+              <MonacoEditorPanel
+                files={openFiles}
+                activeFilePath={activeFilePath}
+                onSelectFile={setActiveFilePath}
+                onCloseFile={handleCloseFile}
+                onSaveFile={handleSaveFile}
+                onContentChange={handleContentChange}
+                onCloseAll={handleCloseAllFiles}
+              />
+            </div>
+          )}
+        </div>
+
         <InspectorSidebar
           activeRightPanel={activeRightPanel}
           activeToolId={activeToolId}
@@ -518,35 +729,6 @@ export function EditorShell({
           textures={textures}
           viewportTarget={activeViewport.camera.target}
         />
-
-        <StatusBar
-          activeBrushShape={activeBrushShape}
-          activeToolLabel={activeToolLabel}
-          activeViewportId={activeViewportId}
-          gridSnapValues={gridSnapValues}
-          jobs={jobs}
-          meshEditMode={meshEditMode}
-          selectedNode={selectedNode}
-          viewModeLabel={getViewModePreset(viewMode).shortLabel}
-          viewport={activeViewport}
-        />
-
-        {logicViewerOpen && (
-          <LogicViewerSheet
-            entities={entities}
-            nodes={nodes}
-            onClose={onToggleLogicViewer}
-            onNodeClick={(objectId) => {
-              onSelectNodes([objectId]);
-              if (editor.scene.getNode(objectId)) {
-                onFocusNode(objectId);
-              }
-            }}
-            onUpdateEntityHooks={onUpdateEntityHooks}
-            onUpdateNodeHooks={onUpdateNodeHooks}
-          />
-        )}
-        </div>
 
         {copilotPanelOpen && (
           <div className="w-80 shrink-0">

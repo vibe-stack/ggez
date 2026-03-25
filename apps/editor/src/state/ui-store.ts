@@ -8,7 +8,9 @@ export type RightPanelId = "events" | "hooks" | "inspector" | "materials" | "pla
 type UiStore = {
   activeViewportId: ViewportPaneId;
   copilotPanelOpen: boolean;
+  fileBrowserOpen: boolean;
   logicViewerOpen: boolean;
+  projectPath: string | null;
   rightPanel: RightPanelId | null;
   selectedAssetId: string;
   selectedMaterialId: string;
@@ -20,7 +22,9 @@ type UiStore = {
 export const uiStore = proxy<UiStore>({
   activeViewportId: "perspective",
   copilotPanelOpen: false,
+  fileBrowserOpen: false,
   logicViewerOpen: false,
+  projectPath: null,
   rightPanel: null,
   selectedAssetId: "asset:model:crate",
   selectedMaterialId: "material:blockout:concrete",
@@ -28,3 +32,4 @@ export const uiStore = proxy<UiStore>({
   viewportQuality: 0.5,
   viewports: createEditorViewports()
 });
+

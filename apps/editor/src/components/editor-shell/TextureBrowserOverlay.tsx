@@ -23,6 +23,7 @@ import {
   type TextureGenerationModelId,
   type TextureGenerationRequest
 } from "@/lib/texture-generation";
+import { saveTextureFileToProject, isElectronMode, getProjectPath } from "@/lib/texture-fs";
 import { FloatingPanel } from "@/components/editor-shell/FloatingPanel";
 import { Button } from "@/components/ui/button";
 import {
@@ -151,9 +152,28 @@ export function TextureBrowserOverlay({
 
     try {
       setError(undefined);
-      const dataUrl = await readFileAsDataUrl(file);
+
+      let dataUrl: string;
+      let filePath: string | undefined;
+
+      // In Electron: save to project disk and use trident:// URL
+      const projectPath = await getProjectPath();
+      if (isElectronMode() && projectPath) {
+        const saved = await saveTextureFileToProject(file, projectPath);
+        if (saved) {
+          dataUrl = saved.tridentUrl;
+          filePath = saved.filePath;
+        } else {
+          dataUrl = await readFileAsDataUrl(file);
+        }
+      } else {
+        // Browser fallback: Base64 data URL
+        dataUrl = await readFileAsDataUrl(file);
+      }
+
       const texture = createTextureRecord({
         dataUrl,
+        filePath,
         kind: targetKind,
         mimeType: file.type || "image/png",
         name: stripExtension(file.name) || `${targetLabel} Texture`,

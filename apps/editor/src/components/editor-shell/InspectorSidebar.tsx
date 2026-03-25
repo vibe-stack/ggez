@@ -31,6 +31,7 @@ import { MaterialLibraryPanel } from "@/components/editor-shell/MaterialLibraryP
 import { SceneHierarchyPanel } from "@/components/editor-shell/SceneHierarchyPanel";
 import { rebaseTransformPivot } from "@/viewport/utils/geometry";
 import { readFileAsDataUrl } from "@/lib/model-assets";
+import { saveTextureFileToProject, isElectronMode, getProjectPath } from "@/lib/texture-fs";
 import { cn } from "@/lib/utils";
 import type { MeshEditMode } from "@/viewport/editing";
 import type { MeshEditToolbarActionRequest } from "@/viewport/types";
@@ -264,7 +265,17 @@ export function InspectorSidebar({
       return;
     }
 
-    const nextSource = await readFileAsDataUrl(file);
+    let nextSource: string;
+
+    // In Electron: save to project disk and use trident:// URL
+    const projectPath = await getProjectPath();
+    if (isElectronMode() && projectPath) {
+      const saved = await saveTextureFileToProject(file, projectPath);
+      nextSource = saved ? saved.tridentUrl : await readFileAsDataUrl(file);
+    } else {
+      nextSource = await readFileAsDataUrl(file);
+    }
+
     const nextWorldSettings = {
       ...draftWorldSettings,
       skybox: {

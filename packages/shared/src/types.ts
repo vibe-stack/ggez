@@ -207,6 +207,7 @@ export type TextureRecord = {
   id: string;
   createdAt: string;
   dataUrl: string;
+  filePath?: string;
   kind: TextureKind;
   mimeType?: string;
   model?: string;

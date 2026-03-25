@@ -29,12 +29,17 @@ export default defineConfig(({ mode }) => {
       createCodexBridgePlugin(),
       createEditorGameSyncPlugin(),
       createObjectGenerationApiPlugin(),
-      createTextureGenerationApiPlugin()
+      createTextureGenerationApiPlugin(),
     ],
     server: {
+      port: 5173,
+      strictPort: true,
       fs: {
         allow: [searchForWorkspaceRoot(process.cwd())]
       }
-    }
+    },
+    optimizeDeps: {
+      include: ["monaco-editor"],
+    },
   };
 });

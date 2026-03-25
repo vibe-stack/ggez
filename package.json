@@ -16,6 +16,7 @@
     "dev:website": "bun run --cwd apps/website dev",
     "build:website": "bun run --cwd apps/website build",
     "typecheck:website": "bun run --cwd apps/website typecheck",
+    "dev:electron": "bun run --cwd apps/electron-shell dev",
     "dev:animation-editor": "bun run --cwd apps/animation-editor dev",
     "build:animation-editor": "bun run --cwd apps/animation-editor build",
     "typecheck:animation-editor": "tsc -p apps/animation-editor/tsconfig.json --noEmit",

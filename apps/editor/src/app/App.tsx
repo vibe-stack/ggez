@@ -749,17 +749,36 @@ export function App() {
     }
 
     try {
+      // Always read as data URL first for bounds analysis (Three.js needs it)
       const dataUrl = await readFileAsDataUrl(file);
       const bounds = await analyzeModelSource({
         format: "glb",
         path: dataUrl
       });
+
+      let assetPath = dataUrl;
+
+      // In Electron: save GLB to project disk and use trident:// URL
+      const electronAPI = (window as any).electronAPI;
+      if (electronAPI?.isElectron) {
+        const projectPath = await electronAPI.getCurrentProject();
+        if (projectPath) {
+          const { saveBinaryToProject } = await import("@/lib/texture-fs");
+          const arrayBuffer = await file.arrayBuffer();
+          const safeName = (file.name.replace(/[^a-zA-Z0-9._-]/g, "_")) || "model.glb";
+          const saved = await saveBinaryToProject(arrayBuffer, safeName, projectPath, "models");
+          if (saved) {
+            assetPath = saved.tridentUrl;
+          }
+        }
+      }
+
       const name = file.name.replace(/\.[^.]+$/, "") || "Imported Model";
       const asset = createModelAsset({
         center: bounds.center,
         format: "glb",
         name,
-        path: dataUrl,
+        path: assetPath,
         size: bounds.size,
         source: "import"
       });

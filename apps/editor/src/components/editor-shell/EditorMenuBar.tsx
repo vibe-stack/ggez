@@ -1,4 +1,4 @@
-import { Bot, Cable, Gauge } from "lucide-react";
+import { Bot, Cable, FolderOpen, Gauge, PanelLeft } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -6,6 +6,7 @@ import {
   MenubarContent,
   MenubarItem,
   MenubarMenu,
+  MenubarSeparator,
   MenubarShortcut,
   MenubarTrigger
 } from "@/components/ui/menubar";
@@ -16,10 +17,13 @@ type EditorMenuBarProps = {
   canRedo: boolean;
   canUndo: boolean;
   copilotOpen: boolean;
+  fileBrowserOpen?: boolean;
   gameConnectionControl?: ReactNode;
+  isElectron?: boolean;
   logicViewerOpen: boolean;
   onClearSelection: () => void;
   onCreateBrush: () => void;
+  onCreateProject?: () => void;
   onDeleteSelection: () => void;
   onDuplicateSelection: () => void;
   onGroupSelection: () => void;
@@ -27,12 +31,15 @@ type EditorMenuBarProps = {
   onExportGltf: () => void;
   onFocusSelection: () => void;
   onLoadWhmap: () => void;
+  onOpenProject?: () => void;
   onRedo: () => void;
   onSaveWhmap: () => void;
   onToggleCopilot: () => void;
+  onToggleFileBrowser?: () => void;
   onToggleLogicViewer: () => void;
   onToggleViewportQuality: () => void;
   onUndo: () => void;
+  projectName?: string | null;
   viewportQuality: ViewportQuality;
 };
 
@@ -40,10 +47,13 @@ export function EditorMenuBar({
   canRedo,
   canUndo,
   copilotOpen,
+  fileBrowserOpen,
   gameConnectionControl,
+  isElectron,
   logicViewerOpen,
   onClearSelection,
   onCreateBrush,
+  onCreateProject,
   onDeleteSelection,
   onDuplicateSelection,
   onGroupSelection,
@@ -51,13 +61,16 @@ export function EditorMenuBar({
   onExportGltf,
   onFocusSelection,
   onLoadWhmap,
+  onOpenProject,
   onRedo,
   onSaveWhmap,
   onToggleCopilot,
+  onToggleFileBrowser,
   onToggleLogicViewer,
   onToggleViewportQuality,
   viewportQuality,
-  onUndo
+  onUndo,
+  projectName
 }: EditorMenuBarProps) {
   return (
     <div className="flex h-9 items-center justify-between gap-3 px-2.5">
@@ -73,6 +86,20 @@ export function EditorMenuBar({
               File
             </MenubarTrigger>
             <MenubarContent className="min-w-44 rounded-xl bg-popover/96 p-1.5 shadow-[0_18px_48px_rgba(4,12,10,0.46)] backdrop-blur-xl">
+              {isElectron && (
+                <>
+                  <MenubarItem className="rounded-lg text-xs" onClick={onOpenProject}>
+                    <FolderOpen className="mr-2 size-3.5" />
+                    Open Project
+                    <MenubarShortcut>Ctrl+O</MenubarShortcut>
+                  </MenubarItem>
+                  <MenubarItem className="rounded-lg text-xs" onClick={onCreateProject}>
+                    New Project
+                    <MenubarShortcut>Ctrl+N</MenubarShortcut>
+                  </MenubarItem>
+                  <MenubarSeparator />
+                </>
+              )}
               <MenubarItem className="rounded-lg text-xs" onClick={onCreateBrush}>
                 New Brush
               </MenubarItem>
@@ -173,6 +200,23 @@ export function EditorMenuBar({
       </div>
 
       <div className="flex shrink-0 items-center gap-3 px-2">
+        {projectName && (
+          <span className="text-[10px] font-medium tracking-wider text-foreground/35 uppercase truncate max-w-32">
+            {projectName}
+          </span>
+        )}
+        {isElectron && onToggleFileBrowser && (
+          <Button
+            aria-label="File Browser"
+            className={`size-7 rounded-lg ${fileBrowserOpen ? "text-emerald-400 hover:text-emerald-300" : "text-foreground/65 hover:text-foreground"}`}
+            onClick={onToggleFileBrowser}
+            title="Toggle File Browser"
+            size="icon-sm"
+            variant="ghost"
+          >
+            <PanelLeft className="size-3.5" />
+          </Button>
+        )}
         {gameConnectionControl}
         <Button
           aria-label={`Canvas DPR ${viewportQuality.toFixed(2)}x`}
