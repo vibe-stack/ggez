@@ -9,6 +9,7 @@ const DEFAULT_SETTINGS: CopilotSettings = {
   provider: "codex",
   gemini: { apiKey: "", model: "gemini-3-flash-preview" },
   codex: { model: "gpt-5.4" },
+  openai: { apiKey: "", baseUrl: "https://api.openai.com/v1", model: "gpt-4-turbo" },
   temperature: 0.3
 };
 
@@ -28,6 +29,7 @@ export function loadCopilotSettings(): CopilotSettings {
           model: isGeminiModel(parsed.model) ? parsed.model : DEFAULT_SETTINGS.gemini.model
         },
         codex: { ...DEFAULT_SETTINGS.codex },
+        openai: { ...DEFAULT_SETTINGS.openai },
         temperature: validTemperature(parsed.temperature)
       };
     }
@@ -40,7 +42,12 @@ export function loadCopilotSettings(): CopilotSettings {
         model: isGeminiModel(parsed.gemini?.model) ? parsed.gemini.model : DEFAULT_SETTINGS.gemini.model
       },
       codex: {
-        model: isCodexModel(parsed.codex?.model) ? parsed.codex.model : DEFAULT_SETTINGS.codex.model
+        model: typeof parsed.codex?.model === "string" ? parsed.codex.model : DEFAULT_SETTINGS.codex.model
+      },
+      openai: {
+        apiKey: typeof parsed.openai?.apiKey === "string" ? parsed.openai.apiKey : DEFAULT_SETTINGS.openai.apiKey,
+        baseUrl: typeof parsed.openai?.baseUrl === "string" ? parsed.openai.baseUrl : DEFAULT_SETTINGS.openai.baseUrl,
+        model: typeof parsed.openai?.model === "string" ? parsed.openai.model : DEFAULT_SETTINGS.openai.model
       },
       temperature: validTemperature(parsed.temperature)
     };
@@ -59,6 +66,10 @@ export function isCopilotConfigured(settings?: CopilotSettings): boolean {
   if (s.provider === "gemini") {
     return s.gemini.apiKey.length > 0;
   }
+  
+  if (s.provider === "openai") {
+    return s.openai.apiKey.length > 0;
+  }
 
   // Codex uses local login — always "configured" from the browser's perspective
   // (auth is checked server-side on connect)
@@ -66,7 +77,7 @@ export function isCopilotConfigured(settings?: CopilotSettings): boolean {
 }
 
 function isValidProvider(v: unknown): v is CopilotProviderId {
-  return v === "gemini" || v === "codex";
+  return v === "gemini" || v === "codex" || v === "openai";
 }
 
 function isGeminiModel(v: unknown): v is GeminiModelId {
@@ -74,7 +85,7 @@ function isGeminiModel(v: unknown): v is GeminiModelId {
 }
 
 function isCodexModel(v: unknown): v is CodexModelId {
-  return typeof v === "string" && (CODEX_MODELS as string[]).includes(v);
+  return typeof v === "string";
 }
 
 function validTemperature(v: unknown): number {

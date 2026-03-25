@@ -40,6 +40,8 @@ export function useCopilot(editor: EditorCore, toolContext: CopilotToolExecution
           status: "error",
           error: settings.provider === "codex"
             ? 'Codex not configured. Run "codex login" in your terminal.'
+            : settings.provider === "openai" 
+            ? "OpenAI API not configured. Open Vibe settings to add details."
             : "No API key configured. Open Vibe settings to add one."
         }));
         return;
@@ -52,8 +54,9 @@ export function useCopilot(editor: EditorCore, toolContext: CopilotToolExecution
       const systemPrompt = buildSystemPrompt(editor);
 
       const providerConfig = {
-        apiKey: settings.provider === "gemini" ? settings.gemini.apiKey : "",
-        model: settings.provider === "gemini" ? settings.gemini.model : settings.codex.model,
+        apiKey: settings.provider === "gemini" ? settings.gemini.apiKey : settings.provider === "openai" ? settings.openai.apiKey : "",
+        model: settings.provider === "gemini" ? settings.gemini.model : settings.provider === "openai" ? settings.openai.model : settings.codex.model,
+        baseUrl: settings.provider === "openai" ? settings.openai.baseUrl : undefined,
         temperature: settings.temperature
       };
 

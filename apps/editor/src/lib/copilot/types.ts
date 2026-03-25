@@ -1,9 +1,9 @@
 // ── Provider and model IDs ────────────────────────────────────
 
-export type CopilotProviderId = "gemini" | "codex";
+export type CopilotProviderId = "gemini" | "codex" | "openai";
 export type GeminiModelId = "gemini-3-flash-preview" | "gemini-3.1-pro-preview";
 export type CodexModelId = "gpt-5.4" | "gpt-5.3-codex" | "gpt-5.1-codex-max" | "gpt-4.1" | "gpt-4.1-mini" | "codex-mini-latest" | "o3" | "o4-mini";
-export type CopilotModelId = GeminiModelId | CodexModelId;
+export type CopilotModelId = GeminiModelId | CodexModelId | string;
 
 // ── Settings ──────────────────────────────────────────────────
 
@@ -11,6 +11,7 @@ export type CopilotSettings = {
   provider: CopilotProviderId;
   gemini: { apiKey: string; model: GeminiModelId };
   codex: { model: CodexModelId };
+  openai: { apiKey: string; baseUrl: string; model: string };
   temperature: number;
 };
 
@@ -49,6 +50,7 @@ export type CopilotProviderConfig = {
   apiKey: string;
   model: string;
   temperature: number;
+  baseUrl?: string;
 };
 
 export type CopilotResponse = {

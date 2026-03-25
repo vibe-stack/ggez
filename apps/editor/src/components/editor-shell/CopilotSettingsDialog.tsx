@@ -19,6 +19,7 @@ export function CopilotSettingsDialog({ onSaved }: { onSaved?: () => void }) {
   const [settings, setSettings] = useState<CopilotSettings>(loadCopilotSettings);
   const [showKey, setShowKey] = useState(false);
   const [codexStatus, setCodexStatus] = useState<CodexStatus>(null);
+  const [codexModels, setCodexModels] = useState<string[]>([]);
 
   useEffect(() => {
     if (open) {
@@ -31,6 +32,12 @@ export function CopilotSettingsDialog({ onSaved }: { onSaved?: () => void }) {
     try {
       const res = await fetch("/api/codex/status");
       setCodexStatus(await res.json());
+
+      const resModels = await fetch("/api/codex/models");
+      const modelsData = await resModels.json();
+      if (modelsData.models && modelsData.models.length > 0) {
+        setCodexModels(modelsData.models);
+      }
     } catch {
       setCodexStatus({ available: false, error: "Could not check Codex status" });
     }
@@ -80,6 +87,13 @@ export function CopilotSettingsDialog({ onSaved }: { onSaved?: () => void }) {
               >
                 Gemini API
               </Button>
+              <Button
+                className={`h-9 col-span-2 mt-1 rounded-xl text-xs ${settings.provider === "openai" ? "bg-emerald-500/18 text-emerald-200" : "text-foreground/60"}`}
+                onClick={() => setProvider("openai")}
+                variant="ghost"
+              >
+                OpenAI Compatible / Custom API
+              </Button>
             </div>
           </div>
 
@@ -126,27 +140,82 @@ export function CopilotSettingsDialog({ onSaved }: { onSaved?: () => void }) {
                 </select>
               </div>
             </>
+          ) : settings.provider === "openai" ? (
+            <>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-medium tracking-[0.18em] text-foreground/52 uppercase">
+                  Base URL
+                </label>
+                <Input
+                  className="h-10 rounded-xl border-white/10 bg-white/[0.045] text-sm font-mono"
+                  onChange={(e) => setSettings({ ...settings, openai: { ...settings.openai, baseUrl: e.target.value } })}
+                  placeholder="https://api.openai.com/v1"
+                  value={settings.openai.baseUrl}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-medium tracking-[0.18em] text-foreground/52 uppercase">
+                  API Key
+                </label>
+                <div className="relative">
+                  <Input
+                     className="h-10 rounded-xl border-white/10 bg-white/[0.045] pr-10 text-sm font-mono"
+                     onChange={(e) => setSettings({ ...settings, openai: { ...settings.openai, apiKey: e.target.value } })}
+                     placeholder="sk-..."
+                     type={showKey ? "text" : "password"}
+                     value={settings.openai.apiKey}
+                   />
+                   <Button
+                     className="absolute right-1 top-1 size-8 rounded-lg text-foreground/48"
+                     onClick={() => setShowKey(!showKey)}
+                     size="icon-sm"
+                     variant="ghost"
+                   >
+                     {showKey ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                   </Button>
+                 </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-medium tracking-[0.18em] text-foreground/52 uppercase">
+                  Model
+                </label>
+                <Input
+                  className="h-10 rounded-xl border-white/10 bg-white/[0.045] text-sm font-mono"
+                  onChange={(e) => setSettings({ ...settings, openai: { ...settings.openai, model: e.target.value } })}
+                  placeholder="gpt-4-turbo, minimax-2.7..."
+                  value={settings.openai.model}
+                />
+              </div>
+            </>
           ) : (
             <>
               <div className="space-y-1.5">
                 <label className="text-[11px] font-medium tracking-[0.18em] text-foreground/52 uppercase">
                   Model
                 </label>
-                <select
-                  className="h-10 w-full rounded-xl border border-white/10 bg-white/[0.045] px-3 text-sm text-foreground"
+                <Input
+                  className="h-10 rounded-xl border-white/10 bg-white/[0.045] pr-10 text-sm font-mono"
                   disabled={!codexStatus?.available}
+                  list="codex-models"
                   onChange={(e) => setSettings({ ...settings, codex: { ...settings.codex, model: e.target.value as CodexModelId } })}
+                  placeholder="Seleziona o scrivi il modello..."
                   value={settings.codex.model}
-                >
-                  <option value="gpt-5.4">GPT-5.4 (Flagship)</option>
-                  <option value="gpt-5.3-codex">GPT-5.3 Codex</option>
-                  <option value="gpt-5.1-codex-max">GPT-5.1 Codex Max</option>
-                  <option value="gpt-4.1">GPT-4.1</option>
-                  <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
-                  <option value="o3">o3 (Reasoning)</option>
-                  <option value="o4-mini">o4-mini (Reasoning)</option>
-                  <option value="codex-mini-latest">Codex Mini (Legacy)</option>
-                </select>
+                />
+                <datalist id="codex-models">
+                  {codexModels.length > 0 ? (
+                     codexModels.map(m => <option key={m} value={m}>{m}</option>)
+                  ) : (
+                    <>
+                      <option value="gpt-5.4">gpt-5.4</option>
+                      <option value="gpt-5.3-codex">gpt-5.3-codex</option>
+                      <option value="MiniMax-2.7">MiniMax-2.7</option>
+                      <option value="gpt-5.1-codex-max">gpt-5.1-codex-max</option>
+                      <option value="o3">o3</option>
+                    </>
+                  )}
+                </datalist>
               </div>
 
               {/* Codex status */}

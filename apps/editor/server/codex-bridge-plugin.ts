@@ -32,14 +32,21 @@ export function createCodexBridgePlugin(): Plugin {
 
 function registerCodexStatusApi(server: Pick<ViteDevServer, "middlewares"> | Pick<PreviewServer, "middlewares">) {
   server.middlewares.use(async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
-    if (req.url?.split("?")[0] !== "/api/codex/status") {
-      next();
+    if (req.url?.split("?")[0] === "/api/codex/status") {
+      const result = checkCodexAvailability();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+      return;
+    }
+    
+    if (req.url?.split("?")[0] === "/api/codex/models") {
+      const result = getCodexModels();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
       return;
     }
 
-    const result = checkCodexAvailability();
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(result));
+    next();
   });
 }
 
@@ -49,7 +56,9 @@ function checkCodexAvailability(): { available: boolean; version?: string; error
   const envPath = `${process.env.PATH}:${extraPaths.join(":")}`;
 
   try {
-    const version = execSync("codex --version", {
+    const isWindows = process.platform === "win32";
+    const bin = isWindows ? "codex.cmd" : "codex";
+    const version = execSync(`${bin} --version`, {
       encoding: "utf-8",
       timeout: 5000,
       env: { ...process.env, PATH: envPath },
@@ -58,6 +67,36 @@ function checkCodexAvailability(): { available: boolean; version?: string; error
     return { available: true, version };
   } catch {
     return { available: false, error: "Codex CLI not found. Install with: npm install -g @openai/codex" };
+  }
+}
+
+function getCodexModels(): { models: string[]; error?: string } {
+  const extraPaths = ["/opt/homebrew/bin", "/usr/local/bin", `${process.env.HOME}/.local/bin`];
+  const envPath = `${process.env.PATH}:${extraPaths.join(":")}`;
+  try {
+    const isWindows = process.platform === "win32";
+    const bin = isWindows ? "codex.cmd" : "codex";
+    const output = execSync(`${bin} models`, {
+      encoding: "utf-8",
+      timeout: 5000,
+      env: { ...process.env, PATH: envPath },
+      stdio: ["pipe", "pipe", "pipe"]
+    }).trim();
+    
+    try {
+      const json = JSON.parse(output);
+      if (Array.isArray(json)) return { models: json.map(m => typeof m === "string" ? m : (m.id || m.name || JSON.stringify(m))) };
+    } catch {
+      // Ignore JSON error
+    }
+
+    const models = output.split(/[\r\n]+/)
+      .map(line => line.trim())
+      .filter(line => line.length > 0 && !line.includes(" ") && !line.includes("Missing environment variable"));
+
+    return { models };
+  } catch (err: any) {
+    return { models: [], error: err.message };
   }
 }
 
@@ -176,10 +215,22 @@ async function startCodexSession(
   // Spawn codex app-server — extend PATH to find Homebrew/nvm binaries
   const extraPaths = ["/opt/homebrew/bin", "/usr/local/bin", `${process.env.HOME}/.local/bin`];
   const envPath = `${process.env.PATH}:${extraPaths.join(":")}`;
+  
+  const isWindows = process.platform === "win32";
+  const bin = isWindows ? "codex.cmd" : "codex";
 
-  const proc = spawn("codex", ["app-server"], {
+  const proc = spawn(bin, ["app-server"], {
     stdio: ["pipe", "pipe", "inherit"],
-    env: { ...process.env, PATH: envPath }
+    env: { ...process.env, PATH: envPath },
+    shell: isWindows
+  });
+
+  proc.on("error", (err) => {
+    sendToClient(ws, {
+      type: "error",
+      message: `Failed to start Codex: ${err.message}`,
+      fatal: true
+    });
   });
 
   const readline = createInterface({ input: proc.stdout! });
