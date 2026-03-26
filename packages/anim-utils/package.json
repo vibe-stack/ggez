@@ -1,6 +1,6 @@
 {
   "name": "@ggez/anim-utils",
-  "version": "0.1.4",
+  "version": "0.1.7",
   "description": "Shared animation utilities for the ggez animation toolchain.",
   "license": "MIT",
   "type": "module",

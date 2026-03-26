@@ -1,6 +1,6 @@
 {
   "name": "@ggez/runtime-build",
-  "version": "0.1.4",
+  "version": "0.1.7",
   "description": "Headless build utilities and CLI for compiling Web Hammer runtime bundles.",
   "license": "MIT",
   "type": "module",

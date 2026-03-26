@@ -1,6 +1,6 @@
 {
   "name": "@ggez/anim-exporter",
-  "version": "0.1.4",
+  "version": "0.1.7",
   "description": "Versioned import/export for compiled ggez animation runtime artifacts.",
   "license": "MIT",
   "type": "module",

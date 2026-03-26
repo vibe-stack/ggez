@@ -474,7 +474,16 @@ function evaluateNode(
     case "blend1d": {
       const value = Number(context.parameters.getValue(node.parameterIndex) ?? 0);
       const pair = findBlend1DChildren(node.children, value);
-      const childATime = remapBlendChildTime(context, graphIndex, nodeIndex, pair.a.nodeIndex, time, previousTime);
+      // When the selected pair resolves to a single child (exact threshold match or
+      // out-of-range clamp), skip parent-duration normalization so that clip plays at
+      // its own natural speed.  Normalizing against max(all-child-durations) when only
+      // one child is active can make a short clip play at a tiny fraction of its natural
+      // speed (e.g. a 1 s walk clip plays at ~17% speed when the blend tree also
+      // contains an 8 s idle clip).  Cross-child synchronization is still applied when
+      // two distinct children are being blended together.
+      const childATime = pair.a.nodeIndex === pair.b.nodeIndex
+        ? { time, previousTime, deltaTime: time - previousTime }
+        : remapBlendChildTime(context, graphIndex, nodeIndex, pair.a.nodeIndex, time, previousTime);
       evaluateNode(context, compiledGraph, graphIndex, pair.a.nodeIndex, childATime.time, childATime.previousTime, childATime.deltaTime, outPose, outRootMotion, fallbackPose);
       if (pair.a.nodeIndex !== pair.b.nodeIndex) {
         const tempPose = ensureScratchPose(context);

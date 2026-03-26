@@ -1,6 +1,6 @@
 {
   "name": "@ggez/gameplay-runtime",
-  "version": "0.1.4",
+  "version": "0.1.7",
   "description": "Lightweight gameplay runtime primitives and system orchestration for Web Hammer scenes.",
   "license": "MIT",
   "type": "module",

@@ -176,9 +176,26 @@ export function sampleClipRootMotionDelta(
   nextTime: number,
   mode: RootMotionMode
 ) {
+  if (mode === "none" || clip.duration <= 0 || previousTime === nextTime) {
+    return extractRootMotionDelta(
+      { x: 0, y: 0, z: 0 },
+      { x: 0, y: 0, z: 0, w: 1 },
+      { x: 0, y: 0, z: 0 },
+      { x: 0, y: 0, z: 0, w: 1 },
+      mode
+    );
+  }
+
   const rootBoneIndex = clip.rootBoneIndex ?? rig.rootBoneIndex;
   const tempA = new Float32Array(4);
   const tempB = new Float32Array(4);
+  const accumulated = extractRootMotionDelta(
+    { x: 0, y: 0, z: 0 },
+    { x: 0, y: 0, z: 0, w: 1 },
+    { x: 0, y: 0, z: 0 },
+    { x: 0, y: 0, z: 0, w: 1 },
+    mode
+  );
   const prevPose = {
     translations: new Float32Array(rig.boneNames.length * 3),
     rotations: new Float32Array(rig.boneNames.length * 4),
@@ -191,40 +208,63 @@ export function sampleClipRootMotionDelta(
     scales: new Float32Array(rig.boneNames.length * 3),
     boneCount: rig.boneNames.length
   };
-  sampleClipPose(clip, rig, previousTime, prevPose);
-  sampleClipPose(clip, rig, nextTime, nextPose);
+  let segmentStart = previousTime;
+  let remaining = nextTime - previousTime;
 
-  const prevTranslationOffset = rootBoneIndex * 3;
-  const nextTranslationOffset = rootBoneIndex * 3;
-  const prevRotationOffset = rootBoneIndex * 4;
-  const nextRotationOffset = rootBoneIndex * 4;
+  while (remaining > 1e-6) {
+    const normalizedStart = normalizeClipTime(clip, segmentStart, true);
+    const untilWrap = normalizedStart >= clip.duration ? clip.duration : clip.duration - normalizedStart;
+    const segmentDelta = Math.min(remaining, Math.max(untilWrap, 1e-6));
+    const segmentEnd = segmentStart + segmentDelta;
 
-  tempA.set(prevPose.rotations.subarray(prevRotationOffset, prevRotationOffset + 4));
-  tempB.set(nextPose.rotations.subarray(nextRotationOffset, nextRotationOffset + 4));
+    // Sample with loop=false and pre-normalized times so the clip-end sample stays at
+    // the final keyframe instead of wrapping back to t=0 at the loop boundary.
+    const normalizedEnd = Math.min(normalizedStart + segmentDelta, clip.duration);
+    sampleClipPose(clip, rig, normalizedStart, prevPose, false);
+    sampleClipPose(clip, rig, normalizedEnd, nextPose, false);
 
-  return extractRootMotionDelta(
-    {
-      x: prevPose.translations[prevTranslationOffset]!,
-      y: prevPose.translations[prevTranslationOffset + 1]!,
-      z: prevPose.translations[prevTranslationOffset + 2]!
-    },
-    {
-      x: tempA[0]!,
-      y: tempA[1]!,
-      z: tempA[2]!,
-      w: tempA[3]!
-    },
-    {
-      x: nextPose.translations[nextTranslationOffset]!,
-      y: nextPose.translations[nextTranslationOffset + 1]!,
-      z: nextPose.translations[nextTranslationOffset + 2]!
-    },
-    {
-      x: tempB[0]!,
-      y: tempB[1]!,
-      z: tempB[2]!,
-      w: tempB[3]!
-    },
-    mode
-  );
+    const prevTranslationOffset = rootBoneIndex * 3;
+    const nextTranslationOffset = rootBoneIndex * 3;
+    const prevRotationOffset = rootBoneIndex * 4;
+    const nextRotationOffset = rootBoneIndex * 4;
+
+    tempA.set(prevPose.rotations.subarray(prevRotationOffset, prevRotationOffset + 4));
+    tempB.set(nextPose.rotations.subarray(nextRotationOffset, nextRotationOffset + 4));
+
+    const segmentMotion = extractRootMotionDelta(
+      {
+        x: prevPose.translations[prevTranslationOffset]!,
+        y: prevPose.translations[prevTranslationOffset + 1]!,
+        z: prevPose.translations[prevTranslationOffset + 2]!
+      },
+      {
+        x: tempA[0]!,
+        y: tempA[1]!,
+        z: tempA[2]!,
+        w: tempA[3]!
+      },
+      {
+        x: nextPose.translations[nextTranslationOffset]!,
+        y: nextPose.translations[nextTranslationOffset + 1]!,
+        z: nextPose.translations[nextTranslationOffset + 2]!
+      },
+      {
+        x: tempB[0]!,
+        y: tempB[1]!,
+        z: tempB[2]!,
+        w: tempB[3]!
+      },
+      mode
+    );
+
+    accumulated.translation[0] += segmentMotion.translation[0]!;
+    accumulated.translation[1] += segmentMotion.translation[1]!;
+    accumulated.translation[2] += segmentMotion.translation[2]!;
+    accumulated.yaw += segmentMotion.yaw;
+
+    segmentStart = segmentEnd;
+    remaining -= segmentDelta;
+  }
+
+  return accumulated;
 }

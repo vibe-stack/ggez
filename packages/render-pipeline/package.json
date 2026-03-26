@@ -1,6 +1,6 @@
 {
   "name": "@ggez/render-pipeline",
-  "version": "0.1.4",
+  "version": "0.1.7",
   "description": "Render-facing scene derivation and viewport data structures for Web Hammer.",
   "license": "MIT",
   "type": "module",
