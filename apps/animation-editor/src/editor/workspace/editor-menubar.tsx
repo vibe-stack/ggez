@@ -13,12 +13,14 @@ import {
   MenubarTrigger,
 } from "@/components/ui/menubar";
 
+export type EditorView = "clip" | "graph" | "character";
+
 export function EditorMenubar(props: {
   store: AnimationEditorStore;
-  editorView: "clip" | "graph";
+  editorView: EditorView;
   gameConnectionControl?: ReactNode;
   onCompile: () => void;
-  onChangeEditorView: (view: "clip" | "graph") => void;
+  onChangeEditorView: (view: EditorView) => void;
   onExportRuntimeBundle: () => void;
   onSaveProject: () => void;
   onLoadProject: () => void;
@@ -128,6 +130,15 @@ export function EditorMenubar(props: {
           onClick={() => props.onChangeEditorView("graph")}
         >
           Graph Editor
+        </Button>
+        <Button
+          type="button"
+          variant={props.editorView === "character" ? "secondary" : "ghost"}
+          size="sm"
+          className={props.editorView === "character" ? "h-8 bg-white/10 px-3 text-[12px] text-zinc-50 hover:bg-white/12" : "h-8 px-3 text-[12px] text-zinc-300"}
+          onClick={() => props.onChangeEditorView("character")}
+        >
+          Character
         </Button>
       </ButtonGroup>
 
