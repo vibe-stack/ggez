@@ -59,20 +59,15 @@ Suggested responsibilities:
 ## Minimal Scene Module
 
 ```ts
-import sceneManifest from "./scene.runtime.json?raw";
 import {
-  createBundledRuntimeSceneSource,
-  defineGameScene,
-  normalizeBundledAssetUrls
+  createColocatedRuntimeSceneSource,
+  defineGameScene
 } from "../game/runtime-scene-sources";
 
-const assetUrls = normalizeBundledAssetUrls(
-  import.meta.glob("./assets/**/*", {
-    eager: true,
-    import: "default",
-    query: "?url"
-  }) as Record<string, string>
-);
+const assetUrlLoaders = import.meta.glob("./assets/**/*", {
+  import: "default",
+  query: "?url"
+}) as Record<string, () => Promise<string>>;
 
 export const mainScene = defineGameScene({
   id: "main",
@@ -81,9 +76,9 @@ export const mainScene = defineGameScene({
       setStatus("Click to capture the cursor. WASD to move, Space to jump.");
     }
   },
-  source: createBundledRuntimeSceneSource({
-    assetUrls,
-    manifestText: sceneManifest
+  source: createColocatedRuntimeSceneSource({
+    assetUrlLoaders,
+    manifestLoader: () => import("./scene.runtime.json?raw").then((module) => module.default)
   }),
   title: "Main Scene"
 });
@@ -145,6 +140,8 @@ export function createWorldStreaming(worldIndex, threeScene) {
 ## Final Advice
 
 Keep Web Hammer isolated behind a small runtime boundary in your app.
+
+The starter source helpers support lazy `load()` plus optional `preload()`. Scene modules also receive `preloadScene(...)`, and animation bundles expose `source.preload?.()` plus `bundle.preloadAssets()`.
 
 That makes it easy to:
 

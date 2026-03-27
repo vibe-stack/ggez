@@ -64,8 +64,8 @@ Then:
 1. export a runtime manifest from Web Hammer
 2. replace `src/scenes/main/scene.runtime.json`
 3. place scene assets under `src/scenes/main/assets/` if you want source-colocated scenes
-4. inspect `src/scenes/arena/` for the bundled second-scene transition example
+4. inspect `src/scenes/arena/` for the second-scene transition example and the lazy source-colocated loader pattern
 5. add custom logic in `src/scenes/main/index.ts`
-6. register more scenes in `src/scenes/index.ts`
+6. add more scene folders under `src/scenes/<scene-id>/` and more animation bundle folders under `src/animations/<bundle-id>/`
 
 Continue with [Build Pipeline](./build-pipeline.md).

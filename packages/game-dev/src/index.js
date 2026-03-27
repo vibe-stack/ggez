@@ -226,7 +226,7 @@ async function createSceneRegistryModule(options) {
   const editorSyncStorageNamespace = createEditorSyncStorageNamespace(options.projectRoot);
 
   return `
-import { createBundledRuntimeSceneSource, defineGameScene } from ${JSON.stringify("/src/game/runtime-scene-sources.ts")};
+import { createColocatedRuntimeSceneSource, defineGameScene } from ${JSON.stringify("/src/game/runtime-scene-sources.ts")};
 
 ${importLines.join("\n")}
 
@@ -239,12 +239,10 @@ const explicitScenes = Object.fromEntries(
 );
 
 const sceneManifestModules = import.meta.glob(${JSON.stringify(`${sceneRootPattern}/scene.runtime.json`)}, {
-  eager: true,
   import: "default",
   query: "?raw"
 });
 const sceneAssetModules = import.meta.glob(${JSON.stringify(`${sceneRootPattern}/assets/**/*`)}, {
-  eager: true,
   import: "default",
   query: "?url"
 });
@@ -264,7 +262,7 @@ export const initialSceneId = resolveInitialSceneId(defaultInitialSceneId, scene
 function createDiscoveredScenes(existingScenes) {
   const discovered = {};
 
-  for (const [path, manifestText] of Object.entries(sceneManifestModules)) {
+  for (const [path, manifestLoader] of Object.entries(sceneManifestModules)) {
     const folderName = extractSceneFolderName(path);
 
     if (!folderName) {
@@ -278,17 +276,21 @@ function createDiscoveredScenes(existingScenes) {
       continue;
     }
 
-    const assetUrls = Object.fromEntries(
+    if (typeof manifestLoader !== "function") {
+      continue;
+    }
+
+    const assetUrlLoaders = Object.fromEntries(
       Object.entries(sceneAssetModules)
-        .filter(([assetPath]) => assetPath.startsWith(path.replace(/scene\\.runtime\\.json$/, "assets/")))
-        .map(([assetPath, url]) => [assetPath.replace(new RegExp(\`^.+/\\\${folderName}/\`), "./"), url])
+        .filter(([assetPath, load]) => assetPath.startsWith(path.replace(/scene\\.runtime\\.json$/, "assets/")) && typeof load === "function")
+        .map(([assetPath, load]) => [assetPath.replace(new RegExp(\`^.+/\\\${folderName}/\`), "./"), load])
     );
 
     discovered[sceneId] = defineGameScene({
       id: sceneId,
-      source: createBundledRuntimeSceneSource({
-        assetUrls,
-        manifestText
+      source: createColocatedRuntimeSceneSource({
+        assetUrlLoaders,
+        manifestLoader
       }),
       title: typeof metadata.title === "string" && metadata.title.trim()
         ? metadata.title.trim()
@@ -394,7 +396,7 @@ async function createAnimationRegistryModule(options) {
   const animationRootPattern = `/${normalizePath(options.animationRoot)}/*`;
 
   return `
-import { createBundledRuntimeAnimationSource, defineGameAnimationBundle } from ${JSON.stringify("/src/game/runtime-animation-sources.ts")};
+import { createColocatedRuntimeAnimationSource, defineGameAnimationBundle } from ${JSON.stringify("/src/game/runtime-animation-sources.ts")};
 
 ${importLines.join("\n")}
 
@@ -407,17 +409,13 @@ const explicitAnimations = Object.fromEntries(
 );
 
 const animationManifestModules = import.meta.glob(${JSON.stringify(`${animationRootPattern}/animation.bundle.json`)}, {
-  eager: true,
-  import: "default",
-  query: "?raw"
+  import: "default"
 });
 const animationArtifactModules = import.meta.glob(${JSON.stringify(`${animationRootPattern}/*.animation.json`)}, {
-  eager: true,
   import: "default",
   query: "?raw"
 });
 const animationAssetModules = import.meta.glob(${JSON.stringify(`${animationRootPattern}/assets/**/*`)}, {
-  eager: true,
   import: "default",
   query: "?url"
 });
@@ -435,7 +433,7 @@ export const animations = {
 function createDiscoveredAnimations(existingAnimations) {
   const discovered = {};
 
-  for (const [path, manifestText] of Object.entries(animationManifestModules)) {
+  for (const [path, manifestLoader] of Object.entries(animationManifestModules)) {
     const folderName = extractAnimationFolderName(path);
 
     if (!folderName) {
@@ -449,24 +447,28 @@ function createDiscoveredAnimations(existingAnimations) {
       continue;
     }
 
-    const artifactText = animationArtifactModules[path.replace(/animation\\.bundle\\.json$/, "graph.animation.json")];
-
-    if (typeof artifactText !== "string") {
+    if (typeof manifestLoader !== "function") {
       continue;
     }
 
-    const assetUrls = Object.fromEntries(
+    const artifactLoader = animationArtifactModules[path.replace(/animation\\.bundle\\.json$/, "graph.animation.json")];
+
+    if (typeof artifactLoader !== "function") {
+      continue;
+    }
+
+    const assetUrlLoaders = Object.fromEntries(
       Object.entries(animationAssetModules)
-        .filter(([assetPath]) => assetPath.startsWith(path.replace(/animation\\.bundle\\.json$/, "assets/")))
-        .map(([assetPath, url]) => [assetPath.replace(new RegExp(\`^.+/\\\${folderName}/\`), "./"), url])
+        .filter(([assetPath, load]) => assetPath.startsWith(path.replace(/animation\\.bundle\\.json$/, "assets/")) && typeof load === "function")
+        .map(([assetPath, load]) => [assetPath.replace(new RegExp(\`^.+/\\\${folderName}/\`), "./"), load])
     );
 
     discovered[animationId] = defineGameAnimationBundle({
       id: animationId,
-      source: createBundledRuntimeAnimationSource({
-        assetUrls,
-        artifactText,
-        manifestText
+      source: createColocatedRuntimeAnimationSource({
+        artifactLoader,
+        assetUrlLoaders,
+        manifestLoader
       }),
       title: typeof metadata.title === "string" && metadata.title.trim()
         ? metadata.title.trim()

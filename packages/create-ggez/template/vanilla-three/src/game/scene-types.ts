@@ -9,6 +9,7 @@ import type { RuntimePhysicsSession } from "./runtime-physics";
 
 export type RuntimeSceneSource = {
   load: () => Promise<RuntimeScene>;
+  preload?: () => Promise<void>;
 };
 
 export type GameSceneLifecycle = {
@@ -20,6 +21,7 @@ export type GameSceneLifecycle = {
 export type GameSceneBootstrapContext = {
   camera: PerspectiveCamera;
   gotoScene: (sceneId: string) => Promise<void>;
+  preloadScene: (sceneId: string) => Promise<void>;
   physicsWorld: RAPIER.World;
   renderer: WebGLRenderer;
   runtimeScene: ThreeRuntimeSceneInstance;

@@ -17,7 +17,7 @@ __PACKAGE_MANAGER__ run build
 - scene registry in `src/scenes`
 - animation bundle registry in `src/animations`
 - scene-local runtime manifests and assets
-- animation-local graph/artifact manifests and assets
+- animation-local graph/artifact manifests, entry modules, and assets
 - starter capsule controller driven by runtime camera/player settings
 - static collision extraction from runtime physics definitions
 - scene-level `systems`, `mount`, and `gotoScene(...)` hooks
@@ -29,7 +29,7 @@ __PACKAGE_MANAGER__ run build
 1. Run the app and move around in the included starter scene.
 2. Replace `src/scenes/main/scene.runtime.json` with your exported runtime scene when ready.
 3. If your scene has assets, place them under `src/scenes/main/assets/`.
-4. Export animation bundles from the animation editor and unpack them into `src/animations/<animation-name>/`.
+4. Export animation bundles from the animation editor and unpack them into `src/animations/<animation-name>/`, keeping the generated `index.ts`.
 5. Inspect `src/scenes/arena/` for a second scene and the `gotoScene(...)` transition pattern.
 6. Add custom scene logic in `src/scenes/main/index.ts` and custom animation wiring in your own gameplay code.
 
@@ -47,12 +47,13 @@ __PACKAGE_MANAGER__ run build
 
 The scaffold is intentionally vanilla, but it is structured as a real game app rather than a preview playground.
 
-Animation bundles are intentionally low-level. The starter exposes discovery and loading helpers, but your game code still owns character loading, controller logic, parameter updates, and when to instantiate an animator.
+Animation bundles are intentionally low-level. The starter exposes discovery, lazy loading, and preload helpers, but your game code still owns character loading, controller logic, parameter updates, and when to instantiate an animator.
 
 Expected animation export layout:
 
 ```text
 src/animations/player-locomotion/
+	index.ts
 	animation.bundle.json
 	graph.animation.json
 	assets/
@@ -68,6 +69,7 @@ import { createAnimatorInstance } from "@ggez/anim-runtime";
 import { animations } from "./animations";
 
 const locomotionBundle = await animations["player-locomotion"].source.load();
+await locomotionBundle.preloadAssets();
 const character = await locomotionBundle.loadCharacterAsset();
 
 if (!character) {

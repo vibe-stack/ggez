@@ -119,6 +119,10 @@ async function buildZipFiles(input: {
     title: input.title
   }, null, 2)));
   files.set("graph.animation.json", strToU8(serializeAnimationArtifact(artifact)));
+  files.set("index.ts", strToU8(createRuntimeBundleIndexModule({
+    folderName: input.folderName,
+    title: input.title
+  })));
 
   const fileEntries = Array.from(assetPathsByFile.entries());
   for (const [file, relativePath] of fileEntries) {
@@ -129,6 +133,10 @@ async function buildZipFiles(input: {
 }
 
 function getMimeType(path: string): string {
+  if (path.endsWith(".ts")) {
+    return "text/plain";
+  }
+
   if (path.endsWith(".json")) {
     return "application/json";
   }
@@ -142,6 +150,34 @@ function getMimeType(path: string): string {
   }
 
   return "application/octet-stream";
+}
+
+function createRuntimeBundleIndexModule(input: {
+  folderName: string;
+  title: string;
+}) {
+  return [
+    'import {',
+    '  createColocatedRuntimeAnimationSource,',
+    '  defineGameAnimationBundle',
+    '} from "../../game/runtime-animation-sources";',
+    "",
+    'const assetUrlLoaders = import.meta.glob("./assets/**/*", {',
+    '  import: "default",',
+    '  query: "?url"',
+    '}) as Record<string, () => Promise<string>>;',
+    "",
+    "export const animationBundle = defineGameAnimationBundle({",
+    `  id: ${JSON.stringify(input.folderName)},`,
+    "  source: createColocatedRuntimeAnimationSource({",
+    '    artifactLoader: () => import("./graph.animation.json?raw").then((module) => module.default),',
+    "    assetUrlLoaders,",
+    '    manifestLoader: () => import("./animation.bundle.json").then((module) => module.default)',
+    "  }),",
+    `  title: ${JSON.stringify(input.title)}`,
+    "});",
+    ""
+  ].join("\n");
 }
 
 export async function createRuntimeBundleZip(input: {

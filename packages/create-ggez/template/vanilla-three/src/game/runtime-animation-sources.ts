@@ -17,8 +17,11 @@ type LoadedAnimationSource = {
   root: Object3D;
 };
 
+type RuntimeModuleLoader = () => Promise<unknown>;
+
 export type RuntimeAnimationBundleSource = {
   load: () => Promise<RuntimeAnimationBundle>;
+  preload?: () => Promise<void>;
 };
 
 export type GameAnimationBundleDefinition = {
@@ -43,6 +46,7 @@ export type RuntimeAnimationBundle = {
   loadClipAssetsById: (skeleton: Skeleton) => Promise<Record<string, AnimationClipAsset>>;
   loadClipAssetsByName: (skeleton: Skeleton) => Promise<Record<string, AnimationClipAsset>>;
   loadGraphClipAssets: (skeleton: Skeleton) => Promise<AnimationClipAsset[]>;
+  preloadAssets: () => Promise<void>;
 };
 
 export function defineGameAnimationBundle(definition: GameAnimationBundleDefinition) {
@@ -50,32 +54,30 @@ export function defineGameAnimationBundle(definition: GameAnimationBundleDefinit
 }
 
 export function createPublicRuntimeAnimationSource(manifestUrl: string): RuntimeAnimationBundleSource {
-  return {
-    async load() {
-      const response = await fetch(manifestUrl);
+  return createCachedRuntimeAnimationSource(async () => {
+    const response = await fetch(manifestUrl);
 
-      if (!response.ok) {
-        throw new Error(`Failed to load runtime animation bundle from ${manifestUrl}`);
-      }
-
-      const manifest = rewriteRuntimeAnimationBundleAssetUrls(
-        parseAnimationBundle(await response.json()),
-        (path) => absolutizeRuntimeUrl(path, manifestUrl)
-      );
-      const artifactUrl = absolutizeRuntimeUrl(manifest.artifact, manifestUrl);
-      const artifactResponse = await fetch(artifactUrl);
-
-      if (!artifactResponse.ok) {
-        throw new Error(`Failed to load animation artifact from ${artifactUrl}`);
-      }
-
-      return createRuntimeAnimationBundle({
-        artifact: parseAnimationArtifactJson(await artifactResponse.text()),
-        manifest,
-        resolveAssetUrl: (path) => absolutizeRuntimeUrl(path, manifestUrl)
-      });
+    if (!response.ok) {
+      throw new Error(`Failed to load runtime animation bundle from ${manifestUrl}`);
     }
-  };
+
+    const manifest = rewriteRuntimeAnimationBundleAssetUrls(
+      parseAnimationBundle(await response.json()),
+      (path) => absolutizeRuntimeUrl(path, manifestUrl)
+    );
+    const artifactUrl = absolutizeRuntimeUrl(manifest.artifact, manifestUrl);
+    const artifactResponse = await fetch(artifactUrl);
+
+    if (!artifactResponse.ok) {
+      throw new Error(`Failed to load animation artifact from ${artifactUrl}`);
+    }
+
+    return createRuntimeAnimationBundle({
+      artifact: parseAnimationArtifactJson(await artifactResponse.text()),
+      manifest,
+      resolveAssetUrl: (path) => absolutizeRuntimeUrl(path, manifestUrl)
+    });
+  });
 }
 
 export function createBundledRuntimeAnimationSource(options: {
@@ -85,27 +87,103 @@ export function createBundledRuntimeAnimationSource(options: {
 }): RuntimeAnimationBundleSource {
   const assetUrls = normalizeBundledAnimationAssetUrls(options.assetUrls);
 
-  return {
-    async load() {
-      return createRuntimeAnimationBundle({
-        artifact: parseAnimationArtifactJson(options.artifactText),
-        manifest: rewriteRuntimeAnimationBundleAssetUrls(parseAnimationBundle(JSON.parse(options.manifestText)), (path) => {
-          const normalizedPath = normalizeRelativeRuntimePath(path);
-          return assetUrls[normalizedPath] ?? path;
-        }),
-        resolveAssetUrl: (path) => {
-          const normalizedPath = normalizeRelativeRuntimePath(path);
-          return assetUrls[normalizedPath] ?? path;
-        }
+  return createCachedRuntimeAnimationSource(async () => {
+    const resolveAssetUrl = (path: string) => {
+      const normalizedPath = normalizeRelativeRuntimePath(path);
+      return assetUrls[normalizedPath] ?? path;
+    };
+
+    return createRuntimeAnimationBundle({
+      artifact: parseAnimationArtifactJson(options.artifactText),
+      manifest: rewriteRuntimeAnimationBundleAssetUrls(parseAnimationBundle(JSON.parse(options.manifestText)), resolveAssetUrl),
+      resolveAssetUrl
+    });
+  });
+}
+
+export function createColocatedRuntimeAnimationSource(options: {
+  artifactLoader: RuntimeModuleLoader;
+  assetUrlLoaders?: Record<string, RuntimeModuleLoader>;
+  manifestLoader: RuntimeModuleLoader;
+}): RuntimeAnimationBundleSource {
+  let pendingAssetUrls: Promise<Record<string, string>> | undefined;
+
+  const loadAssetUrls = () => {
+    if (!pendingAssetUrls) {
+      pendingAssetUrls = loadBundledAssetUrls(options.assetUrlLoaders).catch((error) => {
+        pendingAssetUrls = undefined;
+        throw error;
       });
     }
+
+    return pendingAssetUrls;
   };
+
+  return createCachedRuntimeAnimationSource(async () => {
+    const [manifestValue, artifactText, assetUrls] = await Promise.all([
+      options.manifestLoader(),
+      expectString(await options.artifactLoader(), "runtime animation artifact"),
+      loadAssetUrls()
+    ]);
+
+    const resolveAssetUrl = (path: string) => {
+      const normalizedPath = normalizeRelativeRuntimePath(path);
+      return assetUrls[normalizedPath] ?? path;
+    };
+
+    return createRuntimeAnimationBundle({
+      artifact: parseAnimationArtifactJson(artifactText),
+      manifest: rewriteRuntimeAnimationBundleAssetUrls(parseAnimationBundleManifest(manifestValue), resolveAssetUrl),
+      resolveAssetUrl
+    });
+  });
 }
 
 export function normalizeBundledAnimationAssetUrls(assetUrls: Record<string, string>) {
   return Object.fromEntries(
     Object.entries(assetUrls).map(([key, value]) => [normalizeRelativeRuntimePath(key), value])
   );
+}
+
+function createCachedRuntimeAnimationSource(
+  loadBundle: () => Promise<RuntimeAnimationBundle>
+): RuntimeAnimationBundleSource {
+  let pendingBundle: Promise<RuntimeAnimationBundle> | undefined;
+
+  const loadSharedBundle = () => {
+    if (!pendingBundle) {
+      pendingBundle = loadBundle().catch((error) => {
+        pendingBundle = undefined;
+        throw error;
+      });
+    }
+
+    return pendingBundle;
+  };
+
+  return {
+    load() {
+      return loadSharedBundle();
+    },
+    async preload() {
+      await loadSharedBundle();
+    }
+  };
+}
+
+async function loadBundledAssetUrls(assetUrlLoaders: Record<string, RuntimeModuleLoader> | undefined) {
+  if (!assetUrlLoaders) {
+    return {};
+  }
+
+  const entries = await Promise.all(
+    Object.entries(assetUrlLoaders).map(async ([path, load]) => [
+      path,
+      expectString(await load(), `asset url for ${path}`)
+    ] as const)
+  );
+
+  return normalizeBundledAnimationAssetUrls(Object.fromEntries(entries));
 }
 
 function createRuntimeAnimationBundle(input: {
@@ -116,15 +194,33 @@ function createRuntimeAnimationBundle(input: {
   const rig = loadRigFromArtifact(input.artifact);
   const artifactClipsById = new Map(loadClipsFromArtifact(input.artifact).map((clip) => [clip.id, clip]));
   const animationSourceCache = new Map<string, Promise<LoadedAnimationSource>>();
+  let pendingCharacterAsset: Promise<LoadedRuntimeAnimationCharacter | undefined> | undefined;
 
   const loadAnimationSourceCached = (assetUrl: string) => {
     let pending = animationSourceCache.get(assetUrl);
+
     if (!pending) {
-      pending = loadAnimationSource(assetUrl);
+      pending = loadAnimationSource(assetUrl).catch((error) => {
+        animationSourceCache.delete(assetUrl);
+        throw error;
+      });
       animationSourceCache.set(assetUrl, pending);
     }
+
     return pending;
   };
+
+  const externalAssetUrls = new Set<string>();
+
+  if (input.manifest.characterAsset) {
+    externalAssetUrls.add(resolveRuntimeAssetPath(input.manifest.characterAsset, input.resolveAssetUrl));
+  }
+
+  input.manifest.clips.forEach((clipEntry) => {
+    if (clipEntry.asset) {
+      externalAssetUrls.add(resolveRuntimeAssetPath(clipEntry.asset, input.resolveAssetUrl));
+    }
+  });
 
   return {
     artifact: input.artifact,
@@ -138,20 +234,29 @@ function createRuntimeAnimationBundle(input: {
         return undefined;
       }
 
-      const sourceUrl = resolveRuntimeAssetPath(input.manifest.characterAsset, input.resolveAssetUrl);
-      const source = await loadAnimationSourceCached(sourceUrl);
-      const skeleton = findPrimarySkeleton(source.root);
+      if (!pendingCharacterAsset) {
+        pendingCharacterAsset = (async () => {
+          const sourceUrl = resolveRuntimeAssetPath(input.manifest.characterAsset!, input.resolveAssetUrl);
+          const source = await loadAnimationSourceCached(sourceUrl);
+          const skeleton = findPrimarySkeleton(source.root);
 
-      if (!skeleton) {
-        throw new Error(`Animation character asset ${sourceUrl} does not contain a skinned skeleton.`);
+          if (!skeleton) {
+            throw new Error(`Animation character asset ${sourceUrl} does not contain a skinned skeleton.`);
+          }
+
+          return {
+            rig: createRigFromSkeleton(skeleton),
+            root: source.root,
+            skeleton,
+            sourceUrl
+          };
+        })().catch((error) => {
+          pendingCharacterAsset = undefined;
+          throw error;
+        });
       }
 
-      return {
-        rig: createRigFromSkeleton(skeleton),
-        root: source.root,
-        skeleton,
-        sourceUrl
-      };
+      return pendingCharacterAsset;
     },
     async loadClipAssetsById(skeleton: Skeleton) {
       const entries = await Promise.all(
@@ -202,6 +307,9 @@ function createRuntimeAnimationBundle(input: {
 
         return clip;
       });
+    },
+    async preloadAssets() {
+      await Promise.all(Array.from(externalAssetUrls, (assetUrl) => loadAnimationSourceCached(assetUrl)));
     }
   };
 }
@@ -326,4 +434,36 @@ function resolveAnimationClipFromSource(
   }
 
   throw new Error(`Animation asset ${assetUrl} does not contain a clip named ${clipName}.`);
+}
+
+function parseAnimationBundleManifest(value: unknown) {
+  const unwrappedValue = unwrapModuleDefault(value);
+
+  if (typeof unwrappedValue === "string") {
+    return parseAnimationBundle(JSON.parse(unwrappedValue));
+  }
+
+  if (!unwrappedValue || typeof unwrappedValue !== "object") {
+    throw new Error("Expected runtime animation manifest to resolve to JSON text or an object.");
+  }
+
+  return parseAnimationBundle(unwrappedValue as AnimationBundle);
+}
+
+function expectString(value: unknown, label: string) {
+  const unwrappedValue = unwrapModuleDefault(value);
+
+  if (typeof unwrappedValue !== "string") {
+    throw new Error(`Expected ${label} to resolve to a string.`);
+  }
+
+  return unwrappedValue;
+}
+
+function unwrapModuleDefault(value: unknown) {
+  if (value && typeof value === "object" && "default" in value) {
+    return value.default;
+  }
+
+  return value;
 }

@@ -63,7 +63,7 @@ export function createGameApp(options: GameAppOptions) {
 
   const setStatus = (message: string) => {
     status.hidden = message.length === 0;
-    status.textContent = "";
+    status.textContent = message;
   };
 
   const stepActiveScene = (deltaSeconds: number) => {
@@ -118,6 +118,21 @@ export function createGameApp(options: GameAppOptions) {
     sceneToDispose.physicsWorld.free();
   };
 
+  const preloadScene = async (sceneId: string) => {
+    const definition = options.scenes[sceneId];
+
+    if (!definition) {
+      throw new Error(`Unknown scene "${sceneId}".`);
+    }
+
+    if (definition.source.preload) {
+      await definition.source.preload();
+      return;
+    }
+
+    await definition.source.load();
+  };
+
   const loadScene = async (sceneId: string) => {
     const definition = options.scenes[sceneId];
 
@@ -153,6 +168,7 @@ export function createGameApp(options: GameAppOptions) {
         camera,
         gotoScene: loadScene,
         physicsWorld,
+        preloadScene,
         renderer,
         runtimeScene,
         scene,
@@ -196,6 +212,7 @@ export function createGameApp(options: GameAppOptions) {
           gotoScene: loadScene,
           player,
           physicsWorld,
+          preloadScene,
           renderer,
           runtimePhysics,
           runtimeScene,
@@ -244,9 +261,12 @@ export function createGameApp(options: GameAppOptions) {
         previousScene.physicsWorld.free();
       }
 
+      if (!customStatusApplied) {
+        setStatus("");
+      }
 
     } catch (error) {
-
+      setStatus(error instanceof Error ? error.message : `Failed to load ${definition.title}.`);
       throw error;
     }
   };
@@ -274,6 +294,7 @@ export function createGameApp(options: GameAppOptions) {
     dispose,
     initialSceneId: options.initialSceneId,
     loadScene,
+    preloadScene,
     renderer,
     scene,
     start,
@@ -285,6 +306,7 @@ function createBootstrapContext(options: {
   camera: THREE.PerspectiveCamera;
   gotoScene: (sceneId: string) => Promise<void>;
   physicsWorld: RAPIER.World;
+  preloadScene: (sceneId: string) => Promise<void>;
   renderer: THREE.WebGLRenderer;
   runtimeScene: ThreeRuntimeSceneInstance;
   scene: THREE.Scene;
@@ -295,6 +317,7 @@ function createBootstrapContext(options: {
     camera: options.camera,
     gotoScene: options.gotoScene,
     physicsWorld: options.physicsWorld,
+    preloadScene: options.preloadScene,
     renderer: options.renderer,
     runtimeScene: options.runtimeScene,
     scene: options.scene,
