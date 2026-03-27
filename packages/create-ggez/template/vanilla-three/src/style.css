@@ -33,18 +33,3 @@ canvas {
   width: 100vw;
   height: 100vh;
 }
-
-.game-status {
-  position: absolute;
-  left: 1rem;
-  bottom: 1rem;
-  z-index: 10;
-  max-width: min(32rem, calc(100vw - 2rem));
-  padding: 0.8rem 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 0.75rem;
-  background: rgba(8, 12, 18, 0.78);
-  color: #f4f7fb;
-  backdrop-filter: blur(12px);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
-}

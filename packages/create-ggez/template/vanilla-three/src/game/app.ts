@@ -4,7 +4,12 @@ import {
   type GameplayRuntime,
   type GameplayRuntimeSystemRegistration
 } from "@ggez/gameplay-runtime";
-import { createRapierPhysicsWorld, ensureRapierRuntimePhysics } from "@ggez/runtime-physics-rapier";
+import {
+  createCrashcatPhysicsWorld,
+  ensureCrashcatRuntimePhysics,
+  stepCrashcatPhysicsWorld,
+  type CrashcatPhysicsWorld
+} from "@ggez/runtime-physics-crashcat";
 import { createThreeRuntimeSceneInstance, type ThreeRuntimeSceneInstance } from "@ggez/three-runtime";
 import * as THREE from "three";
 import { frameCameraOnObject } from "./camera";
@@ -12,7 +17,6 @@ import { createDefaultGameplaySystems, createStarterGameplayHost, mergeGameplayS
 import { createRuntimePhysicsSession, type RuntimePhysicsSession } from "./runtime-physics";
 import type { GameSceneBootstrapContext, GameSceneDefinition, GameSceneLifecycle } from "./scene-types";
 import { StarterPlayerController } from "./starter-player-controller";
-import type RAPIER from "@dimforge/rapier3d-compat";
 
 type GameAppOptions = {
   initialSceneId: string;
@@ -26,7 +30,7 @@ type ActiveScene = {
   id: string;
   lifecycle: GameSceneLifecycle;
   player: StarterPlayerController | null;
-  physicsWorld: RAPIER.World;
+  physicsWorld: CrashcatPhysicsWorld;
   runtimePhysics: RuntimePhysicsSession;
   runtimeScene: ThreeRuntimeSceneInstance;
 };
@@ -36,15 +40,12 @@ const MAX_PHYSICS_CATCH_UP_SECONDS = FIXED_STEP_SECONDS * 4;
 
 export function createGameApp(options: GameAppOptions) {
   options.root.innerHTML = `
-    <div class="game-shell">
-      <div class="game-status" data-game-status hidden></div>
-    </div>
+    <div class="game-shell"></div>
   `;
 
   const shell = options.root.querySelector<HTMLDivElement>(".game-shell");
-  const status = options.root.querySelector<HTMLDivElement>("[data-game-status]");
 
-  if (!shell || !status) {
+  if (!shell) {
     throw new Error("Failed to initialize game shell.");
   }
 
@@ -61,10 +62,7 @@ export function createGameApp(options: GameAppOptions) {
   let currentLoadToken = 0;
   let disposed = false;
 
-  const setStatus = (message: string) => {
-    status.hidden = message.length === 0;
-    status.textContent = message;
-  };
+  const setStatus = (_message: string) => {};
 
   const stepActiveScene = (deltaSeconds: number) => {
     if (!activeScene) {
@@ -79,7 +77,7 @@ export function createGameApp(options: GameAppOptions) {
     while (activeScene.accumulatorSeconds >= FIXED_STEP_SECONDS) {
       activeScene.player?.updateBeforeStep(FIXED_STEP_SECONDS);
       activeScene.lifecycle.fixedUpdate?.(FIXED_STEP_SECONDS);
-      activeScene.physicsWorld.step();
+      stepCrashcatPhysicsWorld(activeScene.physicsWorld, FIXED_STEP_SECONDS);
       activeScene.runtimePhysics.syncVisuals();
       activeScene.player?.updateAfterStep(FIXED_STEP_SECONDS);
       activeScene.accumulatorSeconds -= FIXED_STEP_SECONDS;
@@ -115,7 +113,6 @@ export function createGameApp(options: GameAppOptions) {
     sceneToDispose.gameplayRuntime.dispose();
     sceneToDispose.runtimeScene.dispose();
     sceneToDispose.runtimePhysics.dispose();
-    sceneToDispose.physicsWorld.free();
   };
 
   const preloadScene = async (sceneId: string) => {
@@ -144,7 +141,7 @@ export function createGameApp(options: GameAppOptions) {
     setStatus(`Loading ${definition.title}...`);
 
     try {
-      await ensureRapierRuntimePhysics();
+      await ensureCrashcatRuntimePhysics();
       const runtimeManifest = await definition.source.load();
 
       if (disposed || loadToken !== currentLoadToken) {
@@ -155,12 +152,14 @@ export function createGameApp(options: GameAppOptions) {
         applyToScene: scene,
         resolveAssetUrl: ({ path }) => path
       });
-      const physicsWorld = createRapierPhysicsWorld(runtimeScene.scene.settings);
+      renderer.setClearColor(runtimeScene.scene.settings.world.fogColor || "#dfe8f2");
+      const physicsWorld = createCrashcatPhysicsWorld(runtimeScene.scene.settings);
       const runtimePhysics = createRuntimePhysicsSession({
         runtimeScene,
         world: physicsWorld
       });
       const gameplayHost = createStarterGameplayHost({
+        physicsWorld,
         runtimePhysics,
         runtimeScene
       });
@@ -199,28 +198,22 @@ export function createGameApp(options: GameAppOptions) {
         frameCameraOnObject(camera, runtimeScene.root);
       }
 
-      let customStatusApplied = false;
-      const sceneSetStatus = (message: string) => {
-        customStatusApplied = true;
-        setStatus(message);
-      };
-
-      const lifecycle =
-        (await definition.mount?.({
-          camera,
-          gameplayRuntime,
-          gotoScene: loadScene,
-          player,
-          physicsWorld,
-          preloadScene,
-          renderer,
-          runtimePhysics,
-          runtimeScene,
-          scene,
-          sceneId,
-          sceneSettings: runtimeScene.scene.settings,
-          setStatus: sceneSetStatus
-        })) ?? {};
+      const mountedLifecycle = await definition.mount?.({
+        camera,
+        gameplayRuntime,
+        gotoScene: loadScene,
+        player,
+        physicsWorld,
+        preloadScene,
+        renderer,
+        runtimePhysics,
+        runtimeScene,
+        scene,
+        sceneId,
+        sceneSettings: runtimeScene.scene.settings,
+        setStatus
+      });
+      const lifecycle: GameSceneLifecycle = mountedLifecycle ?? {};
 
       if (disposed || loadToken !== currentLoadToken) {
         scene.remove(runtimeScene.root);
@@ -232,7 +225,6 @@ export function createGameApp(options: GameAppOptions) {
         gameplayRuntime.dispose();
         runtimeScene.dispose();
         runtimePhysics.dispose();
-        physicsWorld.free();
         return;
       }
 
@@ -258,15 +250,9 @@ export function createGameApp(options: GameAppOptions) {
         previousScene.gameplayRuntime.dispose();
         previousScene.runtimeScene.dispose();
         previousScene.runtimePhysics.dispose();
-        previousScene.physicsWorld.free();
-      }
-
-      if (!customStatusApplied) {
-        setStatus("");
       }
 
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : `Failed to load ${definition.title}.`);
       throw error;
     }
   };
@@ -305,7 +291,7 @@ export function createGameApp(options: GameAppOptions) {
 function createBootstrapContext(options: {
   camera: THREE.PerspectiveCamera;
   gotoScene: (sceneId: string) => Promise<void>;
-  physicsWorld: RAPIER.World;
+  physicsWorld: CrashcatPhysicsWorld;
   preloadScene: (sceneId: string) => Promise<void>;
   renderer: THREE.WebGLRenderer;
   runtimeScene: ThreeRuntimeSceneInstance;
@@ -332,7 +318,7 @@ function createStarterPlayerController(options: {
   definition: GameSceneDefinition;
   domElement: HTMLCanvasElement;
   gameplayRuntime: GameplayRuntime;
-  physicsWorld: RAPIER.World;
+  physicsWorld: CrashcatPhysicsWorld;
   runtimeScene: ThreeRuntimeSceneInstance;
 }) {
   if (options.definition.player === false) {

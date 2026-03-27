@@ -33,7 +33,6 @@ renderPage(
       scene-types.ts
       starter-player-controller.ts
     scenes/
-      arena/
       main/
         assets/
         index.ts

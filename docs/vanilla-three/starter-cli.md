@@ -45,7 +45,7 @@ The starter includes:
 - `@ggez/three-runtime`
 - `@ggez/runtime-format`
 - `@ggez/gameplay-runtime`
-- `@ggez/runtime-physics-rapier`
+- `@ggez/runtime-physics-crashcat`
 - a scaffold-owned starter player controller that reads runtime camera/player settings
 - scene modules with `mount`, `systems`, `player`, and `gotoScene(...)`
 
@@ -64,8 +64,8 @@ Then:
 1. export a runtime manifest from Web Hammer
 2. replace `src/scenes/main/scene.runtime.json`
 3. place scene assets under `src/scenes/main/assets/` if you want source-colocated scenes
-4. inspect `src/scenes/arena/` for the second-scene transition example and the lazy source-colocated loader pattern
-5. add custom logic in `src/scenes/main/index.ts`
+4. add custom logic in `src/scenes/main/index.ts`
+5. replace or extend the starter scene manifest in `src/scenes/main/scene.runtime.json`
 6. add more scene folders under `src/scenes/<scene-id>/` and more animation bundle folders under `src/animations/<bundle-id>/`
 
 Continue with [Build Pipeline](./build-pipeline.md).

@@ -30,15 +30,15 @@ __PACKAGE_MANAGER__ run build
 2. Replace `src/scenes/main/scene.runtime.json` with your exported runtime scene when ready.
 3. If your scene has assets, place them under `src/scenes/main/assets/`.
 4. Export animation bundles from the animation editor and unpack them into `src/animations/<animation-name>/`, keeping the generated `index.ts`.
-5. Inspect `src/scenes/arena/` for a second scene and the `gotoScene(...)` transition pattern.
-6. Add custom scene logic in `src/scenes/main/index.ts` and custom animation wiring in your own gameplay code.
+5. Add custom scene logic in `src/scenes/main/index.ts` and custom animation wiring in your own gameplay code.
+6. Add more scene folders under `src/scenes/<scene-id>/` when you need more than one runtime scene.
 
 ## Runtime Packages
 
 - `@ggez/three-runtime`
 - `@ggez/runtime-format`
 - `@ggez/gameplay-runtime`
-- `@ggez/runtime-physics-rapier`
+- `@ggez/runtime-physics-crashcat`
 - `@ggez/anim-runtime`
 - `@ggez/anim-three`
 - `@ggez/anim-exporter`

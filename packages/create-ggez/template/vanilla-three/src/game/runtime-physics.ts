@@ -1,6 +1,11 @@
-import type RAPIER from "@dimforge/rapier3d-compat";
 import { deriveRenderScene, type DerivedRenderScene } from "@ggez/render-pipeline";
-import { createDynamicRigidBody, createStaticRigidBody } from "@ggez/runtime-physics-rapier";
+import {
+  createDynamicRigidBody,
+  createStaticRigidBody,
+  rigidBody,
+  type CrashcatPhysicsWorld,
+  type CrashcatRigidBody
+} from "@ggez/runtime-physics-crashcat";
 import type { Material } from "@ggez/shared";
 import type { ThreeRuntimeSceneInstance } from "@ggez/three-runtime";
 import { Matrix4, Quaternion, Vector3 } from "three";
@@ -8,22 +13,22 @@ import { Matrix4, Quaternion, Vector3 } from "three";
 export type RuntimePhysicsSession = {
   colliderCount: number;
   dispose: () => void;
-  getBody: (nodeId: string) => RAPIER.RigidBody | undefined;
+  getBody: (nodeId: string) => CrashcatRigidBody | undefined;
   renderScene: DerivedRenderScene;
   syncVisuals: () => void;
 };
 
 export function createRuntimePhysicsSession(options: {
   runtimeScene: ThreeRuntimeSceneInstance;
-  world: RAPIER.World;
+  world: CrashcatPhysicsWorld;
 }): RuntimePhysicsSession {
   const renderScene = deriveRuntimeRenderScene(options.runtimeScene);
   const physicsMeshes = renderScene.meshes.filter((mesh) => mesh.physics?.enabled);
   const physicsMeshIds = new Set(physicsMeshes.map((mesh) => mesh.nodeId));
   const staticMeshes = renderScene.meshes.filter((mesh) => !physicsMeshIds.has(mesh.nodeId));
-  const bodiesByNodeId = new Map<string, RAPIER.RigidBody>();
+  const bodiesByNodeId = new Map<string, CrashcatRigidBody>();
   const dynamicBindings: Array<{
-    body: RAPIER.RigidBody;
+    body: CrashcatRigidBody;
     object: NonNullable<ReturnType<ThreeRuntimeSceneInstance["nodesById"]["get"]>>;
   }> = [];
 
@@ -45,6 +50,10 @@ export function createRuntimePhysicsSession(options: {
   return {
     colliderCount: staticMeshes.length + physicsMeshes.length,
     dispose() {
+      for (const body of bodiesByNodeId.values()) {
+        rigidBody.remove(options.world, body);
+      }
+
       bodiesByNodeId.clear();
       dynamicBindings.length = 0;
     },
@@ -54,11 +63,11 @@ export function createRuntimePhysicsSession(options: {
     renderScene,
     syncVisuals() {
       dynamicBindings.forEach(({ body, object }) => {
-        const translation = body.translation();
-        const rotation = body.rotation();
+        const translation = body.position;
+        const rotation = body.quaternion;
         scratchWorldMatrix.compose(
-          scratchPosition.set(translation.x, translation.y, translation.z),
-          scratchQuaternion.set(rotation.x, rotation.y, rotation.z, rotation.w),
+          scratchPosition.set(translation[0], translation[1], translation[2]),
+          scratchQuaternion.set(rotation[0], rotation[1], rotation[2], rotation[3]),
           object.scale
         );
 

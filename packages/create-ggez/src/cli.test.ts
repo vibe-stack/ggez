@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -27,12 +27,16 @@ describe("create-ggez cli", () => {
     const packageJson = await readFile(join(targetDir, "app/package.json"), "utf8");
     const mainFile = await readFile(join(targetDir, "app/src/main.ts"), "utf8");
     const sceneModule = await readFile(join(targetDir, "app/src/scenes/main/index.ts"), "utf8");
+    const sceneDirectories = await readdir(join(targetDir, "app/src/scenes"));
     const readme = await readFile(join(targetDir, "app/README.md"), "utf8");
 
     expect(packageJson).toContain("\"name\": \"app\"");
     expect(packageJson).toContain("@ggez/three-runtime");
+    expect(packageJson).toContain("@ggez/runtime-physics-crashcat");
+    expect(packageJson).not.toContain("@ggez/runtime-physics-rapier");
     expect(mainFile).toContain("createGameApp");
     expect(sceneModule).toContain("createColocatedRuntimeSceneSource");
+    expect(sceneDirectories.includes("arena")).toEqual(false);
     expect(readme).toContain("npm install");
     expect(readme).toContain("npm run dev");
 

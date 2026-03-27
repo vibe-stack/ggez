@@ -1,6 +1,20 @@
 import type { GameplayRuntime } from "@ggez/gameplay-runtime";
 import { vec3, type SceneSettings, type Vec3 } from "@ggez/shared";
-import RAPIER from "@dimforge/rapier3d-compat";
+import {
+  CRASHCAT_OBJECT_LAYER_MOVING,
+  CastRayStatus,
+  MotionQuality,
+  MotionType,
+  capsule,
+  castRay,
+  createClosestCastRayCollector,
+  createDefaultCastRaySettings,
+  dof,
+  filter,
+  rigidBody,
+  type CrashcatPhysicsWorld,
+  type CrashcatRigidBody
+} from "@ggez/runtime-physics-crashcat";
 import {
   CapsuleGeometry,
   Group,
@@ -23,7 +37,7 @@ type StarterPlayerControllerOptions = {
   gameplayRuntime: GameplayRuntime;
   sceneSettings: Pick<SceneSettings, "player" | "world">;
   spawn: StarterPlayerSpawn;
-  world: RAPIER.World;
+  world: CrashcatPhysicsWorld;
 };
 
 const GROUND_MIN_NORMAL_Y = 0.45;
@@ -34,12 +48,15 @@ const JUMP_GROUND_LOCK_SECONDS = 0.12;
 export class StarterPlayerController {
   readonly object = new Group();
 
-  private readonly body: RAPIER.RigidBody;
+  private readonly body: CrashcatRigidBody;
   private readonly camera: PerspectiveCamera;
   private cameraMode: SceneSettings["player"]["cameraMode"];
   private readonly domElement: HTMLCanvasElement;
   private readonly footOffset: number;
   private readonly gameplayRuntime: GameplayRuntime;
+  private readonly groundProbeCollector = createClosestCastRayCollector();
+  private readonly groundProbeFilter: ReturnType<typeof filter.create>;
+  private readonly groundProbeSettings = createDefaultCastRaySettings();
   private readonly halfHeight: number;
   private jumpGroundLockRemaining = 0;
   private jumpQueued = false;
@@ -52,7 +69,7 @@ export class StarterPlayerController {
   private readonly standingHeight: number;
   private readonly supportVelocity = new Vector3();
   private readonly visual: Mesh;
-  private readonly world: RAPIER.World;
+  private readonly world: CrashcatPhysicsWorld;
   private yaw = 0;
 
   constructor(options: StarterPlayerControllerOptions) {
@@ -68,6 +85,10 @@ export class StarterPlayerController {
     this.footOffset = this.halfHeight + this.radius;
     this.yaw = options.spawn.rotationY;
     this.pitch = defaultPitchForCameraMode(this.cameraMode);
+    this.groundProbeFilter = filter.create(this.world.settings.layers);
+    this.groundProbeFilter.bodyFilter = (candidate) => candidate.id !== this.body.id;
+    this.groundProbeSettings.collideWithBackfaces = true;
+    this.groundProbeSettings.treatConvexAsSolid = false;
 
     const visualHeight = Math.max(0.2, this.halfHeight * 2);
     this.visual = new Mesh(
@@ -85,14 +106,21 @@ export class StarterPlayerController {
       y: options.spawn.position.y + this.standingHeight * 0.5 + 0.04,
       z: options.spawn.position.z
     };
-    const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(spawnPosition.x, spawnPosition.y, spawnPosition.z)
-      .setCanSleep(false)
-      .setCcdEnabled(true)
-      .setLinearDamping(0.8);
-    this.body = this.world.createRigidBody(bodyDesc);
-    this.body.lockRotations(true, true);
-    this.world.createCollider(RAPIER.ColliderDesc.capsule(this.halfHeight, this.radius).setFriction(0), this.body);
+    this.body = rigidBody.create(this.world, {
+      allowSleeping: false,
+      allowedDegreesOfFreedom: dof(true, true, true, false, false, false),
+      friction: 0,
+      linearDamping: 0.8,
+      motionQuality: MotionQuality.LINEAR_CAST,
+      motionType: MotionType.DYNAMIC,
+      objectLayer: CRASHCAT_OBJECT_LAYER_MOVING,
+      position: [spawnPosition.x, spawnPosition.y, spawnPosition.z],
+      shape: capsule.create({
+        halfHeightOfCylinder: this.halfHeight,
+        radius: this.radius
+      })
+    });
+    this.groundProbeFilter.bodyFilter = (candidate) => candidate.id !== this.body.id;
 
     this.visual.castShadow = true;
     this.visual.receiveShadow = true;
@@ -114,6 +142,7 @@ export class StarterPlayerController {
     window.removeEventListener("keyup", this.handleKeyUp);
     window.removeEventListener("mousemove", this.handleMouseMove);
     this.gameplayRuntime.removeActor("player");
+    rigidBody.remove(this.world, this.body);
   }
 
   releasePointerLock() {
@@ -129,15 +158,15 @@ export class StarterPlayerController {
   }
 
   updateAfterStep(deltaSeconds: number) {
-    const translation = this.body.translation();
-    this.object.position.set(translation.x, translation.y, translation.z);
+    const translation = this.body.position;
+    this.object.position.set(translation[0], translation[1], translation[2]);
     this.visual.rotation.set(0, this.yaw, 0);
     this.visual.visible = this.cameraMode !== "fps";
 
     const eyePosition = new Vector3(
-      translation.x,
-      translation.y + this.standingHeight * 0.42,
-      translation.z
+      translation[0],
+      translation[1] + this.standingHeight * 0.42,
+      translation[2]
     );
     const viewDirection = resolveViewDirection(this.yaw, this.pitch, new Vector3());
 
@@ -161,7 +190,7 @@ export class StarterPlayerController {
     this.gameplayRuntime.updateActor({
       height: this.standingHeight,
       id: "player",
-      position: vec3(translation.x, translation.y, translation.z),
+      position: vec3(translation[0], translation[1], translation[2]),
       radius: this.radius,
       tags: ["player"]
     });
@@ -169,8 +198,8 @@ export class StarterPlayerController {
 
   updateBeforeStep(deltaSeconds: number) {
     this.jumpGroundLockRemaining = Math.max(0, this.jumpGroundLockRemaining - deltaSeconds);
-    const translation = this.body.translation();
-    const linearVelocity = this.body.linvel();
+    const translation = this.body.position;
+    const linearVelocity = this.body.motionProperties.linearVelocity;
     const groundedHit = this.jumpGroundLockRemaining > 0 ? undefined : this.resolveGroundHit(translation);
     const grounded = groundedHit !== undefined;
     const speed =
@@ -196,25 +225,18 @@ export class StarterPlayerController {
       moveDirection.normalize().multiplyScalar(speed);
     }
 
-    if (groundedHit?.collider.parent()) {
-      const supportBody = groundedHit.collider.parent();
-
-      if (supportBody) {
-        const velocity = supportBody.linvel();
-        this.supportVelocity.set(velocity.x, velocity.y, velocity.z);
-      }
+    if (groundedHit) {
+      const velocity = groundedHit.body.motionProperties.linearVelocity;
+      this.supportVelocity.set(velocity[0], velocity[1], velocity[2]);
     } else {
       this.supportVelocity.set(0, 0, 0);
     }
 
-    this.body.setLinvel(
-      {
-        x: moveDirection.x + this.supportVelocity.x,
-        y: grounded && linearVelocity.y <= this.supportVelocity.y ? this.supportVelocity.y : linearVelocity.y,
-        z: moveDirection.z + this.supportVelocity.z
-      },
-      true
-    );
+    rigidBody.setLinearVelocity(this.world, this.body, [
+      moveDirection.x + this.supportVelocity.x,
+      grounded && linearVelocity[1] <= this.supportVelocity.y ? this.supportVelocity.y : linearVelocity[1],
+      moveDirection.z + this.supportVelocity.z
+    ]);
 
     if (this.jumpQueued) {
       if (this.sceneSettings.player.canJump && grounded) {
@@ -226,15 +248,12 @@ export class StarterPlayerController {
             this.sceneSettings.world.gravity.z
           )
         );
-        const currentVelocity = this.body.linvel();
-        this.body.setLinvel(
-          {
-            x: currentVelocity.x,
-            y: this.supportVelocity.y + Math.sqrt(2 * gravityMagnitude * this.sceneSettings.player.jumpHeight),
-            z: currentVelocity.z
-          },
-          true
-        );
+        const currentVelocity = this.body.motionProperties.linearVelocity;
+        rigidBody.setLinearVelocity(this.world, this.body, [
+          currentVelocity[0],
+          this.supportVelocity.y + Math.sqrt(2 * gravityMagnitude * this.sceneSettings.player.jumpHeight),
+          currentVelocity[2]
+        ]);
         this.jumpGroundLockRemaining = JUMP_GROUND_LOCK_SECONDS;
       }
 
@@ -252,31 +271,93 @@ export class StarterPlayerController {
     return this.keyState.has("ShiftLeft") || this.keyState.has("ShiftRight");
   }
 
-  private resolveGroundHit(translation: ReturnType<RAPIER.RigidBody["translation"]>) {
-    const ray = new RAPIER.Ray(
-      {
-        x: translation.x,
-        y: translation.y - this.footOffset + GROUND_PROBE_HEIGHT,
-        z: translation.z
-      },
-      { x: 0, y: -1, z: 0 }
-    );
+  private resolveGroundHit(translation: CrashcatRigidBody["position"]) {
+    for (const contact of this.world.contacts.contacts) {
+      if (contact.contactIndex < 0 || contact.numContactPoints === 0) {
+        continue;
+      }
 
-    const hit = this.world.castRayAndGetNormal(
-      ray,
-      GROUND_PROBE_DISTANCE,
-      false,
-      undefined,
-      undefined,
-      undefined,
-      this.body
-    );
+      if (contact.bodyIdA !== this.body.id && contact.bodyIdB !== this.body.id) {
+        continue;
+      }
 
-    if (!hit || hit.normal.y < GROUND_MIN_NORMAL_Y) {
-      return undefined;
+      const supportBodyId = contact.bodyIdA === this.body.id ? contact.bodyIdB : contact.bodyIdA;
+      const supportBody = rigidBody.get(this.world, supportBodyId);
+
+      if (!supportBody) {
+        continue;
+      }
+
+      const normalY = contact.bodyIdB === this.body.id ? contact.contactNormal[1] : -contact.contactNormal[1];
+
+      if (normalY < GROUND_MIN_NORMAL_Y) {
+        continue;
+      }
+
+      return {
+        body: supportBody,
+        fraction: 0,
+        normal: [0, normalY, 0] as [number, number, number]
+      };
     }
 
-    return hit;
+    const probeOriginY = translation[1] - this.footOffset + GROUND_PROBE_HEIGHT;
+    const probeOffset = this.radius + 0.05;
+
+    for (const [offsetX, offsetZ] of [
+      [probeOffset, 0],
+      [-probeOffset, 0],
+      [0, probeOffset],
+      [0, -probeOffset]
+    ] as const) {
+      const origin: [number, number, number] = [
+        translation[0] + offsetX,
+        probeOriginY,
+        translation[2] + offsetZ
+      ];
+
+      this.groundProbeCollector.reset();
+      castRay(
+        this.world,
+        this.groundProbeCollector,
+        this.groundProbeSettings,
+        origin,
+        DOWN_DIRECTION,
+        GROUND_PROBE_DISTANCE,
+        this.groundProbeFilter
+      );
+
+      const hit = this.groundProbeCollector.hit;
+
+      if (hit.status !== CastRayStatus.COLLIDING) {
+        continue;
+      }
+
+      const body = rigidBody.get(this.world, hit.bodyIdB);
+
+      if (!body || body.id === this.body.id) {
+        continue;
+      }
+
+      const hitPoint: [number, number, number] = [
+        origin[0],
+        origin[1] - GROUND_PROBE_DISTANCE * hit.fraction,
+        origin[2]
+      ];
+      const normal = rigidBody.getSurfaceNormal([0, 0, 0], body, hitPoint, hit.subShapeId);
+
+      if (Math.abs(normal[1]) < GROUND_MIN_NORMAL_Y) {
+        continue;
+      }
+
+      return {
+        body,
+        fraction: hit.fraction,
+        normal
+      };
+    }
+
+    return undefined;
   }
 
   private readonly handleCanvasClick = () => {
@@ -356,3 +437,4 @@ const scratchForward = new Vector3();
 const scratchMoveDirection = new Vector3();
 const scratchRight = new Vector3();
 const scratchViewDirection = new Vector3();
+const DOWN_DIRECTION: [number, number, number] = [0, -1, 0];

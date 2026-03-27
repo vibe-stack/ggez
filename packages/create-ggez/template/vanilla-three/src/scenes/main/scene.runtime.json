@@ -7,7 +7,7 @@
       "properties": {},
       "transform": {
         "pivot": { "x": 0, "y": 0, "z": 0 },
-        "position": { "x": 0, "y": 0.5, "z": 4 },
+        "position": { "x": 0, "y": 0.5, "z": 7 },
         "rotation": { "x": 0, "y": 3.141592653589793, "z": 0 },
         "scale": { "x": 1, "y": 1, "z": 1 }
       },
@@ -17,15 +17,32 @@
   "layers": [],
   "materials": [
     {
-      "color": "#d2d7de",
+      "color": "#d8dde3",
       "id": "material:starter:floor",
       "metallicFactor": 0,
       "name": "Starter Floor",
-      "roughnessFactor": 0.96
+      "roughnessFactor": 0.96,
+      "side": "double"
+    },
+    {
+      "color": "#6a8199",
+      "id": "material:starter:platform",
+      "metallicFactor": 0,
+      "name": "Starter Platform",
+      "roughnessFactor": 0.9,
+      "side": "double"
+    },
+    {
+      "color": "#d98f5f",
+      "id": "material:starter:block",
+      "metallicFactor": 0,
+      "name": "Starter Block",
+      "roughnessFactor": 0.88,
+      "side": "double"
     }
   ],
   "metadata": {
-    "exportedAt": "2026-03-17T10:00:00.000Z",
+    "exportedAt": "2026-03-27T12:00:00.000Z",
     "format": "web-hammer-engine",
     "version": 6
   },
@@ -51,22 +68,23 @@
         },
         "role": "brush",
         "shape": "cube",
-        "size": { "x": 20, "y": 1, "z": 20 }
+        "size": { "x": 36, "y": 1, "z": 36 }
       },
       "geometry": {
         "primitives": [
           {
-            "indices": [0, 1, 2, 0, 2, 3],
+            "indices": [0, 2, 1, 2, 3, 1, 4, 6, 5, 6, 7, 5, 8, 10, 9, 10, 11, 9, 12, 14, 13, 14, 15, 13, 16, 18, 17, 18, 19, 17, 20, 22, 21, 22, 23, 21],
             "material": {
-              "color": "#d2d7de",
+              "color": "#d8dde3",
               "id": "material:starter:floor",
               "metallicFactor": 0,
               "name": "Starter Floor",
-              "roughnessFactor": 0.96
+              "roughnessFactor": 0.96,
+              "side": "double"
             },
-            "normals": [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
-            "positions": [-10, 0, -10, 10, 0, -10, 10, 0, 10, -10, 0, 10],
-            "uvs": [0, 0, 1, 0, 1, 1, 0, 1]
+            "normals": [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1],
+            "positions": [18, 0.5, 18, 18, 0.5, -18, 18, -0.5, 18, 18, -0.5, -18, -18, 0.5, -18, -18, 0.5, 18, -18, -0.5, -18, -18, -0.5, 18, -18, 0.5, -18, 18, 0.5, -18, -18, 0.5, 18, 18, 0.5, 18, -18, -0.5, 18, 18, -0.5, 18, -18, -0.5, -18, 18, -0.5, -18, -18, 0.5, 18, 18, 0.5, 18, -18, -0.5, 18, 18, -0.5, 18, 18, 0.5, -18, -18, 0.5, -18, 18, -0.5, -18, -18, -0.5, -18],
+            "uvs": [0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0]
           }
         ]
       },
@@ -75,17 +93,170 @@
       "name": "Floor",
       "transform": {
         "pivot": { "x": 0, "y": 0, "z": 0 },
-        "position": { "x": 0, "y": 0, "z": 0 },
+        "position": { "x": 0, "y": -0.5, "z": 0 },
         "rotation": { "x": 0, "y": 0, "z": 0 },
         "scale": { "x": 1, "y": 1, "z": 1 }
       }
     },
     {
       "data": {
+        "materialId": "material:starter:platform",
+        "physics": {
+          "angularDamping": 0,
+          "bodyType": "fixed",
+          "canSleep": true,
+          "ccd": false,
+          "colliderShape": "trimesh",
+          "contactSkin": 0,
+          "enabled": true,
+          "friction": 0.9,
+          "gravityScale": 1,
+          "linearDamping": 0,
+          "lockRotations": false,
+          "lockTranslations": false,
+          "restitution": 0,
+          "sensor": false
+        },
+        "role": "brush",
+        "shape": "cube",
+        "size": { "x": 6, "y": 0.75, "z": 6 }
+      },
+      "geometry": {
+        "primitives": [
+          {
+            "indices": [0, 2, 1, 2, 3, 1, 4, 6, 5, 6, 7, 5, 8, 10, 9, 10, 11, 9, 12, 14, 13, 14, 15, 13, 16, 18, 17, 18, 19, 17, 20, 22, 21, 22, 23, 21],
+            "material": {
+              "color": "#6a8199",
+              "id": "material:starter:platform",
+              "metallicFactor": 0,
+              "name": "Starter Platform",
+              "roughnessFactor": 0.9,
+              "side": "double"
+            },
+            "normals": [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1],
+            "positions": [3, 0.375, 3, 3, 0.375, -3, 3, -0.375, 3, 3, -0.375, -3, -3, 0.375, -3, -3, 0.375, 3, -3, -0.375, -3, -3, -0.375, 3, -3, 0.375, -3, 3, 0.375, -3, -3, 0.375, 3, 3, 0.375, 3, -3, -0.375, 3, 3, -0.375, 3, -3, -0.375, -3, 3, -0.375, -3, -3, 0.375, 3, 3, 0.375, 3, -3, -0.375, 3, 3, -0.375, 3, 3, 0.375, -3, -3, 0.375, -3, 3, -0.375, -3, -3, -0.375, -3],
+            "uvs": [0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0]
+          }
+        ]
+      },
+      "id": "node:starter:platform",
+      "kind": "primitive",
+      "name": "Platform",
+      "transform": {
+        "pivot": { "x": 0, "y": 0, "z": 0 },
+        "position": { "x": 0, "y": 0.375, "z": -4 },
+        "rotation": { "x": 0, "y": 0, "z": 0 },
+        "scale": { "x": 1, "y": 1, "z": 1 }
+      }
+    },
+    {
+      "data": {
+        "materialId": "material:starter:block",
+        "physics": {
+          "angularDamping": 0,
+          "bodyType": "fixed",
+          "canSleep": true,
+          "ccd": false,
+          "colliderShape": "trimesh",
+          "contactSkin": 0,
+          "enabled": true,
+          "friction": 0.85,
+          "gravityScale": 1,
+          "linearDamping": 0,
+          "lockRotations": false,
+          "lockTranslations": false,
+          "restitution": 0,
+          "sensor": false
+        },
+        "role": "brush",
+        "shape": "cube",
+        "size": { "x": 2, "y": 2, "z": 2 }
+      },
+      "geometry": {
+        "primitives": [
+          {
+            "indices": [0, 2, 1, 2, 3, 1, 4, 6, 5, 6, 7, 5, 8, 10, 9, 10, 11, 9, 12, 14, 13, 14, 15, 13, 16, 18, 17, 18, 19, 17, 20, 22, 21, 22, 23, 21],
+            "material": {
+              "color": "#d98f5f",
+              "id": "material:starter:block",
+              "metallicFactor": 0,
+              "name": "Starter Block",
+              "roughnessFactor": 0.88,
+              "side": "double"
+            },
+            "normals": [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1],
+            "positions": [1, 1, 1, 1, 1, -1, 1, -1, 1, 1, -1, -1, -1, 1, -1, -1, 1, 1, -1, -1, -1, -1, -1, 1, -1, 1, -1, 1, 1, -1, -1, 1, 1, 1, 1, 1, -1, -1, 1, 1, -1, 1, -1, -1, -1, 1, -1, -1, -1, 1, 1, 1, 1, 1, -1, -1, 1, 1, -1, 1, 1, 1, -1, -1, 1, -1, 1, -1, -1, -1, -1, -1],
+            "uvs": [0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0]
+          }
+        ]
+      },
+      "id": "node:starter:block:left",
+      "kind": "primitive",
+      "name": "Block Left",
+      "transform": {
+        "pivot": { "x": 0, "y": 0, "z": 0 },
+        "position": { "x": -4, "y": 1, "z": -1 },
+        "rotation": { "x": 0, "y": 0, "z": 0 },
+        "scale": { "x": 1, "y": 1, "z": 1 }
+      }
+    },
+    {
+      "data": {
+        "materialId": "material:starter:block",
+        "physics": {
+          "angularDamping": 0,
+          "bodyType": "fixed",
+          "canSleep": true,
+          "ccd": false,
+          "colliderShape": "trimesh",
+          "contactSkin": 0,
+          "enabled": true,
+          "friction": 0.85,
+          "gravityScale": 1,
+          "linearDamping": 0,
+          "lockRotations": false,
+          "lockTranslations": false,
+          "restitution": 0,
+          "sensor": false
+        },
+        "role": "brush",
+        "shape": "cube",
+        "size": { "x": 2, "y": 3, "z": 2 }
+      },
+      "geometry": {
+        "primitives": [
+          {
+            "indices": [0, 2, 1, 2, 3, 1, 4, 6, 5, 6, 7, 5, 8, 10, 9, 10, 11, 9, 12, 14, 13, 14, 15, 13, 16, 18, 17, 18, 19, 17, 20, 22, 21, 22, 23, 21],
+            "material": {
+              "color": "#d98f5f",
+              "id": "material:starter:block",
+              "metallicFactor": 0,
+              "name": "Starter Block",
+              "roughnessFactor": 0.88,
+              "side": "double"
+            },
+            "normals": [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1],
+            "positions": [1, 1.5, 1, 1, 1.5, -1, 1, -1.5, 1, 1, -1.5, -1, -1, 1.5, -1, -1, 1.5, 1, -1, -1.5, -1, -1, -1.5, 1, -1, 1.5, -1, 1, 1.5, -1, -1, 1.5, 1, 1, 1.5, 1, -1, -1.5, 1, 1, -1.5, 1, -1, -1.5, -1, 1, -1.5, -1, -1, 1.5, 1, 1, 1.5, 1, -1, -1.5, 1, 1, -1.5, 1, 1, 1.5, -1, -1, 1.5, -1, 1, -1.5, -1, -1, -1.5, -1],
+            "uvs": [0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0]
+          }
+        ]
+      },
+      "id": "node:starter:block:right",
+      "kind": "primitive",
+      "name": "Block Right",
+      "transform": {
+        "pivot": { "x": 0, "y": 0, "z": 0 },
+        "position": { "x": 4, "y": 1.5, "z": 1 },
+        "rotation": { "x": 0, "y": 0.4, "z": 0 },
+        "scale": { "x": 1, "y": 1, "z": 1 }
+      }
+    },
+    {
+      "data": {
         "castShadow": true,
-        "color": "#ffffff",
+        "color": "#fff7ea",
         "enabled": true,
-        "intensity": 1.35,
+        "intensity": 1.55,
         "type": "directional"
       },
       "id": "node:starter:light:directional",
@@ -93,7 +264,7 @@
       "name": "Directional Light",
       "transform": {
         "pivot": { "x": 0, "y": 0, "z": 0 },
-        "position": { "x": 4, "y": 9, "z": 3 },
+        "position": { "x": 10, "y": 14, "z": 8 },
         "rotation": { "x": 0, "y": 0, "z": 0 },
         "scale": { "x": 1, "y": 1, "z": 1 }
       }
@@ -103,8 +274,8 @@
         "castShadow": false,
         "color": "#dfe9ff",
         "enabled": true,
-        "groundColor": "#5b6472",
-        "intensity": 0.7,
+        "groundColor": "#6a7280",
+        "intensity": 0.95,
         "type": "hemisphere"
       },
       "id": "node:starter:light:hemisphere",
@@ -112,7 +283,7 @@
       "name": "Hemisphere Light",
       "transform": {
         "pivot": { "x": 0, "y": 0, "z": 0 },
-        "position": { "x": 0, "y": 5, "z": 0 },
+        "position": { "x": 0, "y": 8, "z": 0 },
         "rotation": { "x": 0, "y": 0, "z": 0 },
         "scale": { "x": 1, "y": 1, "z": 1 }
       }
@@ -132,10 +303,10 @@
     },
     "world": {
       "ambientColor": "#f7fbff",
-      "ambientIntensity": 0.35,
-      "fogColor": "#d9e4ef",
-      "fogFar": 120,
-      "fogNear": 35,
+      "ambientIntensity": 0.5,
+      "fogColor": "#dde5ee",
+      "fogFar": 140,
+      "fogNear": 55,
       "gravity": {
         "x": 0,
         "y": -9.81,
