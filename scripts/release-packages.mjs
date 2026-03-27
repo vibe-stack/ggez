@@ -33,7 +33,6 @@ async function main() {
     }
     case "publish": {
       const publishCandidates = dryRun ? orderedPackages : orderedPackages.filter((pkg) => !isVersionPublished(pkg));
-      const publishBatches = groupPackagesForPublish(publishCandidates);
 
       if (filters.length > 0) {
         process.stdout.write(`Filtered to ${orderedPackages.length} packages: ${orderedPackages.map((pkg) => pkg.name).join(", ")}.\n`);
@@ -49,33 +48,23 @@ async function main() {
         runCommand("bun", ["run", "--cwd", pkg.dir, "build"], rootDir, pkg.name)
       );
 
-      for (const [index, batch] of publishBatches.entries()) {
-        process.stdout.write(
-          `Publishing batch ${index + 1}/${publishBatches.length} (${batch.length} packages) with concurrency ${concurrency}.\n`
-        );
+      process.stdout.write(`Publishing ${publishCandidates.length} packages sequentially.\n`);
 
-        const toPublish = [];
+      for (const pkg of publishCandidates) {
+        const args = ["publish", "--ignore-scripts"];
 
-        for (const pkg of batch) {
-          toPublish.push(pkg);
+        if (dryRun) {
+          args.push("--dry-run");
         }
 
-        await runConcurrently(toPublish, concurrency, (pkg) => {
-          const args = ["publish", "--ignore-scripts"];
+        if (pkg.name.startsWith("@")) {
+          args.push("--access", "public");
+        }
 
-          if (dryRun) {
-            args.push("--dry-run");
-          }
-
-          if (pkg.name.startsWith("@")) {
-            args.push("--access", "public");
-          }
-
-          return withPublishManifest(pkg, packageVersions, () => runPublish(pkg, args, pkg.dir));
-        });
+        withPublishManifest(pkg, packageVersions, () => runPublish(pkg, args, pkg.dir));
 
         if (!dryRun) {
-          await runConcurrently(toPublish, concurrency, (pkg) => waitUntilVersionPublished(pkg));
+          await waitUntilVersionPublished(pkg);
         }
       }
       break;
@@ -176,48 +165,6 @@ function sortPackages(packagesToSort) {
   }
 }
 
-function groupPackagesForPublish(packagesToGroup) {
-  const packageMap = new Map(packagesToGroup.map((pkg) => [pkg.name, pkg]));
-  const depthByName = new Map();
-
-  const resolveDepth = (pkg) => {
-    if (depthByName.has(pkg.name)) {
-      return depthByName.get(pkg.name);
-    }
-
-    const depth =
-      pkg.dependencies.length === 0
-        ? 0
-        : Math.max(
-            ...pkg.dependencies.map((dependencyName) => {
-              const dependency = packageMap.get(dependencyName);
-              return dependency ? resolveDepth(dependency) + 1 : 0;
-            })
-          );
-
-    depthByName.set(pkg.name, depth);
-    return depth;
-  };
-
-  for (const pkg of packagesToGroup) {
-    resolveDepth(pkg);
-  }
-
-  const batches = [];
-
-  for (const pkg of packagesToGroup) {
-    const depth = depthByName.get(pkg.name);
-
-    if (!batches[depth]) {
-      batches[depth] = [];
-    }
-
-    batches[depth].push(pkg);
-  }
-
-  return batches.filter(Boolean);
-}
-
 async function runConcurrently(items, limit, worker) {
   if (items.length === 0) {
     return [];
@@ -264,25 +211,16 @@ async function runCommand(binary, args, cwd, label) {
   });
 }
 
-async function runPublish(pkg, args, cwd) {
-  try {
-    await runCommand("npm", args, cwd, pkg.name);
-  } catch (error) {
-    if (pkg.name.startsWith("@")) {
-      const scope = pkg.name.slice(1).split("/")[0];
-      process.stderr.write(
-        [
-          "",
-          `Publish failed for ${pkg.name}.`,
-          `If npm reported E404 while publishing ${pkg.name}, the @${scope} scope usually is not one your npm user/token can publish to.`,
-          `Verify with: npm whoami`,
-          `Then confirm that you own the ${scope} npm scope or are a member of the ${scope} org with publish rights.`
-        ].join("\n")
-      );
-      process.stderr.write("\n");
-    }
+function runPublish(pkg, args, cwd) {
+  process.stdout.write(`Publishing ${pkg.name}@${pkg.version}.\n`);
 
-    throw error;
+  const result = spawnSync("npm", args, {
+    cwd,
+    stdio: "inherit"
+  });
+
+  if (result.status !== 0) {
+    throw new Error(`${pkg.name}: npm ${args.join(" ")} exited with code ${result.status ?? 1}`);
   }
 }
 
