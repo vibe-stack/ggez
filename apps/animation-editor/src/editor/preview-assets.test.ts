@@ -27,14 +27,22 @@ declare const expect: (value: unknown) => {
   toEqual(expected: unknown): void;
 };
 
-globalThis.ProgressEvent ??= class ProgressEvent {
-  type: string;
+if (!globalThis.ProgressEvent) {
+  class TestProgressEvent extends Event implements ProgressEvent<EventTarget> {
+    readonly lengthComputable: boolean;
+    readonly loaded: number;
+    readonly total: number;
 
-  constructor(type: string, init: Record<string, unknown> = {}) {
-    this.type = type;
-    Object.assign(this, init);
+    constructor(type: string, init: ProgressEventInit = {}) {
+      super(type);
+      this.lengthComputable = init.lengthComputable ?? false;
+      this.loaded = init.loaded ?? 0;
+      this.total = init.total ?? 0;
+    }
   }
-};
+
+  globalThis.ProgressEvent = TestProgressEvent as typeof ProgressEvent;
+}
 
 function createSkinnedMesh(name: string, skeleton: Skeleton): SkinnedMesh {
   const mesh = new SkinnedMesh(new BufferGeometry(), new MeshBasicMaterial());

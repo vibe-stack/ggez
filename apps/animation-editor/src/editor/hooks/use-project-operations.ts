@@ -3,7 +3,7 @@ import { slugifyProjectName } from "@ggez/dev-sync";
 import { useState } from "react";
 import type { ImportedCharacterAsset, ImportedPreviewClip } from "../preview-assets";
 import { importCharacterFile } from "../preview-assets";
-import { createProjectBundleJson, parseProjectBundleJson } from "../project-bundle";
+import { createProjectBundleArchive, parseProjectBundleFile } from "../project-bundle";
 import { createRuntimeBundleSyncResult, createRuntimeBundleZip } from "../runtime-bundle";
 import { synchronizeAnimationDocument } from "../document-sync";
 import type { AssetState } from "./use-asset-state";
@@ -59,15 +59,17 @@ export function useProjectOperations(
         id,
         file,
       }));
-      const json = await createProjectBundleJson({
+      const archive = await createProjectBundleArchive({
         document: editorDocument,
         characterFile: assets.characterSourceFile,
         clips: assets.importedClips.map((clip) => clip.asset),
         equipmentBundle: equipment.getBundle(),
         equipmentFiles,
       });
-      const fileName = `${editorDocument.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "animation-graph"}.ggezanimproj.json`;
-      const blob = new Blob([json], { type: "application/json" });
+      const fileName = `${editorDocument.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "animation-graph"}.ggezanimproj.zip`;
+      const zipBytes = new Uint8Array(archive.byteLength);
+      zipBytes.set(archive);
+      const blob = new Blob([zipBytes], { type: "application/zip" });
       const url = URL.createObjectURL(blob);
       const anchor = window.document.createElement("a");
       anchor.href = url;
@@ -166,7 +168,7 @@ export function useProjectOperations(
     try {
       a.setAssetError(null);
       a.setAssetStatus(`Loading project "${file.name}"...`);
-      const loaded = await parseProjectBundleJson(await file.text());
+      const loaded = await parseProjectBundleFile(file);
       store.setDocument(loaded.document);
 
       const clipReferencesById = new Map(loaded.document.clips.map((clip) => [clip.id, clip]));

@@ -116,7 +116,7 @@ export function AnimationEditorWorkspace(props: { store: AnimationEditorStore })
         copilotOpen={copilotOpen}
       />
 
-      <input ref={projectInputRef} type="file" accept=".json,.ggezanimproj.json" hidden onChange={(e) => void project.handleProjectLoad(e, assets)} />
+      <input ref={projectInputRef} type="file" accept=".zip,.json,.ggezanimproj.zip,.ggezanimproj.json" hidden onChange={(e) => void project.handleProjectLoad(e, assets)} />
       <input ref={characterInputRef} type="file" accept=".glb,.gltf,.fbx" hidden onChange={(e) => void assets.handleCharacterImport(e)} />
       <input ref={animationInputRef} type="file" accept=".glb,.gltf,.fbx" multiple hidden onChange={(e) => void assets.handleAnimationImport(e)} />
 
@@ -181,4 +181,3 @@ export function AnimationEditorWorkspace(props: { store: AnimationEditorStore })
     </div>
   );
 }
-

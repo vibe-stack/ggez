@@ -4,10 +4,13 @@ import {
   type AnimationEditorDocument,
   type SerializableClip
 } from "@ggez/anim-schema";
+import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import type { EquipmentBundle } from "./character-equipment";
 
 const PROJECT_BUNDLE_FORMAT = "ggez.animation.editor.project";
-const PROJECT_BUNDLE_VERSION = 1;
+const PROJECT_BUNDLE_LEGACY_VERSION = 1;
+const PROJECT_BUNDLE_VERSION = 2;
+const PROJECT_BUNDLE_MANIFEST_PATH = "project.ggezanimproj.json";
 
 type EncodedFile = {
   name: string;
@@ -15,37 +18,82 @@ type EncodedFile = {
   dataBase64: string;
 };
 
-type AnimationEditorProjectBundle = {
+type LinkedFile = {
+  name: string;
+  path: string;
+  type: string;
+};
+
+type LegacyAnimationEditorProjectBundle = {
   format: typeof PROJECT_BUNDLE_FORMAT;
-  version: typeof PROJECT_BUNDLE_VERSION;
+  version: typeof PROJECT_BUNDLE_LEGACY_VERSION;
   document: AnimationEditorDocument;
   assets: {
     characterFile?: EncodedFile;
     clips: SerializableClip[];
-    // Equipment GLB files encoded as base64 alongside the character file
     equipmentFiles?: Array<{ id: string } & EncodedFile>;
   };
-  // Optional editor extensions — missing in older bundles, always handled gracefully
   extension?: {
     equipment?: EquipmentBundle;
   };
 };
 
-export async function createProjectBundleJson(input: {
+type AnimationEditorProjectBundle = {
+  format: typeof PROJECT_BUNDLE_FORMAT;
+  version: typeof PROJECT_BUNDLE_VERSION;
+  document: AnimationEditorDocument;
+  assets: {
+    characterFile?: LinkedFile;
+    clips: SerializableClip[];
+    equipmentFiles?: Array<{ id: string } & LinkedFile>;
+  };
+  extension?: {
+    equipment?: EquipmentBundle;
+  };
+};
+
+type ParsedProjectBundle = {
+  document: AnimationEditorDocument;
+  characterFile: File | null;
+  clips: AnimationClipAsset[];
+  equipmentBundle: EquipmentBundle | null;
+  equipmentFiles: Array<{ id: string; file: File }>;
+};
+
+export async function createProjectBundleArchive(input: {
   document: AnimationEditorDocument;
   characterFile?: File | null;
   clips: AnimationClipAsset[];
   equipmentBundle?: EquipmentBundle;
   equipmentFiles?: Array<{ id: string; file: File }>;
-}): Promise<string> {
-  const equipmentFilesEncoded =
+}): Promise<Uint8Array> {
+  const files = new Map<string, Uint8Array>();
+  const assetPathsByFile = new Map<File, string>();
+  const usedAssetPaths = new Set<string>();
+
+  const reserveAssetPath = (file: File, preferredBaseName?: string) => {
+    const existingPath = assetPathsByFile.get(file);
+    if (existingPath) {
+      return existingPath;
+    }
+
+    const extension = getFileExtension(file.name);
+    const baseName = slugifySegment(preferredBaseName ?? getFileStem(file.name));
+    const relativePath = makeUniquePath(`assets/${baseName}${extension}`, usedAssetPaths);
+    assetPathsByFile.set(file, relativePath);
+    return relativePath;
+  };
+
+  const characterFile = input.characterFile
+    ? createLinkedFile(input.characterFile, reserveAssetPath(input.characterFile, `character-${getFileStem(input.characterFile.name)}`))
+    : undefined;
+
+  const equipmentFiles =
     input.equipmentFiles && input.equipmentFiles.length > 0
-      ? await Promise.all(
-          input.equipmentFiles.map(async ({ id, file }) => ({
-            id,
-            ...(await encodeFile(file)),
-          }))
-        )
+      ? input.equipmentFiles.map(({ id, file }) => ({
+          id,
+          ...createLinkedFile(file, reserveAssetPath(file, `equipment-${id}-${getFileStem(file.name)}`)),
+        }))
       : undefined;
 
   const bundle: AnimationEditorProjectBundle = {
@@ -53,53 +101,186 @@ export async function createProjectBundleJson(input: {
     version: PROJECT_BUNDLE_VERSION,
     document: structuredClone(input.document),
     assets: {
-      characterFile: input.characterFile ? await encodeFile(input.characterFile) : undefined,
+      characterFile,
       clips: input.clips.map(serializeClip),
-      equipmentFiles: equipmentFilesEncoded,
+      equipmentFiles,
     },
     extension: input.equipmentBundle
       ? { equipment: input.equipmentBundle }
       : undefined,
   };
 
-  return JSON.stringify(bundle, null, 2);
+  files.set(PROJECT_BUNDLE_MANIFEST_PATH, strToU8(JSON.stringify(bundle, null, 2)));
+
+  for (const [file, relativePath] of assetPathsByFile.entries()) {
+    files.set(relativePath, new Uint8Array(await file.arrayBuffer()));
+  }
+
+  return zipSync(Object.fromEntries(files), { level: 6 });
 }
 
-export async function parseProjectBundleJson(json: string): Promise<{
-  document: AnimationEditorDocument;
-  characterFile: File | null;
-  clips: AnimationClipAsset[];
-  equipmentBundle: EquipmentBundle | null;
-  equipmentFiles: Array<{ id: string; file: File }>;
-}> {
-  const raw = JSON.parse(json) as Partial<AnimationEditorProjectBundle>;
+export async function parseProjectBundleFile(file: File): Promise<ParsedProjectBundle> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
 
-  if (raw.format !== PROJECT_BUNDLE_FORMAT || raw.version !== PROJECT_BUNDLE_VERSION) {
+  if (isZipArchive(bytes)) {
+    return parseProjectBundleArchive(bytes);
+  }
+
+  return parseProjectBundleJson(strFromU8(bytes));
+}
+
+export async function parseProjectBundleJson(json: string): Promise<ParsedProjectBundle> {
+  return parseProjectBundleObject(JSON.parse(json) as Partial<AnimationEditorProjectBundle | LegacyAnimationEditorProjectBundle>);
+}
+
+async function parseProjectBundleArchive(bytes: Uint8Array): Promise<ParsedProjectBundle> {
+  const archive = unzipSync(bytes);
+  const manifestPath = findArchiveEntryPath(archive, PROJECT_BUNDLE_MANIFEST_PATH);
+
+  if (!manifestPath) {
+    throw new Error(`Project bundle is missing "${PROJECT_BUNDLE_MANIFEST_PATH}".`);
+  }
+
+  const raw = JSON.parse(strFromU8(archive[manifestPath]!)) as Partial<AnimationEditorProjectBundle | LegacyAnimationEditorProjectBundle>;
+  return parseProjectBundleObject(raw, async (path, name, type) => {
+    const entryPath = findArchiveEntryPath(archive, path);
+    if (!entryPath) {
+      throw new Error(`Project bundle is missing asset "${path}".`);
+    }
+
+    return new File([toArrayBuffer(archive[entryPath]!)], name, { type });
+  });
+}
+
+async function parseProjectBundleObject(
+  raw: Partial<AnimationEditorProjectBundle | LegacyAnimationEditorProjectBundle>,
+  readLinkedFile?: (path: string, name: string, type: string) => Promise<File>
+): Promise<ParsedProjectBundle> {
+  if (raw.format !== PROJECT_BUNDLE_FORMAT) {
     throw new Error("Unsupported animation editor project bundle.");
   }
 
-  const document = parseAnimationEditorDocument(raw.document);
-  const characterFile = raw.assets?.characterFile ? await decodeFile(raw.assets.characterFile) : null;
-  const clips = Array.isArray(raw.assets?.clips) ? raw.assets.clips.map(deserializeClip) : [];
+  if (raw.version === PROJECT_BUNDLE_LEGACY_VERSION) {
+    return parseLegacyProjectBundle(raw as Partial<LegacyAnimationEditorProjectBundle>);
+  }
 
+  if (raw.version !== PROJECT_BUNDLE_VERSION) {
+    throw new Error("Unsupported animation editor project bundle.");
+  }
+
+  if (!readLinkedFile) {
+    throw new Error("Project bundle references external assets but no archive was provided.");
+  }
+
+  const document = parseAnimationEditorDocument(raw.document);
+  const characterFile = raw.assets?.characterFile
+    ? await readLinkedFile(raw.assets.characterFile.path, raw.assets.characterFile.name, raw.assets.characterFile.type)
+    : null;
+  const clips = Array.isArray(raw.assets?.clips) ? raw.assets.clips.map(deserializeClip) : [];
   const equipmentFiles = raw.assets?.equipmentFiles
     ? await Promise.all(
-        raw.assets.equipmentFiles.map(async (ef) => ({
-          id: ef.id,
-          file: await decodeFile(ef),
+        raw.assets.equipmentFiles.map(async (file) => ({
+          id: file.id,
+          file: await readLinkedFile(file.path, file.name, file.type),
         }))
       )
     : [];
-
-  const equipmentBundle = raw.extension?.equipment ?? null;
 
   return {
     document,
     characterFile,
     clips,
-    equipmentBundle,
+    equipmentBundle: raw.extension?.equipment ?? null,
     equipmentFiles,
   };
+}
+
+async function parseLegacyProjectBundle(raw: Partial<LegacyAnimationEditorProjectBundle>): Promise<ParsedProjectBundle> {
+  const document = parseAnimationEditorDocument(raw.document);
+  const characterFile = raw.assets?.characterFile ? await decodeFile(raw.assets.characterFile) : null;
+  const clips = Array.isArray(raw.assets?.clips) ? raw.assets.clips.map(deserializeClip) : [];
+  const equipmentFiles = raw.assets?.equipmentFiles
+    ? await Promise.all(
+        raw.assets.equipmentFiles.map(async (file) => ({
+          id: file.id,
+          file: await decodeFile(file),
+        }))
+      )
+    : [];
+
+  return {
+    document,
+    characterFile,
+    clips,
+    equipmentBundle: raw.extension?.equipment ?? null,
+    equipmentFiles,
+  };
+}
+
+function createLinkedFile(file: File, path: string): LinkedFile {
+  return {
+    name: file.name,
+    path,
+    type: file.type,
+  };
+}
+
+function findArchiveEntryPath(archive: Record<string, Uint8Array>, requestedPath: string): string | null {
+  const normalizedRequestedPath = normalizeArchivePath(requestedPath);
+
+  for (const entryPath of Object.keys(archive)) {
+    if (normalizeArchivePath(entryPath) === normalizedRequestedPath) {
+      return entryPath;
+    }
+  }
+
+  return null;
+}
+
+function normalizeArchivePath(path: string): string {
+  return path.replace(/^\.?\//, "").replace(/\\/g, "/");
+}
+
+function isZipArchive(bytes: Uint8Array): boolean {
+  return bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b;
+}
+
+function slugifySegment(value: string): string {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return normalized || "asset";
+}
+
+function getFileExtension(fileName: string): string {
+  const extension = fileName.split(".").pop()?.toLowerCase();
+  return extension ? `.${extension}` : "";
+}
+
+function getFileStem(fileName: string): string {
+  return fileName.replace(/\.[^.]+$/, "");
+}
+
+function makeUniquePath(basePath: string, usedPaths: Set<string>): string {
+  if (!usedPaths.has(basePath)) {
+    usedPaths.add(basePath);
+    return basePath;
+  }
+
+  const extension = getFileExtension(basePath);
+  const stem = extension ? basePath.slice(0, -extension.length) : basePath;
+  let suffix = 2;
+
+  while (usedPaths.has(`${stem}-${suffix}${extension}`)) {
+    suffix += 1;
+  }
+
+  const nextPath = `${stem}-${suffix}${extension}`;
+  usedPaths.add(nextPath);
+  return nextPath;
 }
 
 function serializeClip(clip: AnimationClipAsset): SerializableClip {
@@ -138,31 +319,9 @@ function deserializeClip(clip: SerializableClip): AnimationClipAsset {
   };
 }
 
-async function encodeFile(file: File): Promise<EncodedFile> {
-  const buffer = await file.arrayBuffer();
-  return {
-    name: file.name,
-    type: file.type,
-    dataBase64: uint8ArrayToBase64(new Uint8Array(buffer))
-  };
-}
-
 async function decodeFile(file: EncodedFile): Promise<File> {
   const bytes = base64ToUint8Array(file.dataBase64);
-  const buffer = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(buffer).set(bytes);
-  return new File([buffer], file.name, { type: file.type });
-}
-
-function uint8ArrayToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  const chunkSize = 32768;
-
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
-  }
-
-  return btoa(binary);
+  return new File([toArrayBuffer(bytes)], file.name, { type: file.type });
 }
 
 function base64ToUint8Array(value: string): Uint8Array {
@@ -174,4 +333,8 @@ function base64ToUint8Array(value: string): Uint8Array {
   }
 
   return bytes;
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
