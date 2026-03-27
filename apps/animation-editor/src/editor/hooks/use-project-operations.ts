@@ -8,6 +8,7 @@ import { createRuntimeBundleSyncResult, createRuntimeBundleZip } from "../runtim
 import { synchronizeAnimationDocument } from "../document-sync";
 import type { AssetState } from "./use-asset-state";
 import type { useGameConnection } from "./use-game-connection";
+import type { UseEquipmentStateReturn } from "./use-equipment-state";
 
 export type ProjectOperations = {
   projectName: string;
@@ -24,6 +25,7 @@ export type ProjectOperations = {
 export function useProjectOperations(
   store: AnimationEditorStore,
   assets: AssetState,
+  equipment: UseEquipmentStateReturn,
   gameConnection: ReturnType<typeof useGameConnection>
 ): ProjectOperations {
   const [projectName, setProjectName] = useState(() => store.getState().document.name || "Untitled Animation");
@@ -53,10 +55,16 @@ export function useProjectOperations(
       assets.setAssetError(null);
       assets.setAssetStatus("Saving project bundle...");
       const editorDocument = synchronizeAnimationDocument(store.getState().document, assets.importedClips);
+      const equipmentFiles = [...equipment.filesRef.current.entries()].map(([id, file]) => ({
+        id,
+        file,
+      }));
       const json = await createProjectBundleJson({
         document: editorDocument,
         characterFile: assets.characterSourceFile,
         clips: assets.importedClips.map((clip) => clip.asset),
+        equipmentBundle: equipment.getBundle(),
+        equipmentFiles,
       });
       const fileName = `${editorDocument.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "animation-graph"}.ggezanimproj.json`;
       const blob = new Blob([json], { type: "application/json" });
@@ -198,6 +206,13 @@ export function useProjectOperations(
       a.setCharacter(nextCharacter);
       a.setCharacterSourceFile(loaded.characterFile);
       a.setImportedClips(restoredClips);
+
+      // Restore equipment sockets, items, and GLB files
+      if (loaded.equipmentBundle) {
+        equipment.restoreFromBundle(loaded.equipmentBundle, loaded.equipmentFiles);
+      } else {
+        equipment.restoreFromBundle({ sockets: [], items: [] }, []);
+      }
       setProjectName(loaded.document.name || "Untitled Animation");
       setProjectSlug(slugifyProjectName(loaded.document.name || "Untitled Animation"));
       setProjectSlugDirty(false);

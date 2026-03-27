@@ -7,6 +7,7 @@ import { CopilotPanel } from "./copilot/CopilotPanel";
 import { useAssetState } from "./hooks/use-asset-state";
 import { useCopilotPanelDrag } from "./hooks/use-copilot-panel-drag";
 import { useCopilot } from "./hooks/use-copilot";
+import { useEquipmentState } from "./hooks/use-equipment-state";
 import { useGameConnection } from "./hooks/use-game-connection";
 import { useProjectOperations } from "./hooks/use-project-operations";
 import { EditorMenubar, type EditorView } from "./workspace/editor-menubar";
@@ -25,7 +26,8 @@ export function AnimationEditorWorkspace(props: { store: AnimationEditorStore })
   const copilotPanelRef = useRef<HTMLDivElement | null>(null);
 
   const assets = useAssetState(store, setEditorView);
-  const project = useProjectOperations(store, assets, gameConnection);
+  const equipment = useEquipmentState();
+  const project = useProjectOperations(store, assets, equipment, gameConnection);
   const { copilotPosition, beginCopilotDrag, updateCopilotBounds } = useCopilotPanelDrag(workspaceRef, copilotPanelRef, copilotOpen);
 
   const characterInputRef = useRef<HTMLInputElement | null>(null);
@@ -145,7 +147,12 @@ export function AnimationEditorWorkspace(props: { store: AnimationEditorStore })
             workspaceRef={workspaceRef}
           />
         ) : (
-          <CharacterWorkspace character={assets.character} />
+          <CharacterWorkspace
+            store={store}
+            character={assets.character}
+            importedClips={assets.importedClips}
+            equipment={equipment}
+          />
         )}
 
         {copilotOpen ? (

@@ -4,6 +4,7 @@ import {
   type AnimationEditorDocument,
   type SerializableClip
 } from "@ggez/anim-schema";
+import type { EquipmentBundle } from "./character-equipment";
 
 const PROJECT_BUNDLE_FORMAT = "ggez.animation.editor.project";
 const PROJECT_BUNDLE_VERSION = 1;
@@ -21,6 +22,12 @@ type AnimationEditorProjectBundle = {
   assets: {
     characterFile?: EncodedFile;
     clips: SerializableClip[];
+    // Equipment GLB files encoded as base64 alongside the character file
+    equipmentFiles?: Array<{ id: string } & EncodedFile>;
+  };
+  // Optional editor extensions — missing in older bundles, always handled gracefully
+  extension?: {
+    equipment?: EquipmentBundle;
   };
 };
 
@@ -28,15 +35,31 @@ export async function createProjectBundleJson(input: {
   document: AnimationEditorDocument;
   characterFile?: File | null;
   clips: AnimationClipAsset[];
+  equipmentBundle?: EquipmentBundle;
+  equipmentFiles?: Array<{ id: string; file: File }>;
 }): Promise<string> {
+  const equipmentFilesEncoded =
+    input.equipmentFiles && input.equipmentFiles.length > 0
+      ? await Promise.all(
+          input.equipmentFiles.map(async ({ id, file }) => ({
+            id,
+            ...(await encodeFile(file)),
+          }))
+        )
+      : undefined;
+
   const bundle: AnimationEditorProjectBundle = {
     format: PROJECT_BUNDLE_FORMAT,
     version: PROJECT_BUNDLE_VERSION,
     document: structuredClone(input.document),
     assets: {
       characterFile: input.characterFile ? await encodeFile(input.characterFile) : undefined,
-      clips: input.clips.map(serializeClip)
-    }
+      clips: input.clips.map(serializeClip),
+      equipmentFiles: equipmentFilesEncoded,
+    },
+    extension: input.equipmentBundle
+      ? { equipment: input.equipmentBundle }
+      : undefined,
   };
 
   return JSON.stringify(bundle, null, 2);
@@ -46,6 +69,8 @@ export async function parseProjectBundleJson(json: string): Promise<{
   document: AnimationEditorDocument;
   characterFile: File | null;
   clips: AnimationClipAsset[];
+  equipmentBundle: EquipmentBundle | null;
+  equipmentFiles: Array<{ id: string; file: File }>;
 }> {
   const raw = JSON.parse(json) as Partial<AnimationEditorProjectBundle>;
 
@@ -57,10 +82,23 @@ export async function parseProjectBundleJson(json: string): Promise<{
   const characterFile = raw.assets?.characterFile ? await decodeFile(raw.assets.characterFile) : null;
   const clips = Array.isArray(raw.assets?.clips) ? raw.assets.clips.map(deserializeClip) : [];
 
+  const equipmentFiles = raw.assets?.equipmentFiles
+    ? await Promise.all(
+        raw.assets.equipmentFiles.map(async (ef) => ({
+          id: ef.id,
+          file: await decodeFile(ef),
+        }))
+      )
+    : [];
+
+  const equipmentBundle = raw.extension?.equipment ?? null;
+
   return {
     document,
     characterFile,
-    clips
+    clips,
+    equipmentBundle,
+    equipmentFiles,
   };
 }
 
