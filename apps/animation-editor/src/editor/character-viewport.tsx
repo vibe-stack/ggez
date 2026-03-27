@@ -193,8 +193,9 @@ export function CharacterViewport({ store, character, importedClips, playback, e
     const tc = new TransformControls(camera, renderer.domElement);
     transformControlsRef.current = tc;
     tc.setSize(0.8);
-    // TransformControls extends Object3D but the type isn't fully compatible across versions
-    scene.add(tc as unknown as import("three").Object3D);
+    // In Three.js r155+, TransformControls extends Controls (not Object3D).
+    // The renderable gizmo lives in tc.getHelper() — add that to the scene.
+    scene.add(tc.getHelper());
     tc.addEventListener("dragging-changed", (event) => {
       const dragging = (event as unknown as { value: boolean }).value;
       isDraggingRef.current = dragging;
