@@ -157,6 +157,7 @@ export function ViewportCanvas({
   aiModelPlacementArmed,
   activeToolId,
   dprScale,
+  hiddenSceneItemIds = [],
   isActiveViewport,
   meshEditMode,
   meshEditToolbarAction,
@@ -2990,11 +2991,11 @@ export function ViewportCanvas({
         ) : null}
         {renderMode === "lit" && editorInteractionEnabled ? <axesHelper args={[3]} /> : null}
         <ScenePreview
-          hiddenNodeIds={
+          hiddenSceneItemIds={
             selectedNode &&
             (arcState || bevelState || extrudeState?.kind === "brush-mesh" || extrudeState?.kind === "mesh")
-              ? [selectedNode.id]
-              : []
+              ? [...hiddenSceneItemIds, selectedNode.id]
+              : hiddenSceneItemIds
           }
           interactive={activeToolId !== "brush" && activeToolId !== "mesh-edit" && activeToolId !== "path-add" && activeToolId !== "path-edit" && viewport.projection === "perspective" && editorInteractionEnabled}
           onFocusNode={onFocusNode}

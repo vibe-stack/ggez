@@ -66,8 +66,12 @@ type EditorShellProps = {
   canRedo: boolean;
   canUndo: boolean;
   editor: EditorCore;
+  effectiveHiddenSceneItemIds: string[];
+  effectiveLockedSceneItemIds: string[];
   gridSnapValues: readonly GridSnapValue[];
+  hiddenSceneItemIds: string[];
   jobs: WorkerJob[];
+  lockedSceneItemIds: string[];
   meshEditMode: MeshEditMode;
   meshEditToolbarAction?: MeshEditToolbarActionRequest;
   sculptMode?: "deflate" | "inflate" | null;
@@ -120,6 +124,8 @@ type EditorShellProps = {
   onSelectMaterial: (materialId: string) => void;
   onSelectScenePath: (pathId: string | undefined) => void;
   onStartAiModelPlacement: () => void;
+  onToggleSceneItemLock: (itemId: string) => void;
+  onToggleSceneItemVisibility: (itemId: string) => void;
   onSetUvOffset: (scope: "faces" | "object", faceIds: string[], uvOffset: Vec2) => void;
   onSetUvScale: (scope: "faces" | "object", faceIds: string[], uvScale: Vec2) => void;
   onSelectNodes: (nodeIds: string[]) => void;
@@ -188,8 +194,12 @@ export function EditorShell({
   canRedo,
   canUndo,
   editor,
+  effectiveHiddenSceneItemIds,
+  effectiveLockedSceneItemIds,
   gridSnapValues,
+  hiddenSceneItemIds,
   jobs,
+  lockedSceneItemIds,
   meshEditMode,
   meshEditToolbarAction,
   sculptMode,
@@ -242,6 +252,8 @@ export function EditorShell({
   onSelectMaterial,
   onSelectScenePath,
   onStartAiModelPlacement,
+  onToggleSceneItemLock,
+  onToggleSceneItemVisibility,
   onSetUvOffset,
   onSetUvScale,
   onSelectNodes,
@@ -323,6 +335,7 @@ export function EditorShell({
           aiModelPlacementArmed={aiModelPlacementArmed}
           activeToolId={activeToolId}
           dprScale={resolveViewportDprScale(viewportQuality)}
+          hiddenSceneItemIds={effectiveHiddenSceneItemIds}
           isActiveViewport={activeViewportId === viewportId}
           meshEditMode={meshEditMode}
           meshEditToolbarAction={meshEditToolbarAction}
@@ -474,7 +487,11 @@ export function EditorShell({
           activeRightPanel={activeRightPanel}
           activeToolId={activeToolId}
           assets={assets}
+          effectiveHiddenSceneItemIds={effectiveHiddenSceneItemIds}
+          effectiveLockedSceneItemIds={effectiveLockedSceneItemIds}
           entities={entities}
+          hiddenSceneItemIds={hiddenSceneItemIds}
+          lockedSceneItemIds={lockedSceneItemIds}
           materials={materials}
           meshEditMode={meshEditMode}
           nodes={nodes}
@@ -493,6 +510,8 @@ export function EditorShell({
           onSelectScenePath={onSelectScenePath}
           onSelectNodes={onSelectNodes}
           onSetToolId={onSetToolId}
+          onToggleSceneItemLock={onToggleSceneItemLock}
+          onToggleSceneItemVisibility={onToggleSceneItemVisibility}
           onSetUvOffset={onSetUvOffset}
           onSetUvScale={onSetUvScale}
           onUpdateMeshData={onUpdateMeshData}

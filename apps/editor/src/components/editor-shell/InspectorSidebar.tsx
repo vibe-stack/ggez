@@ -40,7 +40,11 @@ type InspectorSidebarProps = {
   activeRightPanel: RightPanelId | null;
   activeToolId: ToolId;
   assets: Array<{ id: string; path: string; type: string }>;
+  effectiveHiddenSceneItemIds: string[];
+  effectiveLockedSceneItemIds: string[];
   entities: Entity[];
+  hiddenSceneItemIds: string[];
+  lockedSceneItemIds: string[];
   materials: Material[];
   meshEditMode: MeshEditMode;
   nodes: GeometryNode[];
@@ -59,6 +63,8 @@ type InspectorSidebarProps = {
   onSelectScenePath: (pathId: string | undefined) => void;
   onSelectNodes: (nodeIds: string[]) => void;
   onSetToolId: (toolId: ToolId) => void;
+  onToggleSceneItemLock: (itemId: string) => void;
+  onToggleSceneItemVisibility: (itemId: string) => void;
   onSetUvOffset: (scope: "faces" | "object", faceIds: string[], uvOffset: { x: number; y: number }) => void;
   onSetUvScale: (scope: "faces" | "object", faceIds: string[], uvScale: { x: number; y: number }) => void;
   onUpdateMeshData: (nodeId: string, mesh: EditableMesh, beforeMesh?: EditableMesh) => void;
@@ -99,7 +105,11 @@ export function InspectorSidebar({
   activeRightPanel,
   activeToolId,
   assets,
+  effectiveHiddenSceneItemIds,
+  effectiveLockedSceneItemIds,
   entities,
+  hiddenSceneItemIds,
+  lockedSceneItemIds,
   materials,
   meshEditMode,
   nodes,
@@ -118,6 +128,8 @@ export function InspectorSidebar({
   onSelectScenePath,
   onSelectNodes,
   onSetToolId,
+  onToggleSceneItemLock,
+  onToggleSceneItemVisibility,
   onSetUvOffset,
   onSetUvScale,
   onTranslateSelection,
@@ -439,11 +451,17 @@ export function InspectorSidebar({
               {sceneSection === "hierarchy" ? (
                 <div className="min-h-0 flex-1">
                   <SceneHierarchyPanel
+                    effectiveHiddenSceneItemIds={effectiveHiddenSceneItemIds}
+                    effectiveLockedSceneItemIds={effectiveLockedSceneItemIds}
                     entities={entities}
+                    hiddenSceneItemIds={hiddenSceneItemIds}
                     interactive={selectionEnabled}
+                    lockedSceneItemIds={lockedSceneItemIds}
                     nodes={nodes}
                     onFocusNode={onFocusNode}
                     onSelectNodes={onSelectNodes}
+                    onToggleSceneItemLock={onToggleSceneItemLock}
+                    onToggleSceneItemVisibility={onToggleSceneItemVisibility}
                     selectedNodeIds={selectedNodeIds}
                   />
                 </div>

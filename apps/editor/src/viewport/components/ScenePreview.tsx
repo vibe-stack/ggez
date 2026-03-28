@@ -57,7 +57,7 @@ const tempInstanceMatrix = new Matrix4();
 const tempPivotMatrix = new Matrix4();
 const tempInstanceColor = new Color();
 export function ScenePreview({
-  hiddenNodeIds = [],
+  hiddenSceneItemIds = [],
   interactive,
   onFocusNode,
   onMeshObjectChange,
@@ -72,7 +72,7 @@ export function ScenePreview({
   selectedPathId,
   selectedNodeIds
 }: {
-  hiddenNodeIds?: string[];
+  hiddenSceneItemIds?: string[];
   interactive: boolean;
   onFocusNode: (nodeId: string) => void;
   onMeshObjectChange: (nodeId: string, object: Object3D | null) => void;
@@ -88,10 +88,10 @@ export function ScenePreview({
   selectedNodeIds: string[];
 }) {
   const [hoveredNodeId, setHoveredNodeId] = useState<string>();
-  const hiddenIds = useMemo(() => new Set(hiddenNodeIds), [hiddenNodeIds]);
+  const hiddenIds = useMemo(() => new Set(hiddenSceneItemIds), [hiddenSceneItemIds]);
   const selectedIdSet = useMemo(() => new Set(selectedNodeIds), [selectedNodeIds]);
   const physicsActive = renderMode === "lit" && physicsPlayback !== "stopped" && sceneSettings.world.physicsEnabled;
-  const { physicsPropMeshes, playerSpawn, staticMeshes, visibleEntityMarkers, visibleInstancedMeshes } = useMemo(() => {
+  const { physicsPropMeshes, playerSpawn, staticMeshes, visibleEntityMarkers, visibleGroups, visibleInstancedMeshes, visibleLights } = useMemo(() => {
     const nextPlayerSpawn = physicsActive
       ? renderScene.entityMarkers.find((entity) => entity.entityType === "player-spawn")
       : undefined;
@@ -104,21 +104,25 @@ export function ScenePreview({
     );
     const nextVisibleEntityMarkers =
       physicsActive && nextPlayerSpawn
-        ? renderScene.entityMarkers.filter((entity) => entity.entityId !== nextPlayerSpawn.entityId)
-        : renderScene.entityMarkers;
+        ? renderScene.entityMarkers.filter((entity) => !hiddenIds.has(entity.entityId) && entity.entityId !== nextPlayerSpawn.entityId)
+        : renderScene.entityMarkers.filter((entity) => !hiddenIds.has(entity.entityId));
+    const nextVisibleGroups = renderScene.groups.filter((group) => !hiddenIds.has(group.nodeId));
     const nextVisibleInstancedMeshes = renderScene.instancedMeshes
       .map((batch) => ({
         ...batch,
         instances: batch.instances.filter((instance) => !hiddenIds.has(instance.nodeId))
       }))
       .filter((batch) => batch.instances.length > 0);
+    const nextVisibleLights = renderScene.lights.filter((light) => !hiddenIds.has(light.nodeId));
 
     return {
       physicsPropMeshes: nextPhysicsPropMeshes,
       playerSpawn: nextPlayerSpawn,
       staticMeshes: nextStaticMeshes,
       visibleEntityMarkers: nextVisibleEntityMarkers,
-      visibleInstancedMeshes: nextVisibleInstancedMeshes
+      visibleGroups: nextVisibleGroups,
+      visibleInstancedMeshes: nextVisibleInstancedMeshes,
+      visibleLights: nextVisibleLights
     };
   }, [hiddenIds, physicsActive, renderScene]);
 
@@ -234,7 +238,7 @@ export function ScenePreview({
         );
       })}
 
-      {renderScene.groups.map((group) => (
+      {visibleGroups.map((group) => (
         <RenderGroupNode
           hovered={hoveredNodeId === group.nodeId}
           interactive={interactive}
@@ -248,7 +252,7 @@ export function ScenePreview({
         />
       ))}
 
-      {renderScene.lights.map((light) => (
+      {visibleLights.map((light) => (
         <RenderLightNode
           hovered={hoveredNodeId === light.nodeId}
           interactive={interactive}

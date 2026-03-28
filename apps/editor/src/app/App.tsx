@@ -62,6 +62,7 @@ import {
   type MeshNode,
   type ModelNode,
   type PrimitiveNodeData,
+  resolveSceneGraph,
   snapVec3,
   vec2,
   vec3,
@@ -118,6 +119,7 @@ import {
   resolvePrimitiveNodeBounds
 } from "@/lib/model-assets";
 import { createEditableMeshFromPlane, createEditableMeshFromPrimitiveData } from "@/lib/primitive-to-mesh";
+import { resolveEffectiveSceneItemIds, toggleSceneItemId } from "@/lib/scene-hierarchy";
 import {
   focusViewportOnPoint,
   resolveVisibleViewportPaneIds,
@@ -153,6 +155,8 @@ export function App() {
   const [projectName, setProjectName] = useState("Untitled Scene");
   const [projectSlug, setProjectSlug] = useState("untitled-scene");
   const [projectSlugDirty, setProjectSlugDirty] = useState(false);
+  const [hiddenSceneItemIds, setHiddenSceneItemIds] = useState<string[]>([]);
+  const [lockedSceneItemIds, setLockedSceneItemIds] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const glbImportInputRef = useRef<HTMLInputElement | null>(null);
   const renderSceneCacheRef = useRef(createDerivedRenderSceneCache());
@@ -172,12 +176,54 @@ export function App() {
     [editor, sceneRevision]
   );
   const spatialAnalysis = useMemo(() => analyzeSceneSpatialLayout(editor.scene), [editor, sceneRevision]);
+  const sceneNodes = useMemo(() => Array.from(editor.scene.nodes.values()), [editor, sceneRevision]);
+  const sceneEntities = useMemo(() => Array.from(editor.scene.entities.values()), [editor, sceneRevision]);
+  const sceneItemIdSet = useMemo(
+    () => new Set<string>([...sceneNodes.map((node) => node.id), ...sceneEntities.map((entity) => entity.id)]),
+    [sceneEntities, sceneNodes]
+  );
+  const effectiveHiddenSceneItemIds = useMemo(
+    () => resolveEffectiveSceneItemIds(sceneNodes, sceneEntities, hiddenSceneItemIds),
+    [hiddenSceneItemIds, sceneEntities, sceneNodes]
+  );
+  const effectiveLockedSceneItemIds = useMemo(
+    () => resolveEffectiveSceneItemIds(sceneNodes, sceneEntities, lockedSceneItemIds),
+    [lockedSceneItemIds, sceneEntities, sceneNodes]
+  );
+  const blockedSceneItemIdSet = useMemo(
+    () => new Set<string>([...effectiveHiddenSceneItemIds, ...effectiveLockedSceneItemIds]),
+    [effectiveHiddenSceneItemIds, effectiveLockedSceneItemIds]
+  );
   const resolvedProjectName = projectName.trim() || "Untitled Scene";
   const resolvedProjectSlug = slugifyProjectName(projectSlug.trim() || resolvedProjectName);
 
   useEditorSubscriptions(editor, setSceneRevision, setSelectionRevision);
 
   useEffect(() => workerManager.subscribe(setWorkerJobs), [workerManager]);
+
+  useEffect(() => {
+    const filterValidIds = (currentIds: string[]) => {
+      const nextIds = currentIds.filter((id) => sceneItemIdSet.has(id));
+      return nextIds.length === currentIds.length ? currentIds : nextIds;
+    };
+
+    setHiddenSceneItemIds(filterValidIds);
+    setLockedSceneItemIds(filterValidIds);
+  }, [sceneItemIdSet]);
+
+  useEffect(() => {
+    if (editor.selection.ids.length === 0) {
+      return;
+    }
+
+    const nextSelection = editor.selection.ids.filter((id) => !blockedSceneItemIdSet.has(id));
+
+    if (nextSelection.length === editor.selection.ids.length) {
+      return;
+    }
+
+    editor.select(nextSelection, "object");
+  }, [blockedSceneItemIdSet, editor, selectionRevision]);
 
   useEffect(() => {
     if (!aiModelDraft) {
@@ -212,7 +258,15 @@ export function App() {
       return;
     }
 
-    editor.select(nodeIds, "object");
+    editor.select(nodeIds.filter((nodeId) => !blockedSceneItemIdSet.has(nodeId)), "object");
+  };
+
+  const handleToggleSceneItemVisibility = (itemId: string) => {
+    setHiddenSceneItemIds((currentIds) => toggleSceneItemId(currentIds, itemId));
+  };
+
+  const handleToggleSceneItemLock = (itemId: string) => {
+    setLockedSceneItemIds((currentIds) => toggleSceneItemId(currentIds, itemId));
   };
 
   const handleSetToolId = (toolId: ToolId) => {
@@ -1554,8 +1608,12 @@ export function App() {
         aiModelPromptBusy={false}
         aiModelPromptError={aiModelDraft?.error}
         activeViewportId={ui.activeViewportId}
+        effectiveHiddenSceneItemIds={effectiveHiddenSceneItemIds}
+        effectiveLockedSceneItemIds={effectiveLockedSceneItemIds}
+        hiddenSceneItemIds={hiddenSceneItemIds}
         canRedo={editor.commands.canRedo()}
         canUndo={editor.commands.canUndo()}
+        lockedSceneItemIds={lockedSceneItemIds}
         editor={editor}
         gridSnapValues={gridSnapValues}
         jobs={[...workerJobs, ...exportJobs]}
@@ -1607,6 +1665,8 @@ export function App() {
         onSelectMaterial={handleSelectMaterial}
         onSelectScenePath={setSelectedScenePathId}
         onStartAiModelPlacement={handleArmAiModelPlacement}
+        onToggleSceneItemLock={handleToggleSceneItemLock}
+        onToggleSceneItemVisibility={handleToggleSceneItemVisibility}
         onSetUvOffset={handleSetMaterialUvOffset}
         onSetUvScale={handleSetMaterialUvScale}
         onSelectNodes={handleSelectNodes}

@@ -39,6 +39,7 @@ export type ViewportCanvasProps = {
   aiModelPlacementArmed: boolean;
   activeToolId: ToolId;
   dprScale: number;
+  hiddenSceneItemIds?: string[];
   isActiveViewport: boolean;
   meshEditMode: MeshEditMode;
   meshEditToolbarAction?: MeshEditToolbarActionRequest;
