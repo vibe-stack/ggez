@@ -2,7 +2,9 @@ import type { EditableMesh, FaceID, Vec3, VertexID } from "@ggez/shared";
 import {
   createEditableMeshFromPolygons,
   getMeshPolygons,
+  insertPointsOnPolygonEdge,
   lerpVec3,
+  makeUndirectedEdgeKey,
   orientPolygonLoops
 } from "./shared";
 import type { MeshPolygonData, OrientedEditablePolygon } from "./types";
@@ -25,16 +27,51 @@ export function subdivideEditableMeshFace(
     return undefined;
   }
 
+  const boundaryInsertionsByEdgeKey = new Map(
+    createSubdivisionBoundarySamples(target, targetCuts + 1)
+      .filter((sample) => sample.points.length > 0)
+      .map((sample) => [
+        makeUndirectedEdgeKey(sample.edge[0], sample.edge[1]),
+        {
+          edge: sample.edge,
+          points: sample.points.map((point) => ({
+            id: point.id,
+            position: point.position
+          }))
+        }
+      ] as const)
+  );
   const nextPolygons: Array<OrientedEditablePolygon & { vertexIds: VertexID[] }> = polygons
     .filter((polygon) => polygon.id !== faceId)
-    .map((polygon) => ({
-      expectedNormal: polygon.normal,
-      id: polygon.id,
-      materialId: polygon.materialId,
-      positions: polygon.positions,
-      uvScale: polygon.uvScale,
-      vertexIds: [...polygon.vertexIds]
-    }));
+    .map((polygon) => {
+      let nextPolygon: OrientedEditablePolygon & { vertexIds: VertexID[] } = {
+        expectedNormal: polygon.normal,
+        id: polygon.id,
+        materialId: polygon.materialId,
+        positions: polygon.positions,
+        uvScale: polygon.uvScale,
+        vertexIds: [...polygon.vertexIds]
+      };
+
+      boundaryInsertionsByEdgeKey.forEach(({ edge, points }, edgeKey) => {
+        const matchingEdgeIndex = nextPolygon.vertexIds.findIndex((vertexId, index) => {
+          const nextVertexId = nextPolygon.vertexIds[(index + 1) % nextPolygon.vertexIds.length];
+          return makeUndirectedEdgeKey(vertexId, nextVertexId) === edgeKey;
+        });
+
+        if (matchingEdgeIndex < 0) {
+          return;
+        }
+
+        nextPolygon = insertPointsOnPolygonEdge(
+          nextPolygon,
+          edge,
+          points
+        );
+      });
+
+      return nextPolygon;
+    });
 
   const boundarySamples = createSubdivisionBoundarySamples(target, targetCuts + 1);
   const subdividedPolygons =

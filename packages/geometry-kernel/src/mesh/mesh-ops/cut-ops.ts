@@ -1,13 +1,13 @@
 import type { EditableMesh, FaceID, Vec3, VertexID } from "@ggez/shared";
-import { crossVec3, dotVec3, normalizeVec3, snapValue, subVec3, vec3 } from "@ggez/shared";
+import { snapValue, vec3 } from "@ggez/shared";
 import {
   areAdjacentEdgeIndices,
   createEditableMeshFromPolygons,
-  createFacePlaneBasis,
+  createFaceAlignedPlaneBasis,
   expandPolygonWithInsertedMidpoints,
   findEdgeIndex,
-  getMeshPolygonWithInsertedPoint,
   getMeshPolygons,
+  insertPointsOnPolygonEdge,
   lerpVec3,
   midpoint,
   orientPolygonLoops,
@@ -40,12 +40,13 @@ export function cutEditableMeshBetweenEdges(
 
   const firstMidpoint = midpoint(target.positions[firstIndex], target.positions[(firstIndex + 1) % target.positions.length]);
   const secondMidpoint = midpoint(target.positions[secondIndex], target.positions[(secondIndex + 1) % target.positions.length]);
+  const [firstCutVertexId, secondCutVertexId] = buildCutVertexIds(target.id, firstIndex, secondIndex);
   const expanded = expandPolygonWithInsertedMidpoints(target, [
-    { edgeIndex: firstIndex, id: "__cut_a__", position: firstMidpoint },
-    { edgeIndex: secondIndex, id: "__cut_b__", position: secondMidpoint }
+    { edgeIndex: firstIndex, id: firstCutVertexId, position: firstMidpoint },
+    { edgeIndex: secondIndex, id: secondCutVertexId, position: secondMidpoint }
   ]);
-  const cutAIndex = expanded.vertexIds.indexOf("__cut_a__");
-  const cutBIndex = expanded.vertexIds.indexOf("__cut_b__");
+  const cutAIndex = expanded.vertexIds.indexOf(firstCutVertexId);
+  const cutBIndex = expanded.vertexIds.indexOf(secondCutVertexId);
 
   if (cutAIndex < 0 || cutBIndex < 0) {
     return undefined;
@@ -60,20 +61,33 @@ export function cutEditableMeshBetweenEdges(
     return undefined;
   }
 
-  const nextPolygons = polygons
+  const nextPolygons: OrientedEditablePolygon[] = polygons
     .filter((polygon) => polygon.id !== target.id)
     .map((polygon) => {
-      const containsFirstEdge = findEdgeIndex(polygon.vertexIds, edges[0]) >= 0;
-      const containsSecondEdge = findEdgeIndex(polygon.vertexIds, edges[1]) >= 0;
-      const firstPassPolygon = containsFirstEdge ? getMeshPolygonWithInsertedPoint(polygon, edges[0], firstMidpoint) : polygon;
-      const secondPassPolygon = containsSecondEdge ? getMeshPolygonWithInsertedPoint(firstPassPolygon, edges[1], secondMidpoint) : firstPassPolygon;
+      let nextPolygon: OrientedEditablePolygon & { vertexIds: VertexID[] } = {
+        expectedNormal: polygon.normal,
+        id: polygon.id,
+        materialId: polygon.materialId,
+        positions: polygon.positions.map((position) => vec3(position.x, position.y, position.z)),
+        uvScale: polygon.uvScale,
+        vertexIds: [...polygon.vertexIds]
+      };
+
+      if (findEdgeIndex(polygon.vertexIds, edges[0]) >= 0) {
+        nextPolygon = insertPointsOnPolygonEdge(nextPolygon, edges[0], [{ id: firstCutVertexId, position: firstMidpoint }]);
+      }
+
+      if (findEdgeIndex(polygon.vertexIds, edges[1]) >= 0) {
+        nextPolygon = insertPointsOnPolygonEdge(nextPolygon, edges[1], [{ id: secondCutVertexId, position: secondMidpoint }]);
+      }
 
       return {
-        id: secondPassPolygon.id,
-        materialId: polygon.materialId,
-        positions: secondPassPolygon.positions.map((position) => vec3(position.x, position.y, position.z)),
-        uvScale: polygon.uvScale,
-        vertexIds: [...secondPassPolygon.vertexIds]
+        expectedNormal: nextPolygon.expectedNormal,
+        id: nextPolygon.id,
+        materialId: nextPolygon.materialId,
+        positions: nextPolygon.positions,
+        uvScale: nextPolygon.uvScale,
+        vertexIds: nextPolygon.vertexIds
       };
     });
 
@@ -94,7 +108,7 @@ export function cutEditableMeshBetweenEdges(
     }
   );
 
-  return createEditableMeshFromPolygons(nextPolygons);
+  return createEditableMeshFromPolygons(orientPolygonLoops(nextPolygons));
 }
 
 export function buildEditableMeshFaceCutPreview(
@@ -129,20 +143,25 @@ export function cutEditableMeshFace(
     return undefined;
   }
 
+  const [firstCutVertexId, secondCutVertexId] = buildCutVertexIds(
+    resolvedCut.target.id,
+    resolvedCut.firstEdgeIndex,
+    resolvedCut.secondEdgeIndex
+  );
   const expanded = expandPolygonWithInsertedMidpoints(resolvedCut.target, [
     {
       edgeIndex: resolvedCut.firstEdgeIndex,
-      id: "__cut_a__",
+      id: firstCutVertexId,
       position: resolvedCut.firstPoint
     },
     {
       edgeIndex: resolvedCut.secondEdgeIndex,
-      id: "__cut_b__",
+      id: secondCutVertexId,
       position: resolvedCut.secondPoint
     }
   ]);
-  const cutAIndex = expanded.vertexIds.indexOf("__cut_a__");
-  const cutBIndex = expanded.vertexIds.indexOf("__cut_b__");
+  const cutAIndex = expanded.vertexIds.indexOf(firstCutVertexId);
+  const cutBIndex = expanded.vertexIds.indexOf(secondCutVertexId);
 
   if (cutAIndex < 0 || cutBIndex < 0) {
     return undefined;
@@ -160,22 +179,34 @@ export function cutEditableMeshFace(
   const nextPolygons: OrientedEditablePolygon[] = getMeshPolygons(mesh)
     .filter((polygon) => polygon.id !== resolvedCut.target.id)
     .map((polygon) => {
-      const containsFirstEdge = findEdgeIndex(polygon.vertexIds, resolvedCut.firstEdge) >= 0;
-      const containsSecondEdge = findEdgeIndex(polygon.vertexIds, resolvedCut.secondEdge) >= 0;
-      const firstPassPolygon = containsFirstEdge
-        ? getMeshPolygonWithInsertedPoint(polygon, resolvedCut.firstEdge, resolvedCut.firstPoint)
-        : polygon;
-      const secondPassPolygon = containsSecondEdge
-        ? getMeshPolygonWithInsertedPoint(firstPassPolygon, resolvedCut.secondEdge, resolvedCut.secondPoint)
-        : firstPassPolygon;
+      let nextPolygon: OrientedEditablePolygon & { vertexIds: VertexID[] } = {
+        expectedNormal: polygon.normal,
+        id: polygon.id,
+        materialId: polygon.materialId,
+        positions: polygon.positions.map((position) => vec3(position.x, position.y, position.z)),
+        uvScale: polygon.uvScale,
+        vertexIds: [...polygon.vertexIds]
+      };
+
+      if (findEdgeIndex(polygon.vertexIds, resolvedCut.firstEdge) >= 0) {
+        nextPolygon = insertPointsOnPolygonEdge(nextPolygon, resolvedCut.firstEdge, [
+          { id: firstCutVertexId, position: resolvedCut.firstPoint }
+        ]);
+      }
+
+      if (findEdgeIndex(polygon.vertexIds, resolvedCut.secondEdge) >= 0) {
+        nextPolygon = insertPointsOnPolygonEdge(nextPolygon, resolvedCut.secondEdge, [
+          { id: secondCutVertexId, position: resolvedCut.secondPoint }
+        ]);
+      }
 
       return {
-        expectedNormal: polygon.normal,
-        id: secondPassPolygon.id,
-        materialId: polygon.materialId,
-        positions: secondPassPolygon.positions.map((position) => vec3(position.x, position.y, position.z)),
-        uvScale: polygon.uvScale,
-        vertexIds: [...secondPassPolygon.vertexIds]
+        expectedNormal: nextPolygon.expectedNormal,
+        id: nextPolygon.id,
+        materialId: nextPolygon.materialId,
+        positions: nextPolygon.positions,
+        uvScale: nextPolygon.uvScale,
+        vertexIds: nextPolygon.vertexIds
       };
     });
 
@@ -214,24 +245,36 @@ function resolveEditableMeshFaceCut(
     return undefined;
   }
 
-  const basis = createFacePlaneBasis(target.normal);
+  const basis = createFaceAlignedPlaneBasis(target);
   const projectedPoint = projectFacePoint(point, target.center, basis);
-  const axis = Math.abs(projectedPoint.u) >= Math.abs(projectedPoint.v) ? "u" : "v";
-  const otherAxis = axis === "u" ? "v" : "u";
-  const coordinate = snapValue(projectedPoint[axis], snapSize);
   const projectedPositions = target.positions.map((position) => projectFacePoint(position, target.center, basis));
-  const bounds = projectedPositions.reduce(
-    (current, candidate) => ({
-      max: Math.max(current.max, candidate[axis]),
-      min: Math.min(current.min, candidate[axis])
-    }),
-    {
-      max: Number.NEGATIVE_INFINITY,
-      min: Number.POSITIVE_INFINITY
-    }
-  );
+  const bounds = {
+    u: projectedPositions.reduce(
+      (current, candidate) => ({
+        max: Math.max(current.max, candidate.u),
+        min: Math.min(current.min, candidate.u)
+      }),
+      {
+        max: Number.NEGATIVE_INFINITY,
+        min: Number.POSITIVE_INFINITY
+      }
+    ),
+    v: projectedPositions.reduce(
+      (current, candidate) => ({
+        max: Math.max(current.max, candidate.v),
+        min: Math.min(current.min, candidate.v)
+      }),
+      {
+        max: Number.NEGATIVE_INFINITY,
+        min: Number.POSITIVE_INFINITY
+      }
+    )
+  };
+  const axis = resolveFaceCutAxis(projectedPoint, bounds, epsilon);
+  const otherAxis = axis === "u" ? "v" : "u";
+  const snappedCoordinate = snapFaceCutCoordinate(projectedPoint[axis], bounds[axis].min, snapSize, epsilon);
 
-  if (coordinate <= bounds.min + epsilon || coordinate >= bounds.max - epsilon) {
+  if (snappedCoordinate <= bounds[axis].min + epsilon || snappedCoordinate >= bounds[axis].max - epsilon) {
     return undefined;
   }
 
@@ -245,13 +288,16 @@ function resolveEditableMeshFaceCut(
         return undefined;
       }
 
-      const t = (coordinate - position[axis]) / delta;
+      const t = (snappedCoordinate - position[axis]) / delta;
 
       if (t <= epsilon || t >= 1 - epsilon) {
         return undefined;
       }
 
-      if (coordinate < Math.min(position[axis], next[axis]) - epsilon || coordinate > Math.max(position[axis], next[axis]) + epsilon) {
+      if (
+        snappedCoordinate < Math.min(position[axis], next[axis]) - epsilon ||
+        snappedCoordinate > Math.max(position[axis], next[axis]) + epsilon
+      ) {
         return undefined;
       }
 
@@ -260,7 +306,7 @@ function resolveEditableMeshFaceCut(
         edgeIndex,
         point: lerpVec3(target.positions[edgeIndex], target.positions[nextIndex], t),
         projected: {
-          [axis]: coordinate,
+          [axis]: snappedCoordinate,
           [otherAxis]: position[otherAxis] + (next[otherAxis] - position[otherAxis]) * t
         } as FacePlanePoint
       };
@@ -306,4 +352,36 @@ function resolveEditableMeshFaceCut(
     start: firstIntersection.point,
     target
   };
+}
+
+function resolveFaceCutAxis(
+  point: FacePlanePoint,
+  bounds: Record<"u" | "v", { max: number; min: number }>,
+  epsilon: number
+) {
+  const uSpan = Math.max(bounds.u.max - bounds.u.min, epsilon);
+  const vSpan = Math.max(bounds.v.max - bounds.v.min, epsilon);
+  const uBoundaryDistance = Math.min(Math.abs(point.u - bounds.u.min), Math.abs(bounds.u.max - point.u));
+  const vBoundaryDistance = Math.min(Math.abs(point.v - bounds.v.min), Math.abs(bounds.v.max - point.v));
+
+  if (Math.abs(uBoundaryDistance - vBoundaryDistance) <= epsilon * 10) {
+    return uSpan >= vSpan ? "u" : "v";
+  }
+
+  return uBoundaryDistance <= vBoundaryDistance ? "u" : "v";
+}
+
+function snapFaceCutCoordinate(value: number, min: number, snapSize: number, epsilon: number) {
+  if (snapSize <= epsilon) {
+    return value;
+  }
+
+  return min + snapValue(value - min, snapSize);
+}
+
+function buildCutVertexIds(faceId: FaceID, firstEdgeIndex: number, secondEdgeIndex: number) {
+  return [
+    `${faceId}:cut:${firstEdgeIndex}:${secondEdgeIndex}:a`,
+    `${faceId}:cut:${firstEdgeIndex}:${secondEdgeIndex}:b`
+  ] as const;
 }

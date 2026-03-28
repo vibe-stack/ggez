@@ -1,4 +1,4 @@
-import { deriveRenderScene, type DerivedRenderScene } from "@ggez/render-pipeline";
+import { deriveRenderScene, type DerivedRenderMesh, type DerivedRenderScene } from "@ggez/render-pipeline";
 import {
   createDynamicRigidBody,
   createStaticRigidBody,
@@ -23,14 +23,32 @@ export function createRuntimePhysicsSession(options: {
   world: CrashcatPhysicsWorld;
 }): RuntimePhysicsSession {
   const renderScene = deriveRuntimeRenderScene(options.runtimeScene);
-  const physicsMeshes = renderScene.meshes.filter((mesh) => mesh.physics?.enabled);
+  const instancedMeshes = deriveInstancedRuntimeMeshes(renderScene);
+  const instancedNodeIds = new Set(instancedMeshes.map((mesh) => mesh.nodeId));
+  const unsupportedDynamicInstanceMeshes = instancedMeshes.filter(
+    (mesh) => mesh.physics?.enabled && mesh.physics.bodyType !== "fixed"
+  );
+  const unsupportedDynamicInstanceNodeIds = new Set(
+    unsupportedDynamicInstanceMeshes.map((mesh) => mesh.nodeId)
+  );
+  const allMeshes = [
+    ...renderScene.meshes,
+    ...instancedMeshes.filter((mesh) => !unsupportedDynamicInstanceNodeIds.has(mesh.nodeId))
+  ];
+  const physicsMeshes = allMeshes.filter((mesh) => mesh.physics?.enabled);
   const physicsMeshIds = new Set(physicsMeshes.map((mesh) => mesh.nodeId));
-  const staticMeshes = renderScene.meshes.filter((mesh) => !physicsMeshIds.has(mesh.nodeId));
+  const staticMeshes = allMeshes.filter((mesh) => !physicsMeshIds.has(mesh.nodeId));
   const bodiesByNodeId = new Map<string, CrashcatRigidBody>();
   const dynamicBindings: Array<{
     body: CrashcatRigidBody;
     object: NonNullable<ReturnType<ThreeRuntimeSceneInstance["nodesById"]["get"]>>;
   }> = [];
+
+  unsupportedDynamicInstanceMeshes.forEach((mesh) => {
+    console.warn(
+      `Skipping dynamic instanced collider for ${mesh.nodeId}. Instanced runtime bodies currently support fixed collision only.`
+    );
+  });
 
   staticMeshes.forEach((mesh) => {
     const body = createStaticRigidBody(options.world, mesh);
@@ -40,6 +58,11 @@ export function createRuntimePhysicsSession(options: {
   physicsMeshes.forEach((mesh) => {
     const body = createDynamicRigidBody(options.world, mesh);
     bodiesByNodeId.set(mesh.nodeId, body);
+
+    if (instancedNodeIds.has(mesh.nodeId)) {
+      return;
+    }
+
     const object = options.runtimeScene.nodesById.get(mesh.nodeId);
 
     if (object) {
@@ -84,6 +107,19 @@ export function createRuntimePhysicsSession(options: {
       });
     }
   };
+}
+
+function deriveInstancedRuntimeMeshes(renderScene: DerivedRenderScene): DerivedRenderMesh[] {
+  return renderScene.instancedMeshes.flatMap((batch) =>
+    batch.instances.map((instance) => ({
+      ...batch.mesh,
+      label: `${batch.mesh.label} [${instance.label}]`,
+      nodeId: instance.nodeId,
+      position: instance.position,
+      rotation: instance.rotation,
+      scale: instance.scale
+    }))
+  );
 }
 
 function deriveRuntimeRenderScene(runtimeScene: ThreeRuntimeSceneInstance): DerivedRenderScene {

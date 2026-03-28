@@ -113,7 +113,9 @@ export function bevelEditableMeshEdge(
     .map((polygon) => ({
       expectedNormal: polygon.normal,
       id: polygon.id,
+      materialId: polygon.materialId,
       positions: polygon.positions.map((position) => vec3(position.x, position.y, position.z)),
+      uvScale: polygon.uvScale,
       vertexIds: [...polygon.vertexIds]
     }));
 
@@ -161,28 +163,49 @@ export function bevelEditableMeshEdge(
     ...nextEndpointFaces.map((polygon) => ({
       expectedNormal: polygon.expectedNormal,
       id: polygon.id,
-      positions: polygon.positions
+      materialId: polygon.materialId,
+      positions: polygon.positions,
+      uvScale: polygon.uvScale,
+      vertexIds: polygon.vertexIds
     })),
     {
       expectedNormal: firstFace.normal,
       id: firstReplacement.id,
-      positions: firstReplacement.positions
+      materialId: firstFace.materialId,
+      positions: firstReplacement.positions,
+      uvScale: firstFace.uvScale,
+      vertexIds: firstReplacement.vertexIds
     },
     {
       expectedNormal: secondFace.normal,
       id: secondReplacement.id,
-      positions: secondReplacement.positions
+      materialId: secondFace.materialId,
+      positions: secondReplacement.positions,
+      uvScale: secondFace.uvScale,
+      vertexIds: secondReplacement.vertexIds
     }
   ];
 
+  const stripExpectedNormal = normalizeVec3(addVec3(firstFace.normal, secondFace.normal));
+
   for (let index = 0; index < rails.length - 1; index += 1) {
     const stripPositions = [rails[index][0], rails[index][1], rails[index + 1][1], rails[index + 1][0]];
+    const strip = createOrientedPolygon(
+      `${firstFace.id}:bevel:${index}`,
+      stripPositions,
+      lengthVec3(stripExpectedNormal) <= epsilon ? computePolygonNormal(stripPositions) : stripExpectedNormal
+    );
 
-    beveledPolygons.push({
-      expectedNormal: computePolygonNormal(stripPositions),
-      id: `${firstFace.id}:bevel:${index}`,
-      positions: stripPositions
-    });
+    if (strip) {
+      beveledPolygons.push({
+        expectedNormal: strip.expectedNormal,
+        id: strip.id,
+        materialId: firstFace.materialId ?? secondFace.materialId,
+        positions: strip.positions,
+        uvScale: firstFace.uvScale ?? secondFace.uvScale,
+        vertexIds: strip.vertexIds
+      });
+    }
   }
 
   return createEditableMeshFromPolygons(orientPolygonLoops(beveledPolygons));
@@ -204,10 +227,6 @@ export function bevelEditableMeshEdges(
 
   if (Math.abs(width) <= epsilon) {
     return structuredClone(mesh);
-  }
-
-  if (edgeKeys.length === 1) {
-    return bevelEditableMeshEdge(mesh, edges[0], width, steps, profile, epsilon);
   }
 
   const polygons = getMeshPolygons(mesh);
@@ -671,8 +690,12 @@ function applyEndpointBevelHostClipping(
   const selectedFaceIds = new Set(profile.faceIds);
   const selectedFaces = incidentFaces.filter((face) => selectedFaceIds.has(face.id));
   const hostFaces = incidentFaces.filter((face) => !selectedFaceIds.has(face.id));
-  const firstBoundaryPoint = profile.points[0];
-  const secondBoundaryPoint = profile.points[profile.points.length - 1];
+  const boundaryProfile = profile.points.map((point) => ({
+    id: point.id,
+    position: vec3(point.position.x, point.position.y, point.position.z)
+  }));
+  const firstBoundaryPoint = boundaryProfile[0];
+  const secondBoundaryPoint = boundaryProfile[boundaryProfile.length - 1];
 
   if (selectedFaces.length !== 2 || !firstBoundaryPoint || !secondBoundaryPoint || hostFaces.length === 0) {
     return;
@@ -680,7 +703,7 @@ function applyEndpointBevelHostClipping(
 
   if (hostFaces.length === 1) {
     const polygon = nextPolygonById.get(hostFaces[0].id);
-    const orientedBoundary = orientBevelProfileBoundaryForFace(hostFaces[0], vertexId, [firstBoundaryPoint, secondBoundaryPoint]);
+    const orientedBoundary = orientBevelProfileBoundaryForFace(hostFaces[0], vertexId, boundaryProfile);
 
     if (orientedBoundary && polygon?.vertexIds) {
       replacePolygonInCollection(

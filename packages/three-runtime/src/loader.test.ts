@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { loadWebHammerEngineScene } from "./loader";
 import type { WebHammerEngineScene } from "./types";
 import { makeTransform, vec3 } from "@ggez/shared";
-import { InstancedMesh, LOD, MeshStandardMaterial, Vector3 } from "three";
+import { InstancedMesh, LOD, Matrix4, Mesh, MeshStandardMaterial, Quaternion, Vector3 } from "three";
 
 describe("loadWebHammerEngineScene", () => {
   test("rebuilds grouped runtime hierarchies and resolves entity world transforms", async () => {
@@ -617,6 +617,136 @@ describe("loadWebHammerEngineScene", () => {
     expect(instancedMeshes[0]?.userData.webHammer?.sourceNodeId).toBe("node:model-source");
   });
 
+  test("matches grouped source model placement with instanced copies when model pivots are present", async () => {
+    const scene: WebHammerEngineScene = {
+      assets: [
+        {
+          id: "asset:model:source",
+          metadata: {
+            modelFormat: "glb",
+            nativeCenterX: 0,
+            nativeCenterY: 0.5,
+            nativeCenterZ: 0,
+            nativeSizeX: 2,
+            nativeSizeY: 2,
+            nativeSizeZ: 2,
+            previewColor: "#6b7280"
+          },
+          path: "",
+          type: "model"
+        }
+      ],
+      entities: [],
+      layers: [],
+      materials: [],
+      metadata: {
+        exportedAt: new Date("2026-03-28T10:00:00.000Z").toISOString(),
+        format: "web-hammer-engine",
+        version: 6
+      },
+      nodes: [
+        {
+          data: {},
+          id: "node:group",
+          kind: "group",
+          name: "Group",
+          transform: makeTransform(vec3(10, 0, 0))
+        },
+        {
+          data: {
+            assetId: "asset:model:source",
+            path: ""
+          },
+          id: "node:model-source",
+          kind: "model",
+          name: "Model Source",
+          parentId: "node:group",
+          transform: {
+            pivot: vec3(2, 0, 0),
+            position: vec3(1, 0, 0),
+            rotation: vec3(0, 0, 0),
+            scale: vec3(1, 1, 1)
+          }
+        },
+        {
+          data: {
+            sourceNodeId: "node:model-source"
+          },
+          id: "node:model-instance",
+          kind: "instancing",
+          name: "Model Source Instance",
+          parentId: "node:group",
+          transform: {
+            position: vec3(1, 0, 0),
+            rotation: vec3(0, 0, 0),
+            scale: vec3(1, 1, 1)
+          }
+        }
+      ],
+      settings: {
+        player: {
+          cameraMode: "fps",
+          canCrouch: true,
+          canInteract: true,
+          canJump: true,
+          canRun: true,
+          crouchHeight: 1.2,
+          height: 1.8,
+          interactKey: "KeyE",
+          jumpHeight: 1,
+          movementSpeed: 4,
+          runningSpeed: 6
+        },
+        world: {
+          ambientColor: "#ffffff",
+          ambientIntensity: 0,
+          fogColor: "#000000",
+          fogFar: 50,
+          fogNear: 10,
+          gravity: vec3(0, -9.81, 0),
+          lod: {
+            bakedAt: "",
+            enabled: false,
+            lowDetailRatio: 0.22,
+            midDetailRatio: 0.52
+          },
+          physicsEnabled: true,
+          skybox: {
+            affectsLighting: false,
+            blur: 0,
+            enabled: false,
+            format: "image",
+            intensity: 1,
+            lightingIntensity: 1,
+            name: "",
+            source: ""
+          }
+        }
+      }
+    };
+
+    const loaded = await loadWebHammerEngineScene(scene);
+    const sourceObject = loaded.nodes.get("node:model-source");
+    const sourceMesh = findFirstMesh(sourceObject);
+    const instancedMeshes: InstancedMesh[] = [];
+    const instanceMatrix = new Matrix4();
+    const sourceWorldPosition = sourceMesh?.getWorldPosition(new Vector3());
+    const instancePosition = new Vector3();
+
+    loaded.root.traverse((child) => {
+      if (child instanceof InstancedMesh) {
+        instancedMeshes.push(child);
+      }
+    });
+
+    instancedMeshes[0]?.getMatrixAt(0, instanceMatrix);
+    instanceMatrix.decompose(instancePosition, new Quaternion(), new Vector3());
+
+    expect(sourceWorldPosition?.x).toBeCloseTo(instancePosition.x, 5);
+    expect(sourceWorldPosition?.y).toBeCloseTo(instancePosition.y, 5);
+    expect(sourceWorldPosition?.z).toBeCloseTo(instancePosition.z, 5);
+  });
+
   test("applies emissive and transparency properties from runtime materials", async () => {
     const scene: WebHammerEngineScene = {
       assets: [],
@@ -714,3 +844,15 @@ describe("loadWebHammerEngineScene", () => {
     expect((material as MeshStandardMaterial).emissive.getHexString()).toBe("ff5500");
   });
 });
+
+function findFirstMesh(object: ReturnType<Awaited<ReturnType<typeof loadWebHammerEngineScene>>["nodes"]["get"]>) {
+  let found: Mesh | undefined;
+
+  object?.traverse((child) => {
+    if (!found && child instanceof Mesh) {
+      found = child;
+    }
+  });
+
+  return found;
+}

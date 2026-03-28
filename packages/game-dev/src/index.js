@@ -280,11 +280,11 @@ function createDiscoveredScenes(existingScenes) {
       continue;
     }
 
-    const assetUrlLoaders = Object.fromEntries(
-      Object.entries(sceneAssetModules)
-        .filter(([assetPath, load]) => assetPath.startsWith(path.replace(/scene\\.runtime\\.json$/, "assets/")) && typeof load === "function")
-        .map(([assetPath, load]) => [assetPath.replace(new RegExp(\`^.+/\\\${folderName}/\`), "./"), load])
-    );
+        const assetUrlLoaders = Object.fromEntries(
+          Object.entries(sceneAssetModules)
+            .filter(([assetPath, load]) => assetPath.startsWith(path.replace(/scene\\.runtime\\.json$/, "assets/")) && typeof load === "function")
+            .map(([assetPath, load]) => [assetPath.replace(path.replace(/scene\\.runtime\\.json$/, ""), "./"), load])
+        );
 
     discovered[sceneId] = defineGameScene({
       id: sceneId,
@@ -457,11 +457,11 @@ function createDiscoveredAnimations(existingAnimations) {
       continue;
     }
 
-    const assetUrlLoaders = Object.fromEntries(
-      Object.entries(animationAssetModules)
-        .filter(([assetPath, load]) => assetPath.startsWith(path.replace(/animation\\.bundle\\.json$/, "assets/")) && typeof load === "function")
-        .map(([assetPath, load]) => [assetPath.replace(new RegExp(\`^.+/\\\${folderName}/\`), "./"), load])
-    );
+        const assetUrlLoaders = Object.fromEntries(
+          Object.entries(animationAssetModules)
+            .filter(([assetPath, load]) => assetPath.startsWith(path.replace(/animation\\.bundle\\.json$/, "assets/")) && typeof load === "function")
+            .map(([assetPath, load]) => [assetPath.replace(path.replace(/animation\\.bundle\\.json$/, ""), "./"), load])
+        );
 
     discovered[animationId] = defineGameAnimationBundle({
       id: animationId,

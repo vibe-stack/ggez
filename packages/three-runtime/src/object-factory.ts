@@ -130,7 +130,7 @@ async function createObjectForNode(
     tags: node.tags
   };
 
-  if (pivot) {
+  if (pivot && node.kind !== "model") {
     content.position.set(-pivot.x, -pivot.y, -pivot.z);
   }
 
@@ -703,7 +703,11 @@ async function loadModelTemplate(
           : await loadGltfModel(reference.asset, resolvedPath);
       centerObject(object, reference.center);
       return object;
-    } catch {
+    } catch (error) {
+      console.warn(
+        `Failed to load model \"${reference.nodeName}\" from ${resolvedPath}. Falling back to placeholder geometry.`,
+        error
+      );
       return createMissingModelFallback(reference.asset, reference.fallbackName);
     }
   })();
@@ -742,7 +746,18 @@ async function loadObjModel(asset: Asset | undefined, resolvedPath: string, reso
 }
 
 async function loadGltfModel(asset: Asset | undefined, resolvedPath: string) {
-  const gltf = await gltfLoader.loadAsync(resolvedPath);
+  const response = await fetch(resolvedPath);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch model: ${response.status} ${response.statusText}`);
+  }
+
+  const payload = isJsonGltfPath(resolvedPath)
+    ? await response.text()
+    : await response.arrayBuffer();
+  const gltf = await new Promise<Awaited<ReturnType<typeof gltfLoader.loadAsync>>>((resolve, reject) => {
+    gltfLoader.parse(payload, resolveAssetBasePath(resolvedPath), resolve, reject);
+  });
   const object = gltf.scene;
   object.userData.webHammer = {
     ...(object.userData.webHammer ?? {}),
@@ -789,6 +804,25 @@ function createMissingModelFallback(asset: Asset | undefined, name = "Missing Mo
 
   mesh.name = name;
   return mesh;
+}
+
+function isJsonGltfPath(path: string) {
+  return stripUrlSearchAndHash(path).toLowerCase().endsWith(".gltf");
+}
+
+function resolveAssetBasePath(path: string) {
+  if (typeof window !== "undefined") {
+    return new URL(".", new URL(path, window.location.href)).toString();
+  }
+
+  const normalizedPath = stripUrlSearchAndHash(path);
+  const slashIndex = normalizedPath.lastIndexOf("/");
+  return slashIndex >= 0 ? normalizedPath.slice(0, slashIndex + 1) : "";
+}
+
+function stripUrlSearchAndHash(path: string) {
+  const searchIndex = path.search(/[?#]/);
+  return searchIndex >= 0 ? path.slice(0, searchIndex) : path;
 }
 
 function createThreeLight(node: Extract<WebHammerEngineNode, { kind: "light" }>) {

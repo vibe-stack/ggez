@@ -26,6 +26,7 @@ import {
   addVec3,
   averageVec3,
   crossVec3,
+  type GeometryNode,
   isBrushNode,
   isMeshNode,
   lengthVec3,
@@ -81,6 +82,7 @@ import {
   findMatchingMeshEdgePair,
   makeUndirectedPairKey,
   rejectVec3FromAxis,
+  resolveSubobjectSelection,
   resolveExtrudeDirection,
   vec3LengthSquared
 } from "@/viewport/utils/interaction";
@@ -606,6 +608,21 @@ export function ViewportCanvas({
         : [],
     [activeToolId, editableMeshSource, meshEditMode, meshEditHandles, selectedMeshNode]
   );
+  const resolveMeshEditEdgeHandleHit = (bounds: DOMRect, clientX: number, clientY: number) => {
+    if (activeToolId !== "mesh-edit" || meshEditMode !== "edge" || !cameraRef.current || !selectedDisplayNode) {
+      return undefined;
+    }
+
+    return findEditableEdgeHandleHit(
+      selectedBrushNode ? brushEditHandles : meshEditHandles,
+      new Set(selectedBrushNode ? brushEditHandleIds : meshEditSelectionIds),
+      clientX,
+      clientY,
+      bounds,
+      cameraRef.current,
+      selectedDisplayNode
+    );
+  };
 
   const resolveSelectedEditableMeshEdgePairs = () => {
     if (!editableMeshSource) {
@@ -1101,6 +1118,10 @@ export function ViewportCanvas({
 
     if (selectedIds.length > 0) {
       onSelectNodes(selectedIds);
+      return;
+    }
+
+    if (activeToolId === "mesh-edit") {
       return;
     }
 
@@ -2822,6 +2843,31 @@ export function ViewportCanvas({
 
     const selectionOrigin = selectionClickOriginRef.current;
     selectionClickOriginRef.current = null;
+    const clickOrigin = selectionOrigin ?? marqueeOriginRef.current;
+
+    if (
+      activeToolId === "mesh-edit" &&
+      meshEditMode === "edge" &&
+      event.button === 0 &&
+      !event.altKey &&
+      clickOrigin &&
+      point.distanceTo(clickOrigin) <= 4
+    ) {
+      const edgeHandleHit = resolveMeshEditEdgeHandleHit(bounds, event.clientX, event.clientY);
+
+      if (edgeHandleHit) {
+        marqueeOriginRef.current = null;
+        setMarquee(null);
+
+        if (selectedBrushNode) {
+          setBrushEditHandleIds(resolveSubobjectSelection(brushEditHandleIds, edgeHandleHit.id, event.shiftKey));
+        } else {
+          setMeshEditSelectionIds(resolveSubobjectSelection(meshEditSelectionIds, edgeHandleHit.id, event.shiftKey));
+        }
+
+        return;
+      }
+    }
 
     if (
       viewport.projection === "orthographic" &&
@@ -2946,12 +2992,6 @@ export function ViewportCanvas({
             marqueeOriginRef.current ||
             marquee
           ) {
-            return;
-          }
-
-          if (activeToolId === "mesh-edit" && (meshEditSelectionIds.length > 0 || brushEditHandleIds.length > 0)) {
-            setMeshEditSelectionIds([]);
-            setBrushEditHandleIds([]);
             return;
           }
 
@@ -3423,6 +3463,77 @@ function findPathSegmentHit(
   return bestHit;
 }
 
+function findEditableEdgeHandleHit(
+  handles: Array<{ id: string; points?: Vec3[] }>,
+  selectedIds: ReadonlySet<string>,
+  clientX: number,
+  clientY: number,
+  bounds: DOMRect,
+  camera: Camera,
+  node: GeometryNode,
+  threshold = 12
+) {
+  const pointer = { x: clientX - bounds.left, y: clientY - bounds.top };
+  let bestHit:
+    | {
+        distance: number;
+        endpointClearance: number;
+        id: string;
+        selected: boolean;
+      }
+    | undefined;
+
+  handles.forEach((handle) => {
+    if (!handle.points || handle.points.length !== 2) {
+      return;
+    }
+
+    const start = projectLocalPointToScreen(handle.points[0], node, camera, bounds);
+    const end = projectLocalPointToScreen(handle.points[1], node, camera, bounds);
+
+    if (!Number.isFinite(start.x) || !Number.isFinite(start.y) || !Number.isFinite(end.x) || !Number.isFinite(end.y)) {
+      return;
+    }
+
+    const measurement = measureScreenSegmentDistance(pointer, start, end);
+
+    if (measurement.distance > threshold) {
+      return;
+    }
+
+    const endpointClearance = Math.min(measurement.t, 1 - measurement.t);
+    const selected = selectedIds.has(handle.id);
+
+    if (!bestHit) {
+      bestHit = {
+        distance: measurement.distance,
+        endpointClearance,
+        id: handle.id,
+        selected
+      };
+      return;
+    }
+
+    const distanceDelta = measurement.distance - bestHit.distance;
+    const endpointDelta = endpointClearance - bestHit.endpointClearance;
+
+    if (
+      distanceDelta < -0.5 ||
+      (Math.abs(distanceDelta) <= 0.5 && endpointDelta > 0.05) ||
+      (Math.abs(distanceDelta) <= 0.5 && Math.abs(endpointDelta) <= 0.05 && selected && !bestHit.selected)
+    ) {
+      bestHit = {
+        distance: measurement.distance,
+        endpointClearance,
+        id: handle.id,
+        selected
+      };
+    }
+  });
+
+  return bestHit;
+}
+
 function buildPathSegments(pathDefinition: ScenePathDefinition) {
   const segments: Array<{ end: Vec3; insertIndex: number; start: Vec3 }> = [];
   const points = pathDefinition.points;
@@ -3456,19 +3567,29 @@ function projectWorldPointToScreen(point: Vec3, camera: Camera, bounds: DOMRect)
 }
 
 function distanceToScreenSegment(point: { x: number; y: number }, start: { x: number; y: number }, end: { x: number; y: number }) {
+  return measureScreenSegmentDistance(point, start, end).distance;
+}
+
+function measureScreenSegmentDistance(point: { x: number; y: number }, start: { x: number; y: number }, end: { x: number; y: number }) {
   const deltaX = end.x - start.x;
   const deltaY = end.y - start.y;
   const lengthSquared = deltaX * deltaX + deltaY * deltaY;
 
   if (lengthSquared <= 0.0001) {
-    return Math.hypot(point.x - start.x, point.y - start.y);
+    return {
+      distance: Math.hypot(point.x - start.x, point.y - start.y),
+      t: 0
+    };
   }
 
   const t = Math.max(0, Math.min(1, ((point.x - start.x) * deltaX + (point.y - start.y) * deltaY) / lengthSquared));
   const projectedX = start.x + deltaX * t;
   const projectedY = start.y + deltaY * t;
 
-  return Math.hypot(point.x - projectedX, point.y - projectedY);
+  return {
+    distance: Math.hypot(point.x - projectedX, point.y - projectedY),
+    t
+  };
 }
 
 function vec3ApproximatelyEqual(left: Vec3, right: Vec3, epsilon = 0.0001) {

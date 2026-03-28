@@ -130,6 +130,53 @@ export function createFacePlaneBasis(normal: Vec3) {
   return { u, v };
 }
 
+export function createFaceAlignedPlaneBasis(face: { normal: Vec3; positions: Vec3[] }) {
+  let alignedU: Vec3 | undefined;
+  let bestScore = Number.NEGATIVE_INFINITY;
+
+  face.positions.forEach((position, edgeIndex) => {
+    const nextPosition = face.positions[(edgeIndex + 1) % face.positions.length];
+    const edge = subVec3(nextPosition, position);
+    const edgeLength = lengthVec3(edge);
+
+    if (edgeLength <= 0.000001) {
+      return;
+    }
+
+    const direction = scaleVec3(edge, 1 / edgeLength);
+    const familyScore = face.positions.reduce((score, _, candidateIndex) => {
+      const candidateNext = face.positions[(candidateIndex + 1) % face.positions.length];
+      const candidateEdge = subVec3(candidateNext, face.positions[candidateIndex]);
+      const candidateLength = lengthVec3(candidateEdge);
+
+      if (candidateLength <= 0.000001) {
+        return score;
+      }
+
+      return score + candidateLength * Math.abs(dotVec3(direction, scaleVec3(candidateEdge, 1 / candidateLength)));
+    }, 0);
+
+    if (familyScore > bestScore) {
+      bestScore = familyScore;
+      alignedU = direction;
+    }
+  });
+
+  if (!alignedU || lengthVec3(alignedU) <= 0.000001) {
+    return createFacePlaneBasis(face.normal);
+  }
+
+  const normalizedNormal = normalizeVec3(face.normal);
+  const u = normalizeVec3(alignedU);
+  const v = normalizeVec3(crossVec3(normalizedNormal, u));
+
+  if (lengthVec3(v) <= 0.000001) {
+    return createFacePlaneBasis(face.normal);
+  }
+
+  return { u, v };
+}
+
 export function projectFacePoint(point: Vec3, origin: Vec3, basis: { u: Vec3; v: Vec3 }): FacePlanePoint {
   const offset = subVec3(point, origin);
 
@@ -257,7 +304,7 @@ export function replacePolygonEdge(
   edge: [VertexID, VertexID],
   firstReplacement: Vec3,
   secondReplacement: Vec3
-): (EditableMeshPolygon & { id: FaceID }) | undefined {
+): (EditableMeshPolygon & { id: FaceID; vertexIds: VertexID[] }) | undefined {
   const edgeIndex = findEdgeIndex(polygon.vertexIds, edge);
 
   if (edgeIndex < 0) {
@@ -273,7 +320,10 @@ export function replacePolygonEdge(
 
   return {
     id: polygon.id,
-    positions
+    materialId: polygon.materialId,
+    positions,
+    uvScale: polygon.uvScale,
+    vertexIds: [...polygon.vertexIds]
   };
 }
 
