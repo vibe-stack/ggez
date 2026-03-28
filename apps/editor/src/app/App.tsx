@@ -117,7 +117,7 @@ import {
   resolveModelFitScale,
   resolvePrimitiveNodeBounds
 } from "@/lib/model-assets";
-import { createEditableMeshFromPrimitiveData } from "@/lib/primitive-to-mesh";
+import { createEditableMeshFromPlane, createEditableMeshFromPrimitiveData } from "@/lib/primitive-to-mesh";
 import {
   focusViewportOnPoint,
   resolveVisibleViewportPaneIds,
@@ -1010,6 +1010,17 @@ export function App() {
   const handleCreateBrush = () => {
     if (activeBrushShape === "custom-polygon" || activeBrushShape === "stairs" || activeBrushShape === "ramp") {
       setActiveToolId("brush");
+      return;
+    }
+
+    if (activeBrushShape === "plane") {
+      const size = vec3(2, 0, 2);
+
+      handlePlaceMeshNode(
+        createEditableMeshFromPlane(size, "brush:plane"),
+        createDefaultPrimitiveTransform(resolvePlacementPosition(size)),
+        "Blockout Plane"
+      );
       return;
     }
 

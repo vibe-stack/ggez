@@ -64,6 +64,10 @@ function resolveBrushInteractionHint(shape: BrushShape) {
     return "click plane / click points / Enter close / move extrude / click commit / Esc cancel";
   }
 
+  if (shape === "plane") {
+    return "click anchor / move for base / click commit / Esc cancel";
+  }
+
   if (shape === "stairs") {
     return "click anchor / move for base / wheel rotate / click lock / move height / wheel steps / click commit / Esc cancel";
   }

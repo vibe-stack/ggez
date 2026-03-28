@@ -10,6 +10,7 @@ import {
   DirectionalLightIcon,
   HemisphereLightIcon,
   NpcSpawnIcon,
+  PlanePrimitiveIcon,
   PlayerSpawnIcon,
   PointLightIcon,
   SmartObjectIcon,
@@ -69,6 +70,13 @@ export function CreationToolBar({
           icon={CustomPolygonBrushIcon}
           label="Custom Polygon Brush"
           onClick={() => onSelectBrushShape("custom-polygon")}
+        />
+        <CreationButton
+          active={activeToolId === "brush" && activeBrushShape === "plane"}
+          disabled={disabled}
+          icon={PlanePrimitiveIcon}
+          label="Plane Brush"
+          onClick={() => onSelectBrushShape("plane")}
         />
         <CreationButton
           active={activeToolId === "brush" && activeBrushShape === "sphere"}

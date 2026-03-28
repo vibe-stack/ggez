@@ -15,7 +15,7 @@ import {
   type Vec3
 } from "@ggez/shared";
 import { createPrimitiveNodeData, createPrimitiveNodeLabel } from "@/lib/authoring";
-import { createEditableMeshFromPrimitiveData } from "@/lib/primitive-to-mesh";
+import { createEditableMeshFromPlane, createEditableMeshFromPrimitiveData } from "@/lib/primitive-to-mesh";
 import type { BrushCreateBasis, BrushCreatePlacement, BrushCreateState } from "@/viewport/types";
 import {
   computeBrushCreateCenter,
@@ -36,7 +36,7 @@ type BrushCreatePointerContext = {
 };
 
 export function startBrushCreateState(shape: BrushShape, anchor: Vec3, basis: BrushCreateBasis): BrushCreateState {
-  if (shape === "cube") {
+  if (shape === "cube" || shape === "plane") {
     return {
       anchor,
       basis,
@@ -104,7 +104,7 @@ export function updateBrushCreateState(
   state: BrushCreateState,
   { bounds, camera, clientX, clientY, raycaster, snapSize }: BrushCreatePointerContext
 ): BrushCreateState | undefined {
-  if (state.shape === "cube" && state.stage === "base") {
+  if ((state.shape === "cube" || state.shape === "plane") && state.stage === "base") {
     const point = projectPointerToPlane(clientX!, clientY!, bounds, camera, raycaster, state.anchor, state.basis.normal);
 
     if (!point) {
@@ -217,6 +217,21 @@ export function advanceBrushCreateState(
   state: BrushCreateState,
   { bounds, camera, clientX, clientY, raycaster, snapSize }: BrushCreatePointerContext
 ): { nextState?: BrushCreateState; placement?: BrushCreatePlacement } {
+  if (state.shape === "plane" && state.stage === "base") {
+    const point = projectPointerToPlane(clientX!, clientY!, bounds, camera, raycaster, state.anchor, state.basis.normal) ?? state.currentPoint;
+    const { depth, width } = measureBrushCreateBase(state.anchor, state.basis, point, snapSize);
+
+    if (Math.abs(width) <= snapSize * 0.5 || Math.abs(depth) <= snapSize * 0.5) {
+      return {};
+    }
+
+    const center = computeBrushCreateCenter(state.anchor, state.basis, width, depth, 0);
+
+    return {
+      placement: buildPlanePlacement(vec3(Math.abs(width), 0, Math.abs(depth)), center, basisToEuler(state.basis))
+    };
+  }
+
   if (state.shape === "cube" && state.stage === "base") {
     const point = projectPointerToPlane(clientX!, clientY!, bounds, camera, raycaster, state.anchor, state.basis.normal) ?? state.currentPoint;
     const { depth, width } = measureBrushCreateBase(state.anchor, state.basis, point, snapSize);
@@ -578,6 +593,12 @@ export function buildBrushCreatePlacement(state: BrushCreateState): BrushCreateP
 
 export function buildBrushCreatePreviewPositions(state: BrushCreateState, snapSize: number): number[] {
   const positions: number[] = [];
+
+  if (state.shape === "plane") {
+    const { depth, width } = measureBrushCreateBase(state.anchor, state.basis, state.currentPoint, snapSize);
+    pushLoopSegments(positions, buildBoxCorners(state.anchor, state.basis, width, depth, 0));
+    return positions;
+  }
 
   if (state.shape === "cube") {
     const base =
@@ -1045,6 +1066,18 @@ function buildPrimitiveMeshPlacement(shape: "cone" | "cube" | "cylinder" | "sphe
     kind: "mesh",
     mesh: createEditableMeshFromPrimitiveData(data, `brush:${shape}`),
     name: createPrimitiveNodeLabel("brush", shape),
+    transform: {
+      ...makeTransform(center),
+      rotation
+    }
+  };
+}
+
+function buildPlanePlacement(size: Vec3, center: Vec3, rotation: Vec3): BrushCreatePlacement {
+  return {
+    kind: "mesh",
+    mesh: createEditableMeshFromPlane(size, "brush:plane"),
+    name: "Blockout Plane",
     transform: {
       ...makeTransform(center),
       rotation

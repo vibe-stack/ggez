@@ -18,6 +18,7 @@ import {
 export const BRUSH_SHAPES: Array<{ label: string; shape: BrushShape }> = [
   { label: "Cube", shape: "cube" },
   { label: "Custom Polygon", shape: "custom-polygon" },
+  { label: "Plane", shape: "plane" },
   { label: "Ramp", shape: "ramp" },
   { label: "Sphere", shape: "sphere" },
   { label: "Stairs", shape: "stairs" },

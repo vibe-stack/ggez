@@ -127,6 +127,13 @@ export type BrushCreateState =
   | {
       anchor: Vec3;
       basis: BrushCreateBasis;
+      currentPoint: Vec3;
+      shape: "plane";
+      stage: "base";
+    }
+  | {
+      anchor: Vec3;
+      basis: BrushCreateBasis;
       depth: number;
       dragPlane: Plane;
       height: number;

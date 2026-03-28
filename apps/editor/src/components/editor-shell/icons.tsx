@@ -235,6 +235,16 @@ export function CubePrimitiveIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function PlanePrimitiveIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg fill="none" viewBox="0 0 24 24" {...props}>
+      <path d="M5.5 9 12 6l6.5 3-6.5 3-6.5-3Z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.6" />
+      <path d="M5.5 9v6l6.5 3 6.5-3V9" opacity="0.3" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.4" />
+      <path d="M8 13.2h8" opacity="0.55" stroke="currentColor" strokeLinecap="round" strokeWidth="1.4" />
+    </svg>
+  );
+}
+
 export function PathAddIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg fill="none" viewBox="0 0 24 24" {...props}>

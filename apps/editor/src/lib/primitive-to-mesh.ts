@@ -5,6 +5,7 @@ import {
 import {
   vec2,
   vec3,
+  type Vec3,
   type PrimitiveNodeData,
   type MeshNode,
   type PrimitiveNode
@@ -38,6 +39,10 @@ export function createEditableMeshFromPrimitiveData(data: PrimitiveNodeData, idP
       scale: vec3(1, 1, 1)
     }
   });
+}
+
+export function createEditableMeshFromPlane(size: Vec3, idPrefix = "plane", materialId = "material:blockout:orange") {
+  return createEditableMeshFromPolygons(createPlanePolygons(idPrefix, size, materialId));
 }
 
 function createEditableMeshFromPrimitive(node: PrimitiveNode) {
@@ -147,6 +152,24 @@ function createBoxPolygons(node: PrimitiveNode): EditableMeshPolygon[] {
         vec3(-halfX, -halfY, -halfZ),
         vec3(-halfX, halfY, -halfZ),
         vec3(halfX, halfY, -halfZ)
+      ]
+    }
+  ];
+}
+
+function createPlanePolygons(idPrefix: string, size: Vec3, materialId?: string): EditableMeshPolygon[] {
+  const halfX = Math.abs(size.x) * 0.5;
+  const halfZ = Math.abs(size.z) * 0.5;
+
+  return [
+    {
+      id: `${idPrefix}:face:top`,
+      materialId,
+      positions: [
+        vec3(-halfX, 0, -halfZ),
+        vec3(-halfX, 0, halfZ),
+        vec3(halfX, 0, halfZ),
+        vec3(halfX, 0, -halfZ)
       ]
     }
   ];
