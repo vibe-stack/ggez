@@ -1,10 +1,37 @@
 import { describe, expect, test } from "bun:test";
 import { vec3, type GeometryNode } from "@ggez/shared";
 import { createSceneDocument } from "../../document/scene-document";
-import { createInstanceNodesCommand } from "./selection-commands";
+import { createDuplicateNodesCommand, createInstanceNodesCommand } from "./selection-commands";
 
 describe("createInstanceNodesCommand", () => {
-  test("creates a parallel instanced group from a selected source-plus-instances cluster", () => {
+  test("duplicates preserve the original position", () => {
+    const scene = createSceneDocument();
+
+    scene.addNode({
+      data: {
+        size: vec3(1, 1, 1),
+        role: "prop",
+        shape: "cube"
+      },
+      id: "node:crate",
+      kind: "primitive",
+      name: "Crate",
+      transform: {
+        position: vec3(3, 2, -4),
+        rotation: vec3(0, 0, 0),
+        scale: vec3(1, 1, 1)
+      }
+    });
+
+    const { command, duplicateIds } = createDuplicateNodesCommand(scene, ["node:crate"], vec3(8, 0, 0));
+
+    command.execute(scene);
+
+    expect(duplicateIds).toHaveLength(1);
+    expect(scene.getNode(duplicateIds[0])?.transform.position).toEqual(vec3(3, 2, -4));
+  });
+
+  test("creates a parallel instanced group without offsetting the source cluster", () => {
     const scene = createSceneDocument();
     const nodes: GeometryNode[] = [
       {
@@ -76,7 +103,7 @@ describe("createInstanceNodesCommand", () => {
     const createdGroup = scene.getNode(instanceIds[0]);
 
     expect(createdGroup?.kind).toBe("group");
-    expect(createdGroup?.transform.position.x).toBe(8);
+    expect(createdGroup?.transform.position).toEqual(vec3(0, 0, 0));
 
     const createdChildren = Array.from(scene.nodes.values()).filter((node) => node.parentId === createdGroup?.id);
 

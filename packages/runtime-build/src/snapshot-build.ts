@@ -1045,15 +1045,20 @@ function buildPrimitiveGeometry(shape: "cone" | "cube" | "cylinder" | "sphere", 
 async function resolveRuntimeMaterial(material?: Material): Promise<RuntimeMaterial> {
   const resolved = material ?? {
     color: "#ffffff",
+    emissiveColor: "#000000",
+    emissiveIntensity: 0,
     id: "material:fallback:default",
     metalness: 0.05,
     name: "Default Material",
+    opacity: 1,
     roughness: 0.8
   };
 
   return {
     baseColorTexture: await resolveEmbeddedTextureUri(resolved.colorTexture ?? resolveGeneratedBlockoutTexture(resolved)),
     color: resolved.color,
+    emissiveColor: resolved.emissiveColor ?? "#000000",
+    emissiveIntensity: Math.max(0, resolved.emissiveIntensity ?? 0),
     id: resolved.id,
     metallicFactor: resolved.metalness ?? 0,
     metallicRoughnessTexture: await createMetallicRoughnessTextureDataUri(
@@ -1064,8 +1069,10 @@ async function resolveRuntimeMaterial(material?: Material): Promise<RuntimeMater
     ),
     name: resolved.name,
     normalTexture: await resolveEmbeddedTextureUri(resolved.normalTexture),
+    opacity: clamp01(resolved.opacity ?? 1),
     roughnessFactor: resolved.roughness ?? 0.8,
-    side: resolved.side
+    side: resolved.side,
+    transparent: resolved.transparent ?? false
   };
 }
 

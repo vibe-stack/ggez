@@ -1,6 +1,6 @@
 import { useFrame, useThree } from "@react-three/fiber";
 import { BallCollider, CapsuleCollider, ConeCollider, CuboidCollider, CylinderCollider, Physics, RigidBody, TrimeshCollider, type RapierRigidBody } from "@react-three/rapier";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BackSide,
   Box3,
@@ -10,6 +10,7 @@ import {
   ConeGeometry,
   CylinderGeometry,
   DoubleSide,
+  Float32BufferAttribute,
   FrontSide,
   InstancedMesh,
   Matrix4,
@@ -18,6 +19,7 @@ import {
   MeshStandardMaterial,
   Object3D,
   RepeatWrapping,
+  SkinnedMesh,
   SphereGeometry,
   SRGBColorSpace,
   TextureLoader,
@@ -29,6 +31,7 @@ import type { GeometryNode, MaterialRenderSide, SceneHook, Transform, Vec3 } fro
 import { MTLLoader } from "three/examples/jsm/loaders/MTLLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { clone as cloneSkeletonScene } from "three/examples/jsm/utils/SkeletonUtils.js";
 import {
   disableBvhRaycast,
   enableBvhRaycast,
@@ -53,7 +56,6 @@ const tempInstanceObject = new Object3D();
 const tempInstanceMatrix = new Matrix4();
 const tempPivotMatrix = new Matrix4();
 const tempInstanceColor = new Color();
-
 export function ScenePreview({
   hiddenNodeIds = [],
   interactive,
@@ -998,6 +1000,20 @@ function RenderInstancedMeshBatch({
       args={[geometry, previewMaterials.length === 1 ? previewMaterials[0] : previewMaterials, batch.instances.length]}
       castShadow={renderMode === "lit"}
       name={`node:${batch.batchId}`}
+      onPointerDown={(event) => {
+        if (!interactive || event.button !== 0) {
+          return;
+        }
+
+        const nodeId = typeof event.instanceId === "number" ? batch.instances[event.instanceId]?.nodeId : undefined;
+
+        if (!nodeId) {
+          return;
+        }
+
+        event.stopPropagation();
+        onSelectNodes([nodeId]);
+      }}
       onClick={(event) => {
         if (!interactive) {
           return;
@@ -1098,38 +1114,17 @@ function RenderInstancedModelBatch({
     [loadedScene]
   );
   const center = loadedBounds?.center ?? batch.mesh.modelCenter ?? { x: 0, y: 0, z: 0 };
-  const modelParts = useMemo(() => {
-    if (!loadedScene) {
-      return [];
-    }
+  const modelParts = useMemo(() => buildModelParts(loadedScene, center), [center.x, center.y, center.z, loadedScene]);
 
-    const root = loadedScene.clone(true);
-    root.position.set(-center.x, -center.y, -center.z);
-    root.updateMatrixWorld(true);
-    const parts: Array<{
-      geometry: BufferGeometry;
-      key: string;
-      localMatrix: Matrix4;
-      material: Mesh["material"];
-    }> = [];
-    let partIndex = 0;
-
-    root.traverse((child) => {
-      if (!(child instanceof Mesh) || !(child.geometry instanceof BufferGeometry)) {
-        return;
-      }
-
-      parts.push({
-        geometry: child.geometry,
-        key: `${partIndex}:${child.name || "mesh"}`,
-        localMatrix: child.matrixWorld.clone(),
-        material: child.material
+  useEffect(() => {
+    return () => {
+      modelParts.forEach((part) => {
+        if (part.disposeGeometry) {
+          part.geometry.dispose();
+        }
       });
-      partIndex += 1;
-    });
-
-    return parts;
-  }, [center.x, center.y, center.z, loadedScene]);
+    };
+  }, [modelParts]);
 
   if (renderMode === "wireframe" || modelParts.length === 0) {
     return (
@@ -1249,6 +1244,20 @@ function RenderInstancedModelPart({
       args={[sourceGeometry, material, batch.instances.length]}
       castShadow={renderMode === "lit"}
       name={`node:${batch.batchId}:${partKey}`}
+      onPointerDown={(event) => {
+        if (!interactive || event.button !== 0) {
+          return;
+        }
+
+        const nodeId = typeof event.instanceId === "number" ? batch.instances[event.instanceId]?.nodeId : undefined;
+
+        if (!nodeId) {
+          return;
+        }
+
+        event.stopPropagation();
+        onSelectNodes([nodeId]);
+      }}
       onClick={(event) => {
         if (!interactive) {
           return;
@@ -1400,6 +1409,20 @@ function RenderInstancedModelBoundsBatch({
       args={[geometry, material, batch.instances.length]}
       castShadow={renderMode === "lit"}
       name={`node:${batch.batchId}`}
+      onPointerDown={(event) => {
+        if (!interactive || event.button !== 0) {
+          return;
+        }
+
+        const nodeId = typeof event.instanceId === "number" ? batch.instances[event.instanceId]?.nodeId : undefined;
+
+        if (!nodeId) {
+          return;
+        }
+
+        event.stopPropagation();
+        onSelectNodes([nodeId]);
+      }}
       onClick={(event) => {
         if (!interactive) {
           return;
@@ -1785,7 +1808,7 @@ function RenderModelBody({
       return undefined;
     }
 
-    const clone = loadedScene.clone(true);
+    const clone = cloneModelSceneGraph(loadedScene);
     clone.traverse((child) => {
       if (child instanceof Mesh) {
         child.castShadow = renderMode === "lit";
@@ -1801,55 +1824,117 @@ function RenderModelBody({
       }
     : undefined);
   const center = modelBounds?.center ?? mesh.modelCenter ?? { x: 0, y: 0, z: 0 };
+  const showOverlay = renderMode === "wireframe" || selected || hovered;
+  const overlayColor = selected ? "#f97316" : hovered ? "#67e8f9" : "#94a3b8";
+  const overlayScene = useMemo(() => {
+    if (!loadedScene || !showOverlay) {
+      return undefined;
+    }
+
+    const clone = cloneModelSceneGraph(loadedScene);
+
+    clone.traverse((child) => {
+      if (!(child instanceof Mesh)) {
+        return;
+      }
+
+      child.castShadow = false;
+      child.receiveShadow = false;
+      child.renderOrder = renderMode === "wireframe" ? 0 : 6;
+      child.material = createModelOverlayMaterial(child.material, overlayColor, renderMode);
+    });
+
+    return clone;
+  }, [loadedScene, overlayColor, renderMode, showOverlay]);
+
+  useEffect(() => {
+    return () => {
+      disposeOverlaySceneMaterials(overlayScene);
+    };
+  }, [overlayScene]);
+
+  const handleClick = useCallback((event: any) => {
+    if (!interactive) {
+      return;
+    }
+
+    event.stopPropagation();
+    onSelectNodes([mesh.nodeId]);
+  }, [interactive, mesh.nodeId, onSelectNodes]);
+
+  const handleDoubleClick = useCallback((event: any) => {
+    if (!interactive) {
+      return;
+    }
+
+    event.stopPropagation();
+    onFocusNode(mesh.nodeId);
+  }, [interactive, mesh.nodeId, onFocusNode]);
+
+  const handlePointerOver = useCallback((event: any) => {
+    if (!interactive) {
+      return;
+    }
+
+    event.stopPropagation();
+    onHoverStart(mesh.nodeId);
+  }, [interactive, mesh.nodeId, onHoverStart]);
+
+  const handlePointerOut = useCallback((event: any) => {
+    if (!interactive) {
+      return;
+    }
+
+    event.stopPropagation();
+    onHoverEnd();
+  }, [interactive, onHoverEnd]);
 
   return (
-    <group
-      onClick={(event) => {
-        if (!interactive) {
-          return;
-        }
-
-        event.stopPropagation();
-        onSelectNodes([mesh.nodeId]);
-      }}
-      onDoubleClick={(event) => {
-        if (!interactive) {
-          return;
-        }
-
-        event.stopPropagation();
-        onFocusNode(mesh.nodeId);
-      }}
-      onPointerOut={(event) => {
-        if (!interactive) {
-          return;
-        }
-
-        event.stopPropagation();
-        onHoverEnd();
-      }}
-      onPointerOver={(event) => {
-        if (!interactive) {
-          return;
-        }
-
-        event.stopPropagation();
-        onHoverStart(mesh.nodeId);
-      }}
-    >
-      {modelScene ? (
-        <primitive object={modelScene} position={[-center.x, -center.y, -center.z]} />
-      ) : (
-        <mesh castShadow={renderMode === "lit"} receiveShadow={renderMode === "lit"}>
+    <group>
+      {modelScene && renderMode === "lit" ? (
+        <primitive
+          object={modelScene}
+          onClick={handleClick}
+          onDoubleClick={handleDoubleClick}
+          onPointerOut={handlePointerOut}
+          onPointerOver={handlePointerOver}
+          position={[-center.x, -center.y, -center.z]}
+        />
+      ) : null}
+      {overlayScene ? (
+        <primitive
+          object={overlayScene}
+          onClick={handleClick}
+          onDoubleClick={handleDoubleClick}
+          onPointerOut={handlePointerOut}
+          onPointerOver={handlePointerOver}
+          position={[-center.x, -center.y, -center.z]}
+        />
+      ) : null}
+      {!modelScene ? (
+        <mesh
+          castShadow={renderMode === "lit"}
+          onClick={handleClick}
+          onDoubleClick={handleDoubleClick}
+          onPointerOut={handlePointerOut}
+          onPointerOver={handlePointerOver}
+          receiveShadow={renderMode === "lit"}
+        >
           <boxGeometry args={toTuple(mesh.modelSize ?? { x: 1.4, y: 1.4, z: 1.4 })} />
           <meshStandardMaterial color={mesh.material.color} metalness={0.08} roughness={0.72} />
         </mesh>
-      )}
-      {renderMode === "wireframe" || selected || hovered ? (
-        <mesh position={[-center.x, -center.y, -center.z]}>
+      ) : null}
+      {!modelScene && showOverlay ? (
+        <mesh
+          onClick={handleClick}
+          onDoubleClick={handleDoubleClick}
+          onPointerOut={handlePointerOut}
+          onPointerOver={handlePointerOver}
+          position={[-center.x, -center.y, -center.z]}
+        >
           <boxGeometry args={toTuple(modelBounds?.size ?? mesh.modelSize ?? { x: 1.4, y: 1.4, z: 1.4 })} />
           <meshBasicMaterial
-            color={selected ? "#f97316" : hovered ? "#67e8f9" : "#94a3b8"}
+            color={overlayColor}
             depthWrite={false}
             opacity={renderMode === "wireframe" ? 1 : 0.85}
             toneMapped={false}
@@ -1985,6 +2070,7 @@ function patchMtlTextureReferences(mtlText: string, texturePath?: string) {
 }
 
 function computeModelBounds(scene: Object3D) {
+  scene.updateMatrixWorld(true);
   const box = new Box3().setFromObject(scene);
   const size = box.getSize(new Vector3());
   const center = box.getCenter(new Vector3());
@@ -1997,6 +2083,120 @@ function computeModelBounds(scene: Object3D) {
       z: Math.max(size.z, 0.001)
     }
   };
+}
+
+function buildModelParts(scene: Object3D | undefined, center: { x: number; y: number; z: number }) {
+  if (!scene) {
+    return [] as Array<{
+      disposeGeometry?: boolean;
+      geometry: BufferGeometry;
+      key: string;
+      localMatrix: Matrix4;
+      material: Mesh["material"];
+    }>;
+  }
+
+  const root = cloneModelSceneGraph(scene);
+  root.position.set(-center.x, -center.y, -center.z);
+  root.updateMatrixWorld(true);
+
+  const parts: Array<{
+    disposeGeometry?: boolean;
+    geometry: BufferGeometry;
+    key: string;
+    localMatrix: Matrix4;
+    material: Mesh["material"];
+  }> = [];
+  let partIndex = 0;
+
+  root.traverse((child) => {
+    if (!(child instanceof Mesh) || !(child.geometry instanceof BufferGeometry)) {
+      return;
+    }
+
+    const geometry = child instanceof SkinnedMesh ? bakeSkinnedMeshGeometry(child) : child.geometry;
+
+    parts.push({
+      disposeGeometry: child instanceof SkinnedMesh,
+      geometry,
+      key: `${partIndex}:${child.name || "mesh"}`,
+      localMatrix: child.matrixWorld.clone(),
+      material: child.material
+    });
+    partIndex += 1;
+  });
+
+  return parts;
+}
+
+function cloneModelSceneGraph(scene: Object3D) {
+  const clone = cloneSkeletonScene(scene);
+  clone.updateMatrixWorld(true);
+  return clone;
+}
+
+function bakeSkinnedMeshGeometry(mesh: SkinnedMesh) {
+  const sourceGeometry = mesh.geometry;
+  const positionAttribute = sourceGeometry.getAttribute("position");
+  const bakedGeometry = sourceGeometry.clone();
+  const bakedPositions = new Float32Array(positionAttribute.count * 3);
+  const bakedVertex = new Vector3();
+
+  for (let index = 0; index < positionAttribute.count; index += 1) {
+    mesh.getVertexPosition(index, bakedVertex);
+    bakedPositions[index * 3] = bakedVertex.x;
+    bakedPositions[index * 3 + 1] = bakedVertex.y;
+    bakedPositions[index * 3 + 2] = bakedVertex.z;
+  }
+
+  bakedGeometry.setAttribute("position", new Float32BufferAttribute(bakedPositions, 3));
+  bakedGeometry.deleteAttribute("skinIndex");
+  bakedGeometry.deleteAttribute("skinWeight");
+  bakedGeometry.deleteAttribute("normal");
+  bakedGeometry.computeVertexNormals();
+  bakedGeometry.computeBoundingBox();
+  bakedGeometry.computeBoundingSphere();
+
+  return bakedGeometry;
+}
+
+function createModelOverlayMaterial(material: Mesh["material"], color: string, renderMode: ViewportRenderMode) {
+  if (Array.isArray(material)) {
+    return material.map((entry) => createSingleModelOverlayMaterial(entry, color, renderMode));
+  }
+
+  return createSingleModelOverlayMaterial(material, color, renderMode);
+}
+
+function createSingleModelOverlayMaterial(material: Mesh["material"], color: string, renderMode: ViewportRenderMode) {
+  return new MeshBasicMaterial({
+    color,
+    depthWrite: false,
+    opacity: renderMode === "wireframe" ? 1 : 0.85,
+    side: material instanceof MeshBasicMaterial || material instanceof MeshStandardMaterial ? material.side : DoubleSide,
+    toneMapped: false,
+    transparent: renderMode !== "wireframe",
+    wireframe: true
+  });
+}
+
+function disposeOverlaySceneMaterials(scene: Object3D | undefined) {
+  if (!scene) {
+    return;
+  }
+
+  scene.traverse((child) => {
+    if (!(child instanceof Mesh)) {
+      return;
+    }
+
+    if (Array.isArray(child.material)) {
+      child.material.forEach((entry) => entry.dispose());
+      return;
+    }
+
+    child.material.dispose();
+  });
 }
 
 function RenderLightNode({
@@ -2322,15 +2522,19 @@ function createPreviewMaterial(spec: DerivedRenderMesh["material"], selected: bo
   const normalTexture = spec.normalTexture ? loadTexture(spec.normalTexture, false) : undefined;
   const metalnessTexture = spec.metalnessTexture ? loadTexture(spec.metalnessTexture, false) : undefined;
   const roughnessTexture = spec.roughnessTexture ? loadTexture(spec.roughnessTexture, false) : undefined;
+  const transparent = spec.transparent ?? false;
+  const opacity = transparent ? spec.opacity ?? 1 : 1;
 
   return new MeshStandardMaterial({
     color: colorTexture ? "#ffffff" : selected ? "#ffb35a" : hovered ? "#d8f4f0" : spec.color,
-    emissive: selected ? "#f69036" : hovered ? "#2a7f74" : "#000000",
-    emissiveIntensity: selected ? 0.38 : hovered ? 0.14 : 0,
+    emissive: selected ? "#f69036" : hovered ? "#2a7f74" : spec.emissiveColor ?? "#000000",
+    emissiveIntensity: selected ? 0.38 : hovered ? 0.14 : spec.emissiveIntensity ?? 0,
     flatShading: spec.flatShaded,
     metalness: spec.wireframe ? 0.05 : spec.metalness,
+    opacity,
     roughness: spec.wireframe ? 0.45 : spec.roughness,
     side: resolvePreviewMaterialSide(spec.side),
+    transparent,
     wireframe: spec.wireframe,
     ...(colorTexture ? { map: colorTexture } : {}),
     ...(metalnessTexture ? { metalnessMap: metalnessTexture } : {}),

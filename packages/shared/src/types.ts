@@ -221,7 +221,11 @@ export type Material = {
   name: string;
   category?: MaterialCategory;
   color: string;
+  emissiveColor?: string;
+  emissiveIntensity?: number;
+  opacity?: number;
   side?: MaterialRenderSide;
+  transparent?: boolean;
   colorTexture?: string;
   edgeColor?: string;
   edgeThickness?: number;

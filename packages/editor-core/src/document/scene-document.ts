@@ -358,26 +358,6 @@ export function createSeedSceneDocument(): SceneDocument {
     roughness: 0.8
   });
 
-  document.assets.set("asset:model:crate", {
-    id: "asset:model:crate",
-    type: "model",
-    path: "/assets/models/crate.glb",
-    metadata: {
-      previewColor: "#7f8ea3",
-      source: "placeholder"
-    }
-  });
-
-  document.assets.set("asset:model:barrel", {
-    id: "asset:model:barrel",
-    type: "model",
-    path: "/assets/models/barrel.glb",
-    metadata: {
-      previewColor: "#9a684d",
-      source: "placeholder"
-    }
-  });
-
   document.revision = 1;
 
   return document;

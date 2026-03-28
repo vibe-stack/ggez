@@ -717,6 +717,20 @@ function MaterialEditorForm({
             value={draftMaterial.color}
           />
         </label>
+        <label className="flex shrink-0 flex-col gap-1">
+          <PanelLabel>Emit</PanelLabel>
+          <input
+            className="h-9 w-10 rounded-xl bg-transparent p-0"
+            onChange={(event) =>
+              onChangeDraft((current) => ({
+                ...current,
+                emissiveColor: event.target.value,
+              }))
+            }
+            type="color"
+            value={draftMaterial.emissiveColor ?? "#000000"}
+          />
+        </label>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
@@ -744,6 +758,57 @@ function MaterialEditorForm({
           step={0.01}
           value={draftMaterial.roughness ?? 0.8}
         />
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <DragInput
+          compact
+          label="Emit"
+          max={10}
+          min={0}
+          onChange={(value) =>
+            onChangeDraft((current) => ({ ...current, emissiveIntensity: value }))
+          }
+          precision={2}
+          step={0.05}
+          value={draftMaterial.emissiveIntensity ?? 0}
+        />
+        <DragInput
+          compact
+          disabled={!draftMaterial.transparent}
+          label="Opacity"
+          max={1}
+          min={0}
+          onChange={(value) =>
+            onChangeDraft((current) => ({ ...current, opacity: value }))
+          }
+          precision={2}
+          step={0.01}
+          value={draftMaterial.opacity ?? 1}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <PanelLabel>Transparency</PanelLabel>
+        <Button
+          className={cn(
+            "w-full justify-between rounded-xl border border-white/10 bg-white/4 text-xs text-foreground/70 hover:bg-white/7",
+            draftMaterial.transparent && "bg-emerald-500/14 text-emerald-200"
+          )}
+          onClick={() =>
+            onChangeDraft((current) => ({
+              ...current,
+              opacity: current.opacity ?? 1,
+              transparent: !current.transparent,
+            }))
+          }
+          size="sm"
+          type="button"
+          variant="ghost"
+        >
+          <span>Blend Transparent</span>
+          <span>{draftMaterial.transparent ? "On" : "Off"}</span>
+        </Button>
       </div>
 
       <div className="space-y-2">
@@ -873,16 +938,24 @@ function createDraftMaterial(material?: Material): Material {
     ? {
         ...structuredClone(material),
         category: "custom",
+        emissiveColor: material.emissiveColor ?? "#000000",
+        emissiveIntensity: material.emissiveIntensity ?? 0,
         metalness: material.metalness ?? 0,
+        opacity: material.opacity ?? 1,
         roughness: material.roughness ?? 0.8,
+        transparent: material.transparent ?? false,
       }
     : {
         category: "custom",
         color: "#b8c0cc",
+        emissiveColor: "#000000",
+        emissiveIntensity: 0,
         id: "material:custom:draft",
         metalness: 0,
         name: "Custom Material",
+        opacity: 1,
         roughness: 0.8,
+        transparent: false,
       };
 }
 

@@ -21,7 +21,7 @@ import {
 export function createDuplicateNodesCommand(
   scene: SceneDocument,
   nodeIds: string[],
-  offset: Vec3
+  _offset: Vec3
 ): {
   command: Command;
   duplicateIds: string[];
@@ -47,7 +47,6 @@ export function createDuplicateNodesCommand(
 
     if (topLevelIdSet.has(sourceNodeId)) {
       duplicate.name = `${sourceNode.name} Copy`;
-      duplicate.transform.position = addVec3(sourceNode.transform.position, offset);
       duplicateRootIds.push(duplicate.id);
     }
 
@@ -69,7 +68,6 @@ export function createDuplicateNodesCommand(
 
         if (topLevelIdSet.has(entity.id)) {
           duplicateEntity.name = `${entity.name} Copy`;
-          duplicateEntity.transform.position = addVec3(entity.transform.position, offset);
           duplicateRootIds.push(duplicateEntity.id);
         }
 
@@ -94,7 +92,6 @@ export function createDuplicateNodesCommand(
     const duplicate = structuredClone(entity);
     duplicate.id = createDuplicateEntityId(scene, entity.id);
     duplicate.name = `${entity.name} Copy`;
-    duplicate.transform.position = addVec3(entity.transform.position, offset);
     duplicate.parentId = entity.parentId ? nodeIdMap.get(entity.parentId) ?? entity.parentId : undefined;
     duplicateEntities.push(duplicate);
     duplicateRootIds.push(duplicate.id);
@@ -127,7 +124,7 @@ export function createDuplicateNodesCommand(
 export function createInstanceNodesCommand(
   scene: SceneDocument,
   nodeIds: string[],
-  offset: Vec3
+  _offset: Vec3
 ): {
   command: Command;
   instanceIds: string[];
@@ -214,10 +211,6 @@ export function createInstanceNodesCommand(
         transform: structuredClone(node.transform)
       };
 
-      if (isTopLevel) {
-        groupNode.transform.position = addVec3(groupNode.transform.position, offset);
-      }
-
       createdNodes.push(groupNode);
       (childNodeIdsByParentId.get(node.id) ?? []).forEach((childNodeId) => {
         cloneInstancedSubtree(childNodeId, groupId);
@@ -242,7 +235,7 @@ export function createInstanceNodesCommand(
       name: isInstancingNode(node) ? `${node.name} Copy` : `${source.name} Instance`,
       parentId: parentIdOverride ?? node.parentId,
       transform: {
-        position: isTopLevel ? addVec3(node.transform.position, offset) : structuredClone(node.transform.position),
+        position: structuredClone(node.transform.position),
         rotation: structuredClone(node.transform.rotation),
         scale: structuredClone(node.transform.scale)
       }

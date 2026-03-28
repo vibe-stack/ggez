@@ -22,7 +22,7 @@ export const uiStore = proxy<UiStore>({
   copilotPanelOpen: false,
   logicViewerOpen: false,
   rightPanel: null,
-  selectedAssetId: "asset:model:crate",
+  selectedAssetId: "",
   selectedMaterialId: "material:blockout:concrete",
   viewMode: "3d-only",
   viewportQuality: 0.5,

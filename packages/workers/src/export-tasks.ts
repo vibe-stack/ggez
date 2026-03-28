@@ -1385,15 +1385,20 @@ function buildPrimitiveGeometry(shape: "cone" | "cube" | "cylinder" | "sphere", 
 async function resolveExportMaterial(material?: Material) {
   const resolved = material ?? {
     color: "#ffffff",
+    emissiveColor: "#000000",
+    emissiveIntensity: 0,
     id: "material:fallback:default",
     metalness: 0.05,
     name: "Default Material",
+    opacity: 1,
     roughness: 0.8
   };
 
   return {
     baseColorTexture: await resolveEmbeddedTextureUri(resolved.colorTexture ?? resolveGeneratedBlockoutTexture(resolved)),
     color: resolved.color,
+    emissiveColor: resolved.emissiveColor ?? "#000000",
+    emissiveIntensity: Math.max(0, resolved.emissiveIntensity ?? 0),
     id: resolved.id,
     metallicFactor: resolved.metalness ?? 0,
     metallicRoughnessTexture: await createMetallicRoughnessTextureDataUri(
@@ -1404,8 +1409,10 @@ async function resolveExportMaterial(material?: Material) {
     ),
     name: resolved.name,
     normalTexture: await resolveEmbeddedTextureUri(resolved.normalTexture),
+    opacity: clamp01(resolved.opacity ?? 1),
     roughnessFactor: resolved.roughness ?? 0.8,
-    side: resolved.side
+    side: resolved.side,
+    transparent: resolved.transparent ?? false
   } satisfies WebHammerExportMaterial;
 }
 
@@ -1441,6 +1448,8 @@ async function ensureGltfMaterial(
     : undefined;
 
   materials.push({
+    ...(material.transparent ? { alphaMode: "BLEND" } : {}),
+    ...(material.emissiveColor ? { emissiveFactor: hexToRgb(material.emissiveColor, material.emissiveIntensity ?? 1) } : {}),
     name: material.name,
     normalTexture: normalTextureIndex !== undefined ? { index: normalTextureIndex } : undefined,
     pbrMetallicRoughness: {
@@ -1448,7 +1457,7 @@ async function ensureGltfMaterial(
       ...(metallicRoughnessTextureIndex !== undefined
         ? { metallicRoughnessTexture: { index: metallicRoughnessTextureIndex } }
         : {}),
-      baseColorFactor: hexToRgba(material.color),
+      baseColorFactor: hexToRgba(material.color, material.transparent ? material.opacity ?? 1 : 1),
       metallicFactor: material.metallicFactor,
       roughnessFactor: material.roughnessFactor
     }
@@ -1693,8 +1702,25 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-function hexToRgba(hex: string): [number, number, number, number] {
+function hexToRgb(hex: string, intensity = 1): [number, number, number] {
   const normalized = hex.replace("#", "");
-  const parsed = Number.parseInt(normalized, 16);
-  return [((parsed >> 16) & 255) / 255, ((parsed >> 8) & 255) / 255, (parsed & 255) / 255, 1];
+  const expanded = normalized.length === 3
+    ? normalized
+        .split("")
+        .map((character) => `${character}${character}`)
+        .join("")
+    : normalized.padEnd(6, "0").slice(0, 6);
+  const parsed = Number.parseInt(expanded, 16);
+  const scale = Math.max(0, intensity);
+
+  return [
+    (((parsed >> 16) & 255) / 255) * scale,
+    (((parsed >> 8) & 255) / 255) * scale,
+    ((parsed & 255) / 255) * scale
+  ];
+}
+
+function hexToRgba(hex: string, alpha = 1): [number, number, number, number] {
+  const [red, green, blue] = hexToRgb(hex);
+  return [red, green, blue, clamp01(alpha)];
 }

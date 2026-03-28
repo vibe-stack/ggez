@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { BellRing, Cable, FolderTree, Globe2, SlidersHorizontal, SwatchBook, User } from "lucide-react";
 import {
   type EditableMesh,
@@ -150,9 +150,57 @@ export function InspectorSidebar({
   const [sceneSection, setSceneSection] = useState<"hierarchy" | "paths">("hierarchy");
   const [draftWorldSettings, setDraftWorldSettings] = useState(() => structuredClone(sceneSettings.world));
   const [draftPlayerSettings, setDraftPlayerSettings] = useState(() => structuredClone(sceneSettings.player));
+  const draftTransformRef = useRef(draftTransform);
+  const draftWorldSettingsRef = useRef(draftWorldSettings);
+  const draftPlayerSettingsRef = useRef(draftPlayerSettings);
+  const sceneSettingsRef = useRef(sceneSettings);
+  const selectedNodeRef = useRef(selectedNode);
+  const selectedEntityRef = useRef(selectedEntity);
+  const selectedTargetRef = useRef(selectedTarget);
+
+  const setDraftTransformState = (
+    value: Transform | undefined | ((current: Transform | undefined) => Transform | undefined)
+  ) => {
+    setDraftTransform((current) => {
+      const next = typeof value === "function" ? value(current) : value;
+      draftTransformRef.current = next;
+      return next;
+    });
+  };
+
+  const setDraftWorldSettingsState = (
+    value:
+      | SceneSettings["world"]
+      | ((current: SceneSettings["world"]) => SceneSettings["world"])
+  ) => {
+    setDraftWorldSettings((current) => {
+      const next = typeof value === "function" ? value(current) : value;
+      draftWorldSettingsRef.current = next;
+      return next;
+    });
+  };
+
+  const setDraftPlayerSettingsState = (
+    value:
+      | SceneSettings["player"]
+      | ((current: SceneSettings["player"]) => SceneSettings["player"])
+  ) => {
+    setDraftPlayerSettings((current) => {
+      const next = typeof value === "function" ? value(current) : value;
+      draftPlayerSettingsRef.current = next;
+      return next;
+    });
+  };
+
+  sceneSettingsRef.current = sceneSettings;
+  selectedNodeRef.current = selectedNode;
+  selectedEntityRef.current = selectedEntity;
+  selectedTargetRef.current = selectedTarget;
 
   useEffect(() => {
-    setDraftTransform(selectedTarget ? structuredClone(selectedTarget.transform) : undefined);
+    const nextDraftTransform = selectedTarget ? structuredClone(selectedTarget.transform) : undefined;
+    draftTransformRef.current = nextDraftTransform;
+    setDraftTransform(nextDraftTransform);
   }, [
     selectedTarget?.id,
     selectedTarget?.transform.position.x,
@@ -170,8 +218,12 @@ export function InspectorSidebar({
   ]);
 
   useEffect(() => {
-    setDraftWorldSettings(structuredClone(sceneSettings.world));
-    setDraftPlayerSettings(structuredClone(sceneSettings.player));
+    const nextWorldSettings = structuredClone(sceneSettings.world);
+    const nextPlayerSettings = structuredClone(sceneSettings.player);
+    draftWorldSettingsRef.current = nextWorldSettings;
+    draftPlayerSettingsRef.current = nextPlayerSettings;
+    setDraftWorldSettings(nextWorldSettings);
+    setDraftPlayerSettings(nextPlayerSettings);
   }, [sceneSettings]);
 
   const selectedIsBrush = selectedNode?.kind === "brush";
@@ -187,7 +239,7 @@ export function InspectorSidebar({
     axis: (typeof AXES)[number],
     value: number
   ) => {
-    setDraftTransform((current) => {
+    setDraftTransformState((current) => {
       if (!current) {
         return current;
       }
@@ -212,47 +264,54 @@ export function InspectorSidebar({
   };
 
   const commitDraftTransform = () => {
-    if (!selectedTarget || !draftTransform) {
+    const currentTarget = selectedTargetRef.current;
+    const currentNode = selectedNodeRef.current;
+    const currentEntity = selectedEntityRef.current;
+    const currentDraftTransform = draftTransformRef.current;
+
+    if (!currentTarget || !currentDraftTransform) {
       return;
     }
 
-    if (selectedNode) {
+    if (currentNode) {
       onUpdateNodeTransform(
-        selectedNode.id,
-        selectedIsInstancing
+        currentNode.id,
+        isInstancingNode(currentNode)
           ? {
-              position: structuredClone(draftTransform.position),
-              rotation: structuredClone(draftTransform.rotation),
-              scale: structuredClone(draftTransform.scale)
+              position: structuredClone(currentDraftTransform.position),
+              rotation: structuredClone(currentDraftTransform.rotation),
+              scale: structuredClone(currentDraftTransform.scale)
             }
-          : draftTransform
+          : currentDraftTransform
       );
       return;
     }
 
-    if (selectedEntity) {
-      onUpdateEntityTransform(selectedEntity.id, draftTransform, selectedEntity.transform);
+    if (currentEntity) {
+      onUpdateEntityTransform(currentEntity.id, currentDraftTransform, currentEntity.transform);
     }
   };
 
   const commitWorldSettings = () => {
+    const currentSceneSettings = sceneSettingsRef.current;
+
     onUpdateSceneSettings(
       {
-        ...sceneSettings,
-        world: structuredClone(draftWorldSettings)
+        ...currentSceneSettings,
+        world: structuredClone(draftWorldSettingsRef.current)
       },
-      sceneSettings
+      currentSceneSettings
     );
   };
 
   const commitWorldSettingsDraft = (nextWorldSettings: SceneSettings["world"]) => {
-    setDraftWorldSettings(nextWorldSettings);
+    setDraftWorldSettingsState(nextWorldSettings);
     onUpdateSceneSettings(
       {
-        ...sceneSettings,
+        ...sceneSettingsRef.current,
         world: structuredClone(nextWorldSettings)
       },
-      sceneSettings
+      sceneSettingsRef.current
     );
   };
 
@@ -266,9 +325,9 @@ export function InspectorSidebar({
 
     const nextSource = await readFileAsDataUrl(file);
     const nextWorldSettings = {
-      ...draftWorldSettings,
+      ...draftWorldSettingsRef.current,
       skybox: {
-        ...draftWorldSettings.skybox,
+        ...draftWorldSettingsRef.current.skybox,
         enabled: true,
         format: inferSkyboxFormat(file),
         name: file.name,
@@ -281,9 +340,9 @@ export function InspectorSidebar({
 
   const handleRemoveSkybox = () => {
     commitWorldSettingsDraft({
-      ...draftWorldSettings,
+      ...draftWorldSettingsRef.current,
       skybox: {
-        ...draftWorldSettings.skybox,
+        ...draftWorldSettingsRef.current.skybox,
         enabled: false,
         name: "",
         source: ""
@@ -292,12 +351,14 @@ export function InspectorSidebar({
   };
 
   const commitPlayerSettings = () => {
+    const currentSceneSettings = sceneSettingsRef.current;
+
     onUpdateSceneSettings(
       {
-        ...sceneSettings,
-        player: structuredClone(draftPlayerSettings)
+        ...currentSceneSettings,
+        player: structuredClone(draftPlayerSettingsRef.current)
       },
-      sceneSettings
+      currentSceneSettings
     );
   };
 
@@ -407,14 +468,14 @@ export function InspectorSidebar({
                 <ToolSection title="Physics">
                   <BooleanField
                     label="Physics Enabled"
-                    onCheckedChange={(checked) => setDraftWorldSettings((current) => ({ ...current, physicsEnabled: checked }))}
+                    onCheckedChange={(checked) => setDraftWorldSettingsState((current) => ({ ...current, physicsEnabled: checked }))}
                     checked={draftWorldSettings.physicsEnabled}
                   />
                   <TransformGroup
                     label="Gravity"
                     onCommit={commitWorldSettings}
                     onUpdate={(axis, value) =>
-                      setDraftWorldSettings((current) => ({
+                      setDraftWorldSettingsState((current) => ({
                         ...current,
                         gravity: {
                           ...current.gravity,
@@ -436,14 +497,14 @@ export function InspectorSidebar({
                 <ToolSection title="Ambient">
                   <ColorField
                     label="Ambient Color"
-                    onChange={(value) => setDraftWorldSettings((current) => ({ ...current, ambientColor: value }))}
+                    onChange={(value) => setDraftWorldSettingsState((current) => ({ ...current, ambientColor: value }))}
                     value={draftWorldSettings.ambientColor}
                   />
                   <DragInput
                     className="w-full"
                     compact
                     label="Intensity"
-                    onChange={(value) => setDraftWorldSettings((current) => ({ ...current, ambientIntensity: value }))}
+                    onChange={(value) => setDraftWorldSettingsState((current) => ({ ...current, ambientIntensity: value }))}
                     onValueCommit={commitWorldSettings}
                     precision={2}
                     step={0.05}
@@ -455,7 +516,7 @@ export function InspectorSidebar({
                   <BooleanField
                     label="Bake Runtime LODs"
                     onCheckedChange={(checked) =>
-                      setDraftWorldSettings((current) => ({
+                      setDraftWorldSettingsState((current) => ({
                         ...current,
                         lod: {
                           ...current.lod,
@@ -476,7 +537,7 @@ export function InspectorSidebar({
                     max={0.95}
                     min={0.1}
                     onChange={(value) =>
-                      setDraftWorldSettings((current) => ({
+                      setDraftWorldSettingsState((current) => ({
                         ...current,
                         lod: {
                           ...current.lod,
@@ -496,7 +557,7 @@ export function InspectorSidebar({
                     max={draftWorldSettings.lod.midDetailRatio}
                     min={0.05}
                     onChange={(value) =>
-                      setDraftWorldSettings((current) => ({
+                      setDraftWorldSettingsState((current) => ({
                         ...current,
                         lod: {
                           ...current.lod,
@@ -566,7 +627,7 @@ export function InspectorSidebar({
                     label="Backdrop Intensity"
                     min={0}
                     onChange={(value) =>
-                      setDraftWorldSettings((current) => ({
+                      setDraftWorldSettingsState((current) => ({
                         ...current,
                         skybox: {
                           ...current.skybox,
@@ -585,7 +646,7 @@ export function InspectorSidebar({
                     label="Lighting Intensity"
                     min={0}
                     onChange={(value) =>
-                      setDraftWorldSettings((current) => ({
+                      setDraftWorldSettingsState((current) => ({
                         ...current,
                         skybox: {
                           ...current.skybox,
@@ -605,7 +666,7 @@ export function InspectorSidebar({
                     max={1}
                     min={0}
                     onChange={(value) =>
-                      setDraftWorldSettings((current) => ({
+                      setDraftWorldSettingsState((current) => ({
                         ...current,
                         skybox: {
                           ...current.skybox,
@@ -631,7 +692,7 @@ export function InspectorSidebar({
                 <ToolSection title="Fog">
                   <ColorField
                     label="Fog Color"
-                    onChange={(value) => setDraftWorldSettings((current) => ({ ...current, fogColor: value }))}
+                    onChange={(value) => setDraftWorldSettingsState((current) => ({ ...current, fogColor: value }))}
                     value={draftWorldSettings.fogColor}
                   />
                   <DragInput
@@ -640,7 +701,7 @@ export function InspectorSidebar({
                     label="Near"
                     min={0}
                     onChange={(value) =>
-                      setDraftWorldSettings((current) => ({
+                      setDraftWorldSettingsState((current) => ({
                         ...current,
                         fogNear: Math.max(0, Math.min(value, current.fogFar - 0.01)),
                       }))
@@ -656,7 +717,7 @@ export function InspectorSidebar({
                     label="Far"
                     min={0.01}
                     onChange={(value) =>
-                      setDraftWorldSettings((current) => ({
+                      setDraftWorldSettingsState((current) => ({
                         ...current,
                         fogFar: Math.max(value, current.fogNear + 0.01),
                       }))
@@ -685,7 +746,7 @@ export function InspectorSidebar({
                         className={cn(draftPlayerSettings.cameraMode === value && "bg-emerald-500/18 text-emerald-200")}
                         key={value}
                         onClick={() => {
-                          setDraftPlayerSettings((current) => ({ ...current, cameraMode: value }));
+                          setDraftPlayerSettingsState((current) => ({ ...current, cameraMode: value }));
                           onUpdateSceneSettings(
                             {
                               ...sceneSettings,
@@ -711,7 +772,7 @@ export function InspectorSidebar({
                     className="w-full"
                     compact
                     label="Height"
-                    onChange={(value) => setDraftPlayerSettings((current) => ({ ...current, height: value }))}
+                    onChange={(value) => setDraftPlayerSettingsState((current) => ({ ...current, height: value }))}
                     onValueCommit={commitPlayerSettings}
                     precision={2}
                     step={0.05}
@@ -721,7 +782,7 @@ export function InspectorSidebar({
                     className="w-full"
                     compact
                     label="Move Speed"
-                    onChange={(value) => setDraftPlayerSettings((current) => ({ ...current, movementSpeed: value }))}
+                    onChange={(value) => setDraftPlayerSettingsState((current) => ({ ...current, movementSpeed: value }))}
                     onValueCommit={commitPlayerSettings}
                     precision={2}
                     step={0.1}
@@ -731,7 +792,7 @@ export function InspectorSidebar({
                     label="Allow Run"
                     onCheckedChange={(checked) => {
                       const nextPlayer = { ...draftPlayerSettings, canRun: checked };
-                      setDraftPlayerSettings(nextPlayer);
+                      setDraftPlayerSettingsState(nextPlayer);
                       onUpdateSceneSettings(
                         {
                           ...sceneSettings,
@@ -746,7 +807,7 @@ export function InspectorSidebar({
                     className="w-full"
                     compact
                     label="Run Speed"
-                    onChange={(value) => setDraftPlayerSettings((current) => ({ ...current, runningSpeed: value }))}
+                    onChange={(value) => setDraftPlayerSettingsState((current) => ({ ...current, runningSpeed: value }))}
                     onValueCommit={commitPlayerSettings}
                     precision={2}
                     step={0.1}
@@ -759,7 +820,7 @@ export function InspectorSidebar({
                     label="Allow Jump"
                     onCheckedChange={(checked) => {
                       const nextPlayer = { ...draftPlayerSettings, canJump: checked };
-                      setDraftPlayerSettings(nextPlayer);
+                      setDraftPlayerSettingsState(nextPlayer);
                       onUpdateSceneSettings(
                         {
                           ...sceneSettings,
@@ -774,7 +835,7 @@ export function InspectorSidebar({
                     className="w-full"
                     compact
                     label="Jump Height"
-                    onChange={(value) => setDraftPlayerSettings((current) => ({ ...current, jumpHeight: value }))}
+                    onChange={(value) => setDraftPlayerSettingsState((current) => ({ ...current, jumpHeight: value }))}
                     onValueCommit={commitPlayerSettings}
                     precision={2}
                     step={0.05}
@@ -784,7 +845,7 @@ export function InspectorSidebar({
                     label="Allow Crouch"
                     onCheckedChange={(checked) => {
                       const nextPlayer = { ...draftPlayerSettings, canCrouch: checked };
-                      setDraftPlayerSettings(nextPlayer);
+                      setDraftPlayerSettingsState(nextPlayer);
                       onUpdateSceneSettings(
                         {
                           ...sceneSettings,
@@ -799,7 +860,7 @@ export function InspectorSidebar({
                     className="w-full"
                     compact
                     label="Crouch Height"
-                    onChange={(value) => setDraftPlayerSettings((current) => ({ ...current, crouchHeight: value }))}
+                    onChange={(value) => setDraftPlayerSettingsState((current) => ({ ...current, crouchHeight: value }))}
                     onValueCommit={commitPlayerSettings}
                     precision={2}
                     step={0.05}
@@ -812,7 +873,7 @@ export function InspectorSidebar({
                     label="Allow Interact"
                     onCheckedChange={(checked) => {
                       const nextPlayer = { ...draftPlayerSettings, canInteract: checked };
-                      setDraftPlayerSettings(nextPlayer);
+                      setDraftPlayerSettingsState(nextPlayer);
                       onUpdateSceneSettings(
                         {
                           ...sceneSettings,
@@ -827,7 +888,7 @@ export function InspectorSidebar({
                     value={draftPlayerSettings.interactKey ?? "KeyE"}
                     onChange={(code) => {
                       const nextPlayer = { ...draftPlayerSettings, interactKey: code };
-                      setDraftPlayerSettings(nextPlayer);
+                      setDraftPlayerSettingsState(nextPlayer);
                       onUpdateSceneSettings(
                         {
                           ...sceneSettings,

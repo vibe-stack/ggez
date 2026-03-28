@@ -48,13 +48,17 @@ export type RenderMaterial = {
   colorTexture?: string;
   edgeColor?: string;
   edgeThickness?: number;
+  emissiveColor?: string;
+  emissiveIntensity?: number;
   flatShaded: boolean;
   metalness: number;
   metalnessTexture?: string;
   normalTexture?: string;
+  opacity?: number;
   roughness: number;
   roughnessTexture?: string;
   side?: MaterialRenderSide;
+  transparent?: boolean;
   wireframe: boolean;
 };
 
@@ -156,13 +160,17 @@ export function createDerivedRenderMesh(
       colorTexture: appearance.colorTexture,
       edgeColor: appearance.edgeColor,
       edgeThickness: appearance.edgeThickness,
+      emissiveColor: appearance.emissiveColor,
+      emissiveIntensity: appearance.emissiveIntensity,
       flatShaded: appearance.flatShaded,
       metalness: appearance.metalness,
       metalnessTexture: appearance.metalnessTexture,
       normalTexture: appearance.normalTexture,
+      opacity: appearance.opacity,
       roughness: appearance.roughness,
       roughnessTexture: appearance.roughnessTexture,
       side: appearance.side,
+      transparent: appearance.transparent,
       wireframe: appearance.wireframe
     },
     materials: surfaceResult?.materials
@@ -179,14 +187,18 @@ function getRenderAppearance(
   colorTexture?: string;
   edgeColor?: string;
   edgeThickness?: number;
+  emissiveColor?: string;
+  emissiveIntensity?: number;
   flatShaded: boolean;
   metalness: number;
   metalnessTexture?: string;
   normalTexture?: string;
+  opacity?: number;
   wireframe: boolean;
   roughness: number;
   roughnessTexture?: string;
   side?: MaterialRenderSide;
+  transparent?: boolean;
   primitiveLabel: string;
 } {
   if (isBrushNode(node)) {
@@ -199,13 +211,17 @@ function getRenderAppearance(
       colorTexture: material?.colorTexture,
       edgeColor: material?.edgeColor,
       edgeThickness: material?.edgeThickness,
+      emissiveColor: material?.emissiveColor,
+      emissiveIntensity: material?.emissiveIntensity,
       flatShaded: true,
       metalness: material?.metalness ?? 0,
       metalnessTexture: material?.metalnessTexture,
       normalTexture: material?.normalTexture,
+      opacity: material?.opacity,
       roughness: material?.roughness ?? 0.95,
       roughnessTexture: material?.roughnessTexture,
       side: material?.side,
+      transparent: material?.transparent,
       wireframe: false,
       primitiveLabel: "box"
     };
@@ -221,13 +237,17 @@ function getRenderAppearance(
       colorTexture: material?.colorTexture,
       edgeColor: material?.edgeColor,
       edgeThickness: material?.edgeThickness,
+      emissiveColor: material?.emissiveColor,
+      emissiveIntensity: material?.emissiveIntensity,
       flatShaded: true,
       metalness: material?.metalness ?? 0.05,
       metalnessTexture: material?.metalnessTexture,
       normalTexture: material?.normalTexture,
+      opacity: material?.opacity,
       roughness: material?.roughness ?? 0.82,
       roughnessTexture: material?.roughnessTexture,
       side: material?.side,
+      transparent: material?.transparent,
       wireframe: false,
       primitiveLabel: "poly"
     };
@@ -255,13 +275,17 @@ function getRenderAppearance(
       colorTexture: material?.colorTexture,
       edgeColor: material?.edgeColor,
       edgeThickness: material?.edgeThickness,
+      emissiveColor: material?.emissiveColor,
+      emissiveIntensity: material?.emissiveIntensity,
       flatShaded: true,
       metalness: material?.metalness ?? (node.data.role === "brush" ? 0 : 0.12),
       metalnessTexture: material?.metalnessTexture,
       normalTexture: material?.normalTexture,
+      opacity: material?.opacity,
       roughness: material?.roughness ?? (node.data.role === "brush" ? 0.95 : 0.64),
       roughnessTexture: material?.roughnessTexture,
       side: material?.side,
+      transparent: material?.transparent,
       wireframe: false,
       primitiveLabel: node.data.shape
     };
@@ -513,13 +537,17 @@ function resolveRenderMaterial(
     colorTexture: material?.colorTexture,
     edgeColor: material?.edgeColor,
     edgeThickness: material?.edgeThickness,
+    emissiveColor: material?.emissiveColor,
+    emissiveIntensity: material?.emissiveIntensity,
     flatShaded: true,
     metalness: material?.metalness ?? fallbackMetalness,
     metalnessTexture: material?.metalnessTexture,
     normalTexture: material?.normalTexture,
+    opacity: material?.opacity,
     roughness: material?.roughness ?? fallbackRoughness,
     roughnessTexture: material?.roughnessTexture,
     side: material?.side,
+    transparent: material?.transparent,
     wireframe: false
   };
 }

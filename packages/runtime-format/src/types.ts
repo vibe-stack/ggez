@@ -22,13 +22,17 @@ export const CURRENT_RUNTIME_WORLD_INDEX_VERSION = 1 as const;
 export type RuntimeMaterial = {
   baseColorTexture?: string;
   color: string;
+  emissiveColor?: string;
+  emissiveIntensity?: number;
   id: string;
   metallicFactor: number;
   metallicRoughnessTexture?: string;
   name: string;
   normalTexture?: string;
+  opacity?: number;
   roughnessFactor: number;
   side?: MaterialRenderSide;
+  transparent?: boolean;
 };
 
 export type RuntimePrimitive = {

@@ -526,9 +526,13 @@ async function createThreeMaterial(
 
   const material = new MeshStandardMaterial({
     color: materialSpec.color,
+    emissive: materialSpec.emissiveColor ?? "#000000",
+    emissiveIntensity: materialSpec.emissiveIntensity ?? 0,
     metalness: materialSpec.metallicFactor,
+    opacity: materialSpec.transparent ? materialSpec.opacity ?? 1 : 1,
     roughness: materialSpec.roughnessFactor,
-    side: resolveMaterialSide(materialSpec.side)
+    side: resolveMaterialSide(materialSpec.side),
+    transparent: materialSpec.transparent ?? false
   });
 
   if (materialSpec.baseColorTexture) {

@@ -42,12 +42,13 @@ export function DragInput({
   const displayRef = useRef<HTMLDivElement>(null);
   const hasDraggedRef = useRef(false);
   const lastValueRef = useRef<number | undefined>(value);
+  const skipBlurCommitRef = useRef(false);
 
   useEffect(() => {
     // Don't update input value while actively dragging
     // This prevents external value changes from breaking the drag state
-    if (!isEditing && !isDragging && value !== undefined) {
-      setInputValue(value.toFixed(precision));
+    if (!isEditing && !isDragging) {
+      setInputValue(value !== undefined ? value.toFixed(precision) : "");
     }
   }, [value, precision, isEditing, isDragging]);
 
@@ -116,7 +117,9 @@ export function DragInput({
     }, 0);
     if (didDrag && onValueCommit) {
       const v = lastValueRef.current ?? value ?? dragStartValue;
-      onValueCommit(v);
+      window.setTimeout(() => {
+        onValueCommit(v);
+      }, 0);
     }
   }, [onValueCommit, value, dragStartValue]);
 
@@ -135,7 +138,8 @@ export function DragInput({
     if (disabled) return;
     
     if (isEditing) {
-      handleInputBlur();
+      commitInputValue(inputRef.current?.value ?? inputValue);
+      setIsEditing(false);
     } else {
       setIsEditing(true);
       setTimeout(() => {
@@ -178,28 +182,45 @@ export function DragInput({
     setInputValue(e.target.value);
   };
 
-  const handleInputBlur = () => {
-    const numValue = parseFloat(inputValue);
+  const commitInputValue = useCallback((rawValue: string) => {
+    const numValue = parseFloat(rawValue);
+
     if (!isNaN(numValue)) {
       let finalValue = numValue;
       if (min !== undefined) finalValue = Math.max(min, finalValue);
       if (max !== undefined) finalValue = Math.min(max, finalValue);
       lastValueRef.current = finalValue;
+      setInputValue(finalValue.toFixed(precision));
       onChange(finalValue);
       if (onValueCommit) {
         window.setTimeout(() => {
           onValueCommit(finalValue);
         }, 0);
       }
+      return;
     }
+
+    setInputValue(value !== undefined ? value.toFixed(precision) : "");
+  }, [max, min, onChange, onValueCommit, precision, value]);
+
+  const handleInputBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    if (skipBlurCommitRef.current) {
+      skipBlurCommitRef.current = false;
+      return;
+    }
+
+    commitInputValue(e.currentTarget.value);
     setIsEditing(false);
   };
 
-  const handleInputKeyDown = (e: React.KeyboardEvent) => {
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      handleInputBlur();
+      skipBlurCommitRef.current = true;
+      commitInputValue(e.currentTarget.value);
+      setIsEditing(false);
     } else if (e.key === "Escape") {
+      skipBlurCommitRef.current = true;
       setInputValue(value?.toFixed(precision) ?? "");
       setIsEditing(false);
     }
@@ -208,7 +229,7 @@ export function DragInput({
   return (
     <div className={cn("flex min-w-0 items-center gap-1.5 overflow-hidden", className)}>
       {label && (
-        <span className={cn("shrink-0 text-[10px] font-medium tracking-[0.18em] text-foreground/42 uppercase", compact ? "min-w-0" : "min-w-[36px]")}>
+        <span className={cn("shrink-0 text-[10px] font-medium tracking-[0.18em] text-foreground/42 uppercase", compact ? "min-w-0" : "min-w-9")}>
           {label}
         </span>
       )}

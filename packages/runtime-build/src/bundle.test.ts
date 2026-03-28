@@ -12,10 +12,14 @@ const runtimeScene: RuntimeScene = {
       baseColorTexture:
         "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9sotW5kAAAAASUVORK5CYII=",
       color: "#ffffff",
+      emissiveColor: "#ff6600",
+      emissiveIntensity: 0.75,
       id: "material:test",
       metallicFactor: 0,
       name: "Test",
-      roughnessFactor: 1
+      opacity: 0.42,
+      roughnessFactor: 1,
+      transparent: true
     }
   ],
   metadata: {
@@ -81,6 +85,10 @@ describe("runtime-build", () => {
     const unpacked = unpackRuntimeBundle(bytes);
 
     expect(unpacked.manifest.materials[0]?.baseColorTexture).toBe("assets/textures/material-test-color.png");
+    expect(unpacked.manifest.materials[0]?.emissiveColor).toBe("#ff6600");
+    expect(unpacked.manifest.materials[0]?.emissiveIntensity).toBe(0.75);
+    expect(unpacked.manifest.materials[0]?.opacity).toBe(0.42);
+    expect(unpacked.manifest.materials[0]?.transparent).toBe(true);
     expect(unpacked.files).toHaveLength(1);
   });
 

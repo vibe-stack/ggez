@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { loadWebHammerEngineScene } from "./loader";
 import type { WebHammerEngineScene } from "./types";
 import { makeTransform, vec3 } from "@ggez/shared";
-import { InstancedMesh, LOD, Vector3 } from "three";
+import { InstancedMesh, LOD, MeshStandardMaterial, Vector3 } from "three";
 
 describe("loadWebHammerEngineScene", () => {
   test("rebuilds grouped runtime hierarchies and resolves entity world transforms", async () => {
@@ -615,5 +615,102 @@ describe("loadWebHammerEngineScene", () => {
     expect(instancedMeshes).toHaveLength(1);
     expect(instancedMeshes[0]?.count).toBe(1);
     expect(instancedMeshes[0]?.userData.webHammer?.sourceNodeId).toBe("node:model-source");
+  });
+
+  test("applies emissive and transparency properties from runtime materials", async () => {
+    const scene: WebHammerEngineScene = {
+      assets: [],
+      entities: [],
+      layers: [],
+      materials: [],
+      metadata: {
+        exportedAt: new Date("2026-03-28T10:00:00.000Z").toISOString(),
+        format: "web-hammer-engine",
+        version: 6
+      },
+      nodes: [
+        {
+          data: {
+            role: "prop",
+            shape: "cube",
+            size: vec3(1, 1, 1)
+          },
+          geometry: {
+            primitives: [
+              {
+                indices: [0, 1, 2, 0, 2, 3],
+                material: {
+                  color: "#ffffff",
+                  emissiveColor: "#ff5500",
+                  emissiveIntensity: 0.6,
+                  id: "material:test:fx",
+                  metallicFactor: 0.2,
+                  name: "FX Material",
+                  opacity: 0.35,
+                  roughnessFactor: 0.7,
+                  transparent: true
+                },
+                normals: [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
+                positions: [-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0],
+                uvs: [0, 0, 1, 0, 1, 1, 0, 1]
+              }
+            ]
+          },
+          id: "node:material-probe",
+          kind: "primitive",
+          name: "Material Probe",
+          transform: makeTransform(vec3(0, 0, 0))
+        }
+      ],
+      settings: {
+        player: {
+          cameraMode: "fps",
+          canCrouch: true,
+          canInteract: true,
+          canJump: true,
+          canRun: true,
+          crouchHeight: 1.2,
+          height: 1.8,
+          interactKey: "KeyE",
+          jumpHeight: 1,
+          movementSpeed: 4,
+          runningSpeed: 6
+        },
+        world: {
+          ambientColor: "#ffffff",
+          ambientIntensity: 0,
+          fogColor: "#000000",
+          fogFar: 0,
+          fogNear: 0,
+          gravity: vec3(0, -9.81, 0),
+          lod: {
+            bakedAt: "",
+            enabled: false,
+            lowDetailRatio: 0.2,
+            midDetailRatio: 0.5
+          },
+          physicsEnabled: true,
+          skybox: {
+            affectsLighting: false,
+            blur: 0,
+            enabled: false,
+            format: "image",
+            intensity: 1,
+            lightingIntensity: 1,
+            name: "",
+            source: ""
+          }
+        }
+      }
+    };
+
+    const loaded = await loadWebHammerEngineScene(scene);
+    const material = loaded.nodes.get("node:material-probe")?.children[0]?.children[0]?.children[0]?.material;
+
+    expect(material).toBeInstanceOf(MeshStandardMaterial);
+    expect((material as MeshStandardMaterial).transparent).toBe(true);
+    expect((material as MeshStandardMaterial).opacity).toBeCloseTo(0.35, 5);
+    expect((material as MeshStandardMaterial).emissiveIntensity).toBeCloseTo(0.6, 5);
+    expect((material as MeshStandardMaterial).emissive.getHexString()).toBe("ff5500");
   });
 });
