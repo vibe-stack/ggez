@@ -185,10 +185,12 @@ export function createSetUvScaleCommand(
         ...data,
         uvScale: { x: uvScale.x, y: uvScale.y }
       })) ??
-      buildFaceMutationSnapshot(scene, target, (face) => ({
-        ...face,
-        uvScale: { x: uvScale.x, y: uvScale.y }
-      }))
+      buildFaceMutationSnapshot(scene, target, (face) =>
+        clearExplicitUvs({
+          ...face,
+          uvScale: { x: uvScale.x, y: uvScale.y }
+        })
+      )
     )
     .filter((snapshot): snapshot is FaceMutationSnapshot => Boolean(snapshot));
 
@@ -201,13 +203,28 @@ export function createSetUvOffsetCommand(
   uvOffset: Vec2
 ): Command {
   const snapshots = targets
-    .map((target) => buildFaceMutationSnapshot(scene, target, (face) => ({
-      ...face,
-      uvOffset: { x: uvOffset.x, y: uvOffset.y }
-    })))
+    .map((target) =>
+      buildFaceMutationSnapshot(scene, target, (face) =>
+        clearExplicitUvs({
+          ...face,
+          uvOffset: { x: uvOffset.x, y: uvOffset.y }
+        })
+      )
+    )
     .filter((snapshot): snapshot is FaceMutationSnapshot => Boolean(snapshot));
 
   return createFaceMutationCommand("set uv offset", snapshots);
+}
+
+function clearExplicitUvs(face: Face | EditableMesh["faces"][number]) {
+  if ("halfEdge" in face) {
+    return {
+      ...face,
+      uvs: undefined
+    } satisfies EditableMesh["faces"][number];
+  }
+
+  return face;
 }
 
 type FaceMutationSnapshot =

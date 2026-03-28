@@ -61,13 +61,13 @@ type InspectorSidebarProps = {
   onSetToolId: (toolId: ToolId) => void;
   onSetUvOffset: (scope: "faces" | "object", faceIds: string[], uvOffset: { x: number; y: number }) => void;
   onSetUvScale: (scope: "faces" | "object", faceIds: string[], uvScale: { x: number; y: number }) => void;
+  onUpdateMeshData: (nodeId: string, mesh: EditableMesh, beforeMesh?: EditableMesh) => void;
   onTranslateSelection: (axis: "x" | "y" | "z", direction: -1 | 1) => void;
   onUpsertMaterial: (material: Material) => void;
   onUpsertTexture: (texture: TextureRecord) => void;
   onUpdateEntityProperties: (entityId: string, properties: Entity["properties"]) => void;
   onUpdateEntityHooks: (entityId: string, hooks: NonNullable<Entity["hooks"]>, beforeHooks?: NonNullable<Entity["hooks"]>) => void;
   onUpdateEntityTransform: (entityId: string, transform: Transform, beforeTransform?: Transform) => void;
-  onUpdateMeshData: (nodeId: string, mesh: EditableMesh, beforeMesh?: EditableMesh) => void;
   onUpdateNodeData: (nodeId: string, data: PrimitiveNodeData | LightNodeData) => void;
   onUpdateNodeHooks: (nodeId: string, hooks: NonNullable<GeometryNode["hooks"]>, beforeHooks?: NonNullable<GeometryNode["hooks"]>) => void;
   onUpdateNodeTransform: (nodeId: string, transform: Transform, beforeTransform?: Transform) => void;
@@ -1105,6 +1105,7 @@ export function InspectorSidebar({
               onSelectMaterial={onSelectMaterial}
               onSetUvOffset={onSetUvOffset}
               onSetUvScale={onSetUvScale}
+              onUpdateMeshData={onUpdateMeshData}
               onUpsertMaterial={onUpsertMaterial}
               onUpsertTexture={onUpsertTexture}
               selectedFaceIds={activeToolId === "mesh-edit" && meshEditMode === "face" ? selectedFaceIds : []}

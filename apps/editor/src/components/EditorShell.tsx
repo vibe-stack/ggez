@@ -495,13 +495,13 @@ export function EditorShell({
           onSetToolId={onSetToolId}
           onSetUvOffset={onSetUvOffset}
           onSetUvScale={onSetUvScale}
+          onUpdateMeshData={onUpdateMeshData}
           onTranslateSelection={onTranslateSelection}
           onUpsertMaterial={onUpsertMaterial}
           onUpsertTexture={onUpsertTexture}
           onUpdateEntityProperties={onUpdateEntityProperties}
           onUpdateEntityHooks={onUpdateEntityHooks}
           onUpdateEntityTransform={onUpdateEntityTransform}
-          onUpdateMeshData={onUpdateMeshData}
           onUpdateNodeData={onUpdateNodeData}
           onUpdateNodeHooks={onUpdateNodeHooks}
           onUpdateSceneSettings={onUpdateSceneSettings}

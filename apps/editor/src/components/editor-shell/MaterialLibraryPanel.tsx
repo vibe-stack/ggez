@@ -21,6 +21,7 @@ import {
 import {
   createBlockoutTextureDataUri,
   vec2,
+  type EditableMesh,
   type GeometryNode,
   type Material,
   type MaterialRenderSide,
@@ -29,6 +30,7 @@ import {
   type Vec2
 } from "@ggez/shared";
 import { AnimatePresence, motion } from "motion/react";
+import { MeshFaceUvEditorDialog } from "@/components/editor-shell/MeshFaceUvEditorDialog";
 import { TextureBrowserOverlay } from "@/components/editor-shell/TextureBrowserOverlay";
 import { Button } from "@/components/ui/button";
 import { DragInput } from "@/components/ui/drag-input";
@@ -63,6 +65,7 @@ type MaterialLibraryPanelProps = {
     faceIds: string[],
     uvScale: Vec2,
   ) => void;
+  onUpdateMeshData: (nodeId: string, mesh: EditableMesh, beforeMesh?: EditableMesh) => void;
   onUpsertMaterial: (material: Material) => void;
   onUpsertTexture: (texture: TextureRecord) => void;
   selectedFaceIds: string[];
@@ -104,6 +107,7 @@ export function MaterialLibraryPanel({
   onSelectMaterial,
   onSetUvOffset,
   onSetUvScale,
+  onUpdateMeshData,
   onUpsertMaterial,
   onUpsertTexture,
   selectedFaceIds,
@@ -147,6 +151,7 @@ export function MaterialLibraryPanel({
   const [uvDraft, setUvDraft] = useState<Vec2>(() => vec2(1, 1));
   const [uvOffsetDraft, setUvOffsetDraft] = useState<Vec2>(() => vec2(0, 0));
   const [uvLocked, setUvLocked] = useState(true);
+  const [meshUvEditorOpen, setMeshUvEditorOpen] = useState(false);
   const [textureBrowserState, setTextureBrowserState] = useState<{
     field: TextureField;
     kind: TextureKind;
@@ -245,6 +250,31 @@ export function MaterialLibraryPanel({
     Boolean(selectedMaterial) &&
     canApplyToObject &&
     (resolvedScope === "object" || canApplyToFaces);
+  const selectedMeshFaceId =
+    selectedNode?.kind === "mesh" && resolvedScope === "faces" && selectedFaceIds.length === 1
+      ? selectedFaceIds[0]
+      : undefined;
+  const selectedMeshFace =
+    selectedNode?.kind === "mesh" && selectedMeshFaceId
+      ? selectedNode.data.faces.find((face) => face.id === selectedMeshFaceId)
+      : undefined;
+
+  const handleApplyMeshFaceUvs = (uvs: Vec2[]) => {
+    if (!selectedNode || selectedNode.kind !== "mesh" || !selectedMeshFaceId) {
+      return;
+    }
+
+    const beforeMesh = structuredClone(selectedNode.data);
+    const nextMesh = structuredClone(selectedNode.data);
+    const nextFace = nextMesh.faces.find((face) => face.id === selectedMeshFaceId);
+
+    if (!nextFace) {
+      return;
+    }
+
+    nextFace.uvs = uvs.map((uv) => vec2(uv.x, uv.y));
+    onUpdateMeshData(selectedNode.id, nextMesh, beforeMesh);
+  };
 
   const saveAsNewMaterial = () => {
     const material = {
@@ -625,6 +655,38 @@ export function MaterialLibraryPanel({
                   />
                 </div>
               </div>
+              {selectedNode?.kind === "mesh" ? (
+                <div className="space-y-2 rounded-2xl border border-white/8 bg-white/3 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-[10px] font-medium tracking-[0.16em] text-foreground/34 uppercase">
+                        Face UVs
+                      </div>
+                      <div className="mt-1 text-[11px] text-foreground/52">
+                        Use explicit per-corner UVs for irregular atlas regions.
+                      </div>
+                    </div>
+                    <Button
+                      disabled={!selectedMeshFaceId}
+                      onClick={() => setMeshUvEditorOpen(true)}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      Edit UVs
+                    </Button>
+                  </div>
+                  {!selectedMeshFaceId ? (
+                    <div className="text-[11px] text-foreground/40">
+                      Select exactly one mesh face in face edit mode to edit explicit UVs.
+                    </div>
+                  ) : selectedMeshFace?.uvs?.length ? (
+                    <div className="text-[11px] text-emerald-300/80">
+                      Custom face UVs are active. Scale/offset will reset this face back to planar mapping.
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </div>
         </ScrollArea>
@@ -654,6 +716,16 @@ export function MaterialLibraryPanel({
         targetKind={textureBrowserState?.kind ?? "color"}
         targetLabel={textureBrowserState?.label ?? "Texture"}
         textures={textures}
+      />
+
+      <MeshFaceUvEditorDialog
+        faceId={selectedMeshFaceId}
+        mesh={selectedNode?.kind === "mesh" ? selectedNode.data : undefined}
+        onApply={handleApplyMeshFaceUvs}
+        onOpenChange={setMeshUvEditorOpen}
+        open={meshUvEditorOpen}
+        textureName={selectedMaterial?.name}
+        textureSource={selectedMaterial?.colorTexture}
       />
     </>
   );
