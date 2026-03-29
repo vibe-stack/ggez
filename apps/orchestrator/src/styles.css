@@ -238,58 +238,37 @@ textarea {
 
 .gg-orb {
   position: relative;
-  height: 3.5rem;
-  width: 3.5rem;
+  height: 2.75rem;
+  width: 2.75rem;
   border-radius: 50%;
-  overflow: hidden;
   cursor: pointer;
   flex-shrink: 0;
-  background:
-    radial-gradient(ellipse 70% 55% at 38% 28%, rgba(255, 255, 255, 0.55) 0%, transparent 55%),
-    radial-gradient(circle at 60% 65%, rgba(103, 232, 249, 0.18) 0%, transparent 48%),
-    radial-gradient(circle at 50% 50%, #0e1e38 0%, #040b18 100%);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.10),
-    0 8px 24px rgba(0, 0, 0, 0.5),
-    0 2px 6px rgba(103, 232, 249, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.22);
-  transition: transform 200ms cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 200ms ease;
-}
-
-.gg-orb::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: radial-gradient(ellipse 60% 42% at 38% 30%, rgba(255, 255, 255, 0.18) 0%, transparent 70%);
+  background: rgba(39, 39, 42, 0.92);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  transition: background 160ms ease, box-shadow 160ms ease, transform 160ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .gg-orb:hover {
-  transform: scale(1.06);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.16),
-    0 12px 32px rgba(0, 0, 0, 0.56),
-    0 0 20px rgba(103, 232, 249, 0.14),
-    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  background: rgba(63, 63, 70, 0.95);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  transform: scale(1.07);
 }
 
 .gg-orb:active {
-  transform: scale(0.97);
+  transform: scale(0.95);
 }
 
 .gg-orb-text {
-  position: relative;
-  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   height: 100%;
   width: 100%;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.12em;
-  color: rgba(255, 255, 255, 0.92);
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  color: rgba(255, 255, 255, 0.58);
   user-select: none;
 }
 

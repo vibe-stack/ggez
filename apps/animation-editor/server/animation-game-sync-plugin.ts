@@ -1,7 +1,7 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { Plugin, ViteDevServer } from "vite";
+import type { Plugin, PreviewServer, ViteDevServer } from "vite";
 import {
   slugifyProjectName,
   type EditorFileMetadata
@@ -34,11 +34,15 @@ export function createAnimationGameSyncPlugin(): Plugin {
     configureServer(server) {
       registerAnimationGameSyncApi(server);
       registerAnimationEditorPresence(server);
+    },
+    configurePreviewServer(server) {
+      registerAnimationGameSyncApi(server);
+      registerAnimationEditorPresence(server);
     }
   };
 }
 
-function registerAnimationGameSyncApi(server: ViteDevServer) {
+function registerAnimationGameSyncApi(server: ViteDevServer | PreviewServer) {
   server.middlewares.use(async (req, res, next) => {
     const pathname = req.url?.split("?")[0];
 
@@ -107,7 +111,7 @@ function registerAnimationGameSyncApi(server: ViteDevServer) {
   });
 }
 
-function registerAnimationEditorPresence(server: ViteDevServer) {
+function registerAnimationEditorPresence(server: ViteDevServer | PreviewServer) {
   if (!server.httpServer) {
     return;
   }

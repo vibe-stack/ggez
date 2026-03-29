@@ -59,6 +59,20 @@ export function App() {
     [snapshot]
   );
 
+  // Track the game iframe URL separately so the iframe stays mounted (and its
+  // editor-sync polling client stays alive) even when the view switches to an editor.
+  const [gameIframeUrl, setGameIframeUrl] = useState<string | null>(null);
+  useEffect(() => {
+    const running = snapshot?.projects.find(
+      (p) => p.isSelected && p.runtime.status === "running"
+    );
+    if (running) {
+      setGameIframeUrl(running.runtime.url);
+    } else if (snapshot?.projects.every((p) => p.runtime.status === "stopped")) {
+      setGameIframeUrl(null);
+    }
+  }, [snapshot]);
+
   const activeDockMode: DockMode = settingsOpen
     ? "settings"
     : gamesOpen
@@ -223,16 +237,37 @@ export function App() {
     <div className="engine-shell">
       <div className="engine-grid absolute inset-0 opacity-50" aria-hidden="true" />
 
-      {snapshot?.viewport.url ? (
+      {/* Game iframe — kept alive once running so the editor-sync polling client
+          stays connected even when the view switches to an editor. Hidden via
+          visibility:hidden (not display:none) so JS timers keep running. */}
+      {gameIframeUrl ? (
         <iframe
-          key={`${snapshot.viewport.view}:${snapshot.viewport.url}`}
-          src={snapshot.viewport.url}
-          title={snapshot.viewport.label}
+          src={gameIframeUrl}
+          title="Game"
           className="engine-viewport"
+          style={{
+            visibility: snapshot?.activeView === "game" ? "visible" : "hidden",
+            zIndex: snapshot?.activeView === "game" ? 1 : 0
+          }}
         />
-      ) : (
+      ) : null}
+
+      {/* Editor iframe — only mounted when on a non-game view */}
+      {snapshot?.activeView !== "game" ? (
+        snapshot?.viewport.url ? (
+          <iframe
+            key={snapshot.viewport.url}
+            src={snapshot.viewport.url}
+            title={snapshot.viewport.label}
+            className="engine-viewport"
+            style={{ zIndex: 2 }}
+          />
+        ) : (
+          <ViewportFallback snapshot={snapshot} />
+        )
+      ) : !gameIframeUrl ? (
         <ViewportFallback snapshot={snapshot} />
-      )}
+      ) : null}
 
       {notice ? (
         <div className="pointer-events-none absolute left-1/2 top-5 z-30 w-[min(520px,calc(100vw-2rem))] -translate-x-1/2 px-2">
@@ -302,6 +337,7 @@ export function App() {
         visible={orbVisible}
         dockOpen={dockOpen}
         onToggleDock={() => setDockOpen((prev) => !prev)}
+        onCloseDock={() => setDockOpen(false)}
         activeDockMode={activeDockMode}
         snapshot={snapshot}
         selectedProjectName={selectedProject?.name ?? null}
