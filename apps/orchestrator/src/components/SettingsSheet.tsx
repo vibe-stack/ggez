@@ -16,7 +16,6 @@ import {
   X
 } from "lucide-react";
 import { StatusPill } from "./StatusPill";
-import { RuntimeFootnote } from "./RuntimeFootnote";
 import type {
   OrchestratorSnapshot,
   PackageManager,
@@ -145,9 +144,7 @@ export function SettingsSheet({
 
         {/* Editors */}
         <section className="space-y-2.5">
-          <SectionHeader icon={<Layers size={13} />} title="Editors">
-            <span className="ml-auto text-xs text-white/36">Fixed ports</span>
-          </SectionHeader>
+          <SectionHeader icon={<Layers size={13} />} title="Editors" />
 
           {snapshot?.editors.map((editor) => (
             <article key={editor.id} className="settings-card">
@@ -186,7 +183,6 @@ export function SettingsSheet({
               {editor.lastError ? (
                 <p className="mt-2.5 text-[11px] text-rose-300/80">{editor.lastError}</p>
               ) : null}
-              <RuntimeFootnote runtime={editor} />
             </article>
           ))}
         </section>
@@ -213,7 +209,7 @@ export function SettingsSheet({
               />
             ))
           ) : (
-            <div className="settings-card border-dashed opacity-60 text-sm text-white/50">
+            <div className="settings-card opacity-60 text-sm text-white/50">
               No games tracked yet. Import an existing one or scaffold a new one below.
             </div>
           )}
@@ -402,9 +398,7 @@ function ProjectCard({
   return (
     <article
       className={`settings-card ${
-        project.isSelected
-          ? "shadow-[inset_0_0_0_1px_rgba(103,232,249,0.2),0_0_28px_rgba(29,78,216,0.1)] bg-cyan-400/[0.06]"
-          : ""
+        project.isSelected ? "bg-emerald-400/[0.06]" : ""
       }`}
     >
       <div className="flex items-start justify-between gap-3">
@@ -429,15 +423,7 @@ function ProjectCard({
         </button>
       </div>
 
-      <div className="mt-2.5 flex flex-wrap gap-1.5 text-[10px] uppercase tracking-[0.16em] text-white/32">
-        <span>{project.packageManager}</span>
-        <span>·</span>
-        <span>{project.source === "created" ? "Scaffolded" : "Imported"}</span>
-        <span>·</span>
-        <span>{project.hasGameDevSupport ? "Editor sync ready" : "No game-dev package"}</span>
-      </div>
-
-      <div className="mt-3.5 flex flex-wrap gap-2">
+      <div className="mt-3 flex flex-wrap gap-2">
         <SheetButton
           variant="primary"
           icon={<Play size={11} />}
@@ -467,7 +453,6 @@ function ProjectCard({
       {project.runtime.lastError ? (
         <p className="mt-2.5 text-[11px] text-rose-300/80">{project.runtime.lastError}</p>
       ) : null}
-      <RuntimeFootnote runtime={project.runtime} />
     </article>
   );
 }

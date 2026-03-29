@@ -8,7 +8,8 @@ import {
 } from "react";
 
 import { requestJson } from "./api";
-import type { Notice, OrchestratorSnapshot, PackageManager, ViewId } from "./types";
+import type { DockMode, Notice, OrchestratorSnapshot, PackageManager, ViewId } from "./types";
+import { GamesScreen } from "./components/GamesScreen";
 import { OrbDock } from "./components/OrbDock";
 import { SettingsSheet } from "./components/SettingsSheet";
 import { ViewportFallback } from "./components/ViewportFallback";
@@ -26,6 +27,8 @@ export function App() {
   const [initializeGit, setInitializeGit] = useState(false);
   const [force, setForce] = useState(false);
 
+  const [orbVisible, setOrbVisible] = useState(true);
+  const [gamesOpen, setGamesOpen] = useState(true);
   const [dockOpen, setDockOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -40,12 +43,37 @@ export function App() {
     return () => window.clearInterval(interval);
   }, [refreshSnapshot]);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "." && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setOrbVisible((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const selectedProject = useMemo(
     () => snapshot?.projects.find((p) => p.isSelected) ?? null,
     [snapshot]
   );
 
-  const activeDockMode = settingsOpen ? "settings" : (snapshot?.activeView ?? "settings");
+  const activeDockMode: DockMode = settingsOpen
+    ? "settings"
+    : gamesOpen
+      ? "welcome"
+      : (snapshot?.activeView ?? "welcome");
+
+  const handleOpenSettings = () => {
+    setGamesOpen(false);
+    setSettingsOpen(true);
+  };
+
+  const handleOpenGames = () => {
+    setSettingsOpen(false);
+    setGamesOpen(true);
+  };
 
   const runAction = useEffectEvent(async <T,>(busyLabel: string, action: () => Promise<T>) => {
     setBusyKey(busyLabel);
@@ -130,7 +158,7 @@ export function App() {
         });
       });
       setSettingsOpen(false);
-      setNotice({ kind: "success", text: "Game dev server is running." });
+      setGamesOpen(false);
     } catch {
       /* handled */
     }
@@ -185,6 +213,7 @@ export function App() {
         })
       );
       setSettingsOpen(false);
+      setGamesOpen(false);
     } catch {
       /* handled */
     }
@@ -210,13 +239,25 @@ export function App() {
           <div
             className={`pointer-events-auto rounded-2xl px-4 py-3 text-sm shadow-[0_16px_40px_rgba(0,0,0,0.32)] backdrop-blur-2xl ${
               notice.kind === "error"
-                ? "bg-rose-950/70 text-rose-200 ring-1 ring-rose-400/20"
-                : "bg-emerald-950/70 text-emerald-200 ring-1 ring-emerald-400/20"
+                ? "bg-zinc-900/80 text-rose-300"
+                : "bg-zinc-900/80 text-emerald-300"
             }`}
           >
             {notice.text}
           </div>
         </div>
+      ) : null}
+
+      {gamesOpen && !settingsOpen ? (
+        <GamesScreen
+          snapshot={snapshot}
+          busyKey={busyKey}
+          onStart={handleStartProject}
+          onStop={handleStopProject}
+          onSelect={handleSelectProject}
+          onOpenSettings={handleOpenSettings}
+          onClose={() => setGamesOpen(false)}
+        />
       ) : null}
 
       {settingsOpen ? (
@@ -258,13 +299,15 @@ export function App() {
       ) : null}
 
       <OrbDock
+        visible={orbVisible}
         dockOpen={dockOpen}
         onToggleDock={() => setDockOpen((prev) => !prev)}
         activeDockMode={activeDockMode}
         snapshot={snapshot}
         selectedProjectName={selectedProject?.name ?? null}
         onSetView={handleSetView}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={handleOpenSettings}
+        onOpenGames={handleOpenGames}
         busyKey={busyKey}
       />
     </div>
