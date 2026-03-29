@@ -12,6 +12,7 @@
     "dev": "bun run --cwd apps/editor dev",
     "dev:all": "bun run --filter '@ggez/editor' --filter '@ggez/three-runtime-playground' --filter '@ggez/three-vanilla-playground' dev",
     "dev:orchestrator": "bun run --cwd apps/orchestrator dev",
+    "changeset": "changeset",
     "build": "bun run --cwd apps/editor build",
     "build:orchestrator": "bun run --cwd apps/orchestrator build",
     "typecheck": "bun run --cwd apps/editor typecheck",
@@ -23,6 +24,7 @@
     "build:animation-editor": "bun run --cwd apps/animation-editor build",
     "typecheck:animation-editor": "tsc -p apps/animation-editor/tsconfig.json --noEmit",
     "build:packages": "bun ./scripts/release-packages.mjs build",
+    "version:packages": "changeset version",
     "publish:packages:dry-run": "bun ./scripts/release-packages.mjs publish --dry-run",
     "publish:packages": "bun ./scripts/release-packages.mjs publish",
     "dev:three-runtime": "bun run --cwd apps/three-runtime-playground dev",
@@ -33,6 +35,7 @@
     "typecheck:three-vanilla": "bun run --cwd apps/three-vanilla-playground typecheck"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.30.0",
     "@types/node": "^24.10.1",
     "tsup": "^8.5.0",
     "typescript": "^5.9.3"

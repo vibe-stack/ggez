@@ -10,6 +10,12 @@ const command = process.argv[2] ?? "build";
 const dryRun = process.argv.includes("--dry-run");
 const concurrency = parseConcurrency();
 const filters = readOptions("--filter");
+const publishWaitAttempts = parsePositiveInteger(readOption("--publish-wait-attempts"))
+  ?? parsePositiveInteger(process.env.RELEASE_PUBLISH_WAIT_ATTEMPTS)
+  ?? 60;
+const publishWaitDelayMs = parsePositiveInteger(readOption("--publish-wait-delay-ms"))
+  ?? parsePositiveInteger(process.env.RELEASE_PUBLISH_WAIT_DELAY_MS)
+  ?? 2000;
 
 const allPackages = loadPackages();
 const packages = filters.length > 0 ? filterPackages(allPackages, filters) : allPackages;
@@ -272,25 +278,26 @@ function rewriteWorkspaceProtocols(manifest, packageVersions) {
 }
 
 async function waitUntilVersionPublished(pkg) {
-  const maxAttempts = 10;
-  const delayMs = 1500;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+  for (let attempt = 1; attempt <= publishWaitAttempts; attempt += 1) {
     if (isSpecificVersionPublished(pkg)) {
       return;
     }
 
-    if (attempt < maxAttempts) {
-      process.stdout.write(`Waiting for ${pkg.name}@${pkg.version} to appear in the registry.\n`);
-      await delay(delayMs);
+    if (attempt < publishWaitAttempts) {
+      process.stdout.write(
+        `Waiting for ${pkg.name}@${pkg.version} to appear in the registry (${attempt}/${publishWaitAttempts}).\n`
+      );
+      await delay(publishWaitDelayMs);
     }
   }
 
-  throw new Error(`Timed out waiting for ${pkg.name}@${pkg.version} to appear in the registry.`);
+  throw new Error(
+    `Timed out waiting for ${pkg.name}@${pkg.version} to appear in the registry after ${publishWaitAttempts} attempts.`
+  );
 }
 
 function isSpecificVersionPublished(pkg) {
-  const result = spawnSync("npm", ["view", `${pkg.name}@${pkg.version}`, "version"], {
+  const result = spawnSync("npm", ["view", pkg.name, "versions", "--json"], {
     cwd: pkg.dir,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"]
@@ -300,11 +307,30 @@ function isSpecificVersionPublished(pkg) {
     return false;
   }
 
-  return result.stdout.trim() === pkg.version;
+  try {
+    const parsed = JSON.parse(result.stdout);
+
+    if (Array.isArray(parsed)) {
+      return parsed.includes(pkg.version);
+    }
+
+    return parsed === pkg.version;
+  } catch {
+    return result.stdout.trim() === pkg.version;
+  }
 }
 
 function delay(ms) {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
+}
+
+function parsePositiveInteger(value) {
+  if (!value) {
+    return null;
+  }
+
+  const parsedValue = Number.parseInt(value, 10);
+  return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : null;
 }
 
 function parseConcurrency() {
