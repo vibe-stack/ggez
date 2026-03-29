@@ -19,7 +19,7 @@
     "@react-three/drei": "^10.7.6",
     "@react-three/fiber": "^9.4.0",
     "@react-three/rapier": "^2.2.0",
-    "@tailwindcss/vite": "^4.2.1",
+    "@tailwindcss/vite": "^4.2.2",
     "@xyflow/react": "^12.9.3",
     "@ggez/dev-sync": "workspace:*",
     "@ggez/editor-core": "workspace:*",
@@ -57,7 +57,7 @@
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react-swc": "^4.1.0",
     "typescript": "^5.9.3",
-    "vite": "^7.1.12",
+    "vite": "^8.0.1",
     "vite-tsconfig-paths": "^5.1.4"
   }
 }
