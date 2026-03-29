@@ -11,7 +11,7 @@ import {
 import { MotionType, rigidBody, type CrashcatPhysicsWorld } from "@ggez/runtime-physics-crashcat";
 import type { SceneSettings, Transform } from "@ggez/shared";
 import type { ThreeRuntimeSceneInstance } from "@ggez/three-runtime";
-import { Euler, Quaternion, type Object3D } from "three";
+import { Euler, Matrix4, Quaternion, Vector3, type Object3D } from "three";
 import type { RuntimePhysicsSession } from "./runtime-physics";
 
 type StarterGameplayHostOptions = {
@@ -57,7 +57,7 @@ export function createStarterGameplayHost(options: StarterGameplayHostOptions): 
       const body = options.runtimePhysics.getBody(nodeId);
 
       if (object) {
-        applyTransform(object, transform);
+        applyObjectWorldTransform(object, transform);
       }
 
       if (body) {
@@ -67,10 +67,24 @@ export function createStarterGameplayHost(options: StarterGameplayHostOptions): 
   };
 }
 
-function applyTransform(object: Object3D, transform: Transform) {
-  object.position.set(transform.position.x, transform.position.y, transform.position.z);
-  object.rotation.set(transform.rotation.x, transform.rotation.y, transform.rotation.z);
-  object.scale.set(transform.scale.x, transform.scale.y, transform.scale.z);
+function applyObjectWorldTransform(object: Object3D, transform: Transform) {
+  scratchWorldQuaternion.setFromEuler(
+    scratchEuler.set(transform.rotation.x, transform.rotation.y, transform.rotation.z)
+  );
+  scratchWorldMatrix.compose(
+    scratchWorldPosition.set(transform.position.x, transform.position.y, transform.position.z),
+    scratchWorldQuaternion,
+    scratchWorldScale.set(transform.scale.x, transform.scale.y, transform.scale.z)
+  );
+
+  if (object.parent) {
+    object.parent.updateMatrixWorld(true);
+    scratchLocalMatrix.copy(object.parent.matrixWorld).invert().multiply(scratchWorldMatrix);
+    scratchLocalMatrix.decompose(object.position, object.quaternion, object.scale);
+  } else {
+    scratchWorldMatrix.decompose(object.position, object.quaternion, object.scale);
+  }
+
   object.updateMatrixWorld(true);
 }
 
@@ -88,3 +102,10 @@ function applyBodyTransform(world: CrashcatPhysicsWorld, body: KinematicPhysicsB
     false
   );
 }
+
+const scratchEuler = new Euler();
+const scratchLocalMatrix = new Matrix4();
+const scratchWorldMatrix = new Matrix4();
+const scratchWorldPosition = new Vector3();
+const scratchWorldQuaternion = new Quaternion();
+const scratchWorldScale = new Vector3();
