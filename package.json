@@ -11,8 +11,11 @@
   "scripts": {
     "dev": "bun run --cwd apps/editor dev",
     "dev:all": "bun run --filter '@ggez/editor' --filter '@ggez/three-runtime-playground' --filter '@ggez/three-vanilla-playground' dev",
+    "dev:orchestrator": "bun run --cwd apps/orchestrator dev",
     "build": "bun run --cwd apps/editor build",
+    "build:orchestrator": "bun run --cwd apps/orchestrator build",
     "typecheck": "bun run --cwd apps/editor typecheck",
+    "typecheck:orchestrator": "bun run --cwd apps/orchestrator typecheck",
     "dev:website": "bun run --cwd apps/website dev",
     "build:website": "bun run --cwd apps/website build",
     "typecheck:website": "bun run --cwd apps/website typecheck",

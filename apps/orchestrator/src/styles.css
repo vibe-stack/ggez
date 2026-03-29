@@ -1,0 +1,163 @@
+@import "tailwindcss";
+@import "@fontsource-variable/space-grotesk";
+
+:root {
+  color-scheme: dark;
+  --page: #06101b;
+  --page-deep: #030813;
+  --surface: rgba(255, 255, 255, 0.06);
+  --surface-strong: rgba(255, 255, 255, 0.1);
+  --text: #f6fbff;
+  --muted: rgba(222, 236, 251, 0.7);
+  --accent: #67e8f9;
+  --accent-soft: rgba(103, 232, 249, 0.16);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(125, 211, 252, 0.22), transparent 28%),
+    radial-gradient(circle at top right, rgba(34, 211, 238, 0.12), transparent 20%),
+    linear-gradient(180deg, #0a1726 0%, var(--page) 34%, var(--page-deep) 100%);
+  color: var(--text);
+  font-family: "Space Grotesk Variable", "Avenir Next", "Segoe UI", sans-serif;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(103, 232, 249, 0.28);
+  color: var(--text);
+}
+
+.engine-shell {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.engine-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 88px 88px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.9), transparent 94%);
+}
+
+.deck-panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.035)),
+    rgba(5, 10, 20, 0.62);
+  box-shadow: 0 40px 120px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(18px);
+}
+
+.engine-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  padding: 0.35rem 0.75rem;
+  color: #d8fbff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.engine-input {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.8rem 0.95rem;
+  color: white;
+  outline: none;
+  transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+}
+
+.engine-input:focus {
+  border-color: rgba(103, 232, 249, 0.34);
+  background: rgba(255, 255, 255, 0.075);
+  box-shadow: 0 0 0 3px rgba(103, 232, 249, 0.1);
+}
+
+.engine-button-primary,
+.engine-button-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.75rem 1rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  transition: transform 180ms ease, border-color 180ms ease, background-color 180ms ease, opacity 180ms ease;
+}
+
+.engine-button-primary {
+  background: linear-gradient(135deg, #f5fbff 0%, #c7f6ff 100%);
+  color: #05111d;
+}
+
+.engine-button-secondary {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  color: white;
+}
+
+.engine-button-primary:hover,
+.engine-button-secondary:hover {
+  transform: translateY(-1px);
+}
+
+.engine-button-primary:disabled,
+.engine-button-secondary:disabled {
+  transform: none;
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.engine-check {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.engine-check input {
+  height: 1rem;
+  width: 1rem;
+  accent-color: #67e8f9;
+}
+
+@keyframes dock-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
