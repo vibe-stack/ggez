@@ -3,7 +3,30 @@
   "compilerOptions": {
     "baseUrl": "../..",
     "paths": {
-      "@/*": ["apps/editor/src/*"]
+      "@/*": ["apps/editor/src/*"],
+      "@ggez/anim-compiler": ["packages/anim-compiler/src/index.ts"],
+      "@ggez/anim-core": ["packages/anim-core/src/index.ts"],
+      "@ggez/anim-editor-core": ["packages/anim-editor-core/src/index.ts"],
+      "@ggez/anim-editor-react": ["packages/anim-editor-react/src/index.ts"],
+      "@ggez/anim-exporter": ["packages/anim-exporter/src/index.ts"],
+      "@ggez/anim-runtime": ["packages/anim-runtime/src/index.ts"],
+      "@ggez/anim-schema": ["packages/anim-schema/src/index.ts"],
+      "@ggez/anim-three": ["packages/anim-three/src/index.ts"],
+      "@ggez/anim-utils": ["packages/anim-utils/src/index.ts"],
+      "@ggez/dev-sync": ["packages/dev-sync/src/index.ts"],
+      "@ggez/dev-sync/node": ["packages/dev-sync/src/node.ts"],
+      "@ggez/shared": ["packages/shared/src/index.ts"],
+      "@ggez/editor-core": ["packages/editor-core/src/index.ts"],
+      "@ggez/geometry-kernel": ["packages/geometry-kernel/src/index.ts"],
+      "@ggez/gameplay-runtime": ["packages/gameplay-runtime/src/index.ts"],
+      "@ggez/render-pipeline": ["packages/render-pipeline/src/index.ts"],
+      "@ggez/runtime-build": ["packages/runtime-build/src/index.ts"],
+      "@ggez/runtime-format": ["packages/runtime-format/src/index.ts"],
+      "@ggez/runtime-physics-rapier": ["packages/runtime-physics-rapier/src/index.ts"],
+      "@ggez/runtime-streaming": ["packages/runtime-streaming/src/index.ts"],
+      "@ggez/three-runtime": ["packages/three-runtime/src/index.ts"],
+      "@ggez/tool-system": ["packages/tool-system/src/index.ts"],
+      "@ggez/workers": ["packages/workers/src/index.ts"]
     },
     "types": ["vite/client", "node"]
   },
