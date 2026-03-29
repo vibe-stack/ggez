@@ -1,6 +1,6 @@
 {
   "name": "@ggez/tool-system",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Tool registry and state machine primitives for Web Hammer editors.",
   "license": "MIT",
   "type": "module",

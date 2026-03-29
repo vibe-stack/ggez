@@ -1,6 +1,6 @@
 {
   "name": "@ggez/runtime-physics-rapier",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Rapier physics adapters for Web Hammer runtime scenes.",
   "license": "MIT",
   "type": "module",

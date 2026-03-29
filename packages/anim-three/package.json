@@ -1,6 +1,6 @@
 {
   "name": "@ggez/anim-three",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Three.js bridge for ggez animation runtime rigs, clips, and skeleton application.",
   "license": "MIT",
   "type": "module",
