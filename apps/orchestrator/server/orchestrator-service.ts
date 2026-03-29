@@ -7,8 +7,8 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
 const HOST = "127.0.0.1";
-const TRIDENT_PORT = 4173;
-const ANIMATION_STUDIO_PORT = 4174;
+const TRIDENT_PORT = 8080;
+const ANIMATION_STUDIO_PORT = 8081;
 const GAME_PORT_START = 4301;
 const STATE_VERSION = 1;
 const LOG_LIMIT = 120;
