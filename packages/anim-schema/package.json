@@ -1,6 +1,6 @@
 {
   "name": "@ggez/anim-schema",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Animation graph document, compiled graph, and artifact schemas.",
   "license": "MIT",
   "type": "module",

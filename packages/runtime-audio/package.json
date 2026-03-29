@@ -1,6 +1,6 @@
 {
   "name": "@ggez/runtime-audio",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Web Audio API adapter for Web Hammer runtime scenes with 3D spatial audio support.",
   "license": "MIT",
   "type": "module",

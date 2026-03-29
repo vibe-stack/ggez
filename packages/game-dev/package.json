@@ -1,6 +1,6 @@
 {
   "name": "@ggez/game-dev",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Vite development plugin for Web Hammer game projects with scene discovery and editor sync.",
   "license": "MIT",
   "type": "module",

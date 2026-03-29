@@ -1,6 +1,6 @@
 {
   "name": "@ggez/three-runtime",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Three.js runtime loader and object factory for Web Hammer content.",
   "license": "MIT",
   "type": "module",

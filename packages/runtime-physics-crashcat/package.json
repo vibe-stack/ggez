@@ -1,6 +1,6 @@
 {
   "name": "@ggez/runtime-physics-crashcat",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Crashcat physics adapters for Web Hammer runtime scenes.",
   "license": "MIT",
   "type": "module",

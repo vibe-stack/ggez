@@ -1,6 +1,6 @@
 {
   "name": "@ggez/anim-core",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Pure animation runtime primitives: rigs, clips, poses, masks, blending, and root motion.",
   "license": "MIT",
   "type": "module",
