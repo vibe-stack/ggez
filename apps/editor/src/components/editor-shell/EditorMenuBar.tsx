@@ -27,6 +27,7 @@ type EditorMenuBarProps = {
   onExportGltf: () => void;
   onFocusSelection: () => void;
   onLoadWhmap: () => void;
+  onNewFile: () => void;
   onRedo: () => void;
   onSaveWhmap: () => void;
   onToggleCopilot: () => void;
@@ -51,6 +52,7 @@ export function EditorMenuBar({
   onExportGltf,
   onFocusSelection,
   onLoadWhmap,
+  onNewFile,
   onRedo,
   onSaveWhmap,
   onToggleCopilot,
@@ -73,6 +75,9 @@ export function EditorMenuBar({
               File
             </MenubarTrigger>
             <MenubarContent className="min-w-44 rounded-xl bg-popover/96 p-1.5 shadow-[0_18px_48px_rgba(4,12,10,0.46)] backdrop-blur-xl">
+              <MenubarItem className="rounded-lg text-xs" onClick={onNewFile}>
+                New File
+              </MenubarItem>
               <MenubarItem className="rounded-lg text-xs" onClick={onCreateBrush}>
                 New Brush
               </MenubarItem>

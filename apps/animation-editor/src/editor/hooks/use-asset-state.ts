@@ -5,6 +5,8 @@ import { importAnimationFiles, importCharacterFile, type ImportedCharacterAsset,
 import { applyImportedRig, autoBindClipNodes, reconcileImportedClips, upsertClipReferences } from "../workspace/clip-utils";
 import type { EditorView } from "../workspace/editor-menubar";
 
+const DEFAULT_ASSET_STATUS = "Import a rigged character to unlock preview and rig-aware compilation.";
+
 export type AssetState = {
   character: ImportedCharacterAsset | null;
   importedClips: ImportedPreviewClip[];
@@ -24,6 +26,7 @@ export type AssetState = {
   setCharacterSourceFile: React.Dispatch<React.SetStateAction<File | null>>;
   setAssetStatus: (status: string) => void;
   setAssetError: (error: string | null) => void;
+  resetAssets: () => void;
 };
 
 export function useAssetState(store: AnimationEditorStore, setEditorView: (view: EditorView) => void): AssetState {
@@ -31,7 +34,7 @@ export function useAssetState(store: AnimationEditorStore, setEditorView: (view:
   const [importedClips, setImportedClips] = useState<ImportedPreviewClip[]>([]);
   const [selectedClipId, setSelectedClipId] = useState("");
   const [characterSourceFile, setCharacterSourceFile] = useState<File | null>(null);
-  const [assetStatus, setAssetStatus] = useState("Import a rigged character to unlock preview and rig-aware compilation.");
+  const [assetStatus, setAssetStatus] = useState(DEFAULT_ASSET_STATUS);
   const [assetError, setAssetError] = useState<string | null>(null);
   const importedClipsRef = useRef(importedClips);
   importedClipsRef.current = importedClips;
@@ -185,6 +188,16 @@ export function useAssetState(store: AnimationEditorStore, setEditorView: (view:
     setAssetStatus(`Created clip "${clip.name}".`);
   }
 
+  function resetAssets() {
+    setCharacter(null);
+    setImportedClips([]);
+    setSelectedClipId("");
+    setCharacterSourceFile(null);
+    setAssetError(null);
+    setAssetStatus(DEFAULT_ASSET_STATUS);
+    setEditorView("clip");
+  }
+
   return {
     character,
     importedClips,
@@ -204,5 +217,6 @@ export function useAssetState(store: AnimationEditorStore, setEditorView: (view:
     setCharacterSourceFile,
     setAssetStatus,
     setAssetError,
+    resetAssets,
   };
 }

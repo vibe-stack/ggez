@@ -48,6 +48,7 @@ export interface AnimationEditorStore {
   getState(): Readonly<AnimationEditorState>;
   getRevision(): number;
   subscribe(listener: () => void, topics?: EditorTopic[]): Unsubscribe;
+  clearHistory(): void;
   setDocument(document: AnimationEditorDocument): void;
   selectGraph(graphId: string): void;
   selectNodes(nodeIds: string[]): void;
@@ -237,6 +238,10 @@ export function createAnimationEditorStore(initialDocument = createDefaultAnimat
           listener();
         }
       });
+    },
+    clearHistory() {
+      historyPast.length = 0;
+      historyFuture.length = 0;
     },
     setDocument(document) {
       commit(["document", "selection", "graphs", "parameters", "layers", "masks", "compile", "clipboard"], () => {

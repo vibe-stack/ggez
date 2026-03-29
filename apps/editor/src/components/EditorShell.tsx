@@ -94,6 +94,7 @@ type EditorShellProps = {
   onDeleteTexture: (textureId: string) => void;
   onCancelAiModelPlacement: () => void;
   onLoadWhmap: () => void;
+  onNewFile: () => void;
   onInvertSelectionNormals: () => void;
   onPausePhysics: () => void;
   onMeshEditToolbarAction: (action: MeshEditToolbarActionRequest["kind"]) => void;
@@ -222,6 +223,7 @@ export function EditorShell({
   onDeleteTexture,
   onCancelAiModelPlacement,
   onLoadWhmap,
+  onNewFile,
   onInvertSelectionNormals,
   onPausePhysics,
   onMeshEditToolbarAction,
@@ -407,6 +409,7 @@ export function EditorShell({
             }
           }}
           onLoadWhmap={onLoadWhmap}
+          onNewFile={onNewFile}
           onRedo={onRedo}
           onSaveWhmap={onSaveWhmap}
           onToggleCopilot={onToggleCopilot}

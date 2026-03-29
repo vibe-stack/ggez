@@ -1,4 +1,4 @@
-import type { AnimationEditorStore } from "@ggez/anim-editor-core";
+import { createDefaultAnimationEditorDocument, type AnimationEditorStore } from "@ggez/anim-editor-core";
 import { slugifyProjectName } from "@ggez/dev-sync";
 import { useCallback, useState } from "react";
 import type { ImportedCharacterAsset, ImportedPreviewClip } from "../preview-assets";
@@ -29,6 +29,7 @@ export type ProjectOperations = {
   resolvedProjectSlug: string;
   applyDraftMetadata: (metadata?: DraftMetadata) => void;
   createProjectArchive: () => Promise<Uint8Array>;
+  handleNewProject: () => void;
   handleProjectNameChange: (value: string) => void;
   handleProjectSlugChange: (value: string) => void;
   handleSaveProject: () => Promise<void>;
@@ -94,6 +95,21 @@ export function useProjectOperations(
     setProjectSlug(slugifyProjectName(value));
     setProjectSlugDirty(true);
   }, []);
+
+  const handleNewProject = useCallback(() => {
+    if (!window.confirm("Create a new file? The current local draft will be replaced.")) {
+      return;
+    }
+
+    const nextDocument = createDefaultAnimationEditorDocument();
+    store.setDocument(nextDocument);
+    store.clearHistory();
+    assets.resetAssets();
+    equipment.resetEquipment();
+    setProjectName(nextDocument.name || "Untitled Animation");
+    setProjectSlug(slugifyProjectName(nextDocument.name || "Untitled Animation"));
+    setProjectSlugDirty(false);
+  }, [assets, equipment, store]);
 
   const restoreProjectBundleFile = useCallback(async (file: File, options?: RestoreProjectOptions) => {
     try {
@@ -237,6 +253,7 @@ export function useProjectOperations(
     projectSlugDirty,
     resolvedProjectName,
     resolvedProjectSlug,
+    handleNewProject,
     handleProjectNameChange,
     handleProjectSlugChange,
     handleSaveProject,

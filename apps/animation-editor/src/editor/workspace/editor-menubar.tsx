@@ -22,6 +22,7 @@ export function EditorMenubar(props: {
   onCompile: () => void;
   onChangeEditorView: (view: EditorView) => void;
   onExportRuntimeBundle: () => void;
+  onNewFile: () => void;
   onSaveProject: () => void;
   onLoadProject: () => void;
   onImportCharacter: () => void;
@@ -43,6 +44,7 @@ export function EditorMenubar(props: {
               File
             </MenubarTrigger>
             <MenubarContent className="border border-white/10 bg-[#161a1f] shadow-2xl shadow-black/45">
+              <MenubarItem onClick={props.onNewFile}>New File</MenubarItem>
               <MenubarItem onClick={props.onSaveProject}>
                 Save Project
                 <MenubarShortcut>Cmd+S</MenubarShortcut>

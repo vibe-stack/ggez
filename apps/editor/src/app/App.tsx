@@ -30,6 +30,7 @@ import {
   createPlaceBrushNodeCommand,
   createPlaceMeshNodeCommand,
   createPlaceModelNodeCommand,
+  createSceneDocumentSnapshot,
   createSeedSceneDocument,
   createSetUvOffsetCommand,
   createSetUvScaleCommand,
@@ -1478,6 +1479,30 @@ export function App() {
     setProjectSlugDirty(true);
   };
 
+  const handleNewFile = () => {
+    if (!window.confirm("Create a new file? The current local draft will be replaced.")) {
+      return;
+    }
+
+    const nextSnapshot = createSceneDocumentSnapshot(createSeedSceneDocument());
+    editor.importSnapshot(nextSnapshot, "scene:new-file");
+    editor.commands.clear();
+
+    setProjectName("Untitled Scene");
+    setProjectSlug("untitled-scene");
+    setProjectSlugDirty(false);
+    setSelectedScenePathId(undefined);
+    setSelectedMaterialFaceIds([]);
+    setHiddenSceneItemIds([]);
+    setLockedSceneItemIds([]);
+    setAiModelPlacementArmed(false);
+    setAiModelDraft(null);
+    setPhysicsPlayback("stopped");
+    setPhysicsRevision(0);
+    uiStore.selectedAssetId = "";
+    uiStore.selectedMaterialId = "material:blockout:concrete";
+  };
+
   const handleSaveWhmap = async () => {
     const payload = await runWorkerRequest(
       {
@@ -1709,6 +1734,7 @@ export function App() {
         onGenerateAiModel={handleGenerateAiModel}
         onImportGlb={handleImportGlb}
         onLoadWhmap={handleLoadWhmap}
+        onNewFile={handleNewFile}
         onPausePhysics={handlePausePhysics}
         onMeshEditToolbarAction={handleMeshEditToolbarAction}
         onMirrorSelection={handleMirrorSelection}

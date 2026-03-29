@@ -100,6 +100,14 @@ export function useEquipmentState() {
     setSelectedItemId(null);
   }
 
+  function resetEquipment() {
+    setSockets([]);
+    setItems([]);
+    filesRef.current.clear();
+    setSelectedItemId(null);
+    setGizmoMode("translate");
+  }
+
   return {
     sockets,
     items,
@@ -117,5 +125,6 @@ export function useEquipmentState() {
     updateTransform,
     getBundle,
     restoreFromBundle,
+    resetEquipment,
   };
 }

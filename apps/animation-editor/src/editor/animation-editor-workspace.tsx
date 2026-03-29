@@ -109,6 +109,7 @@ export function AnimationEditorWorkspace(props: { store: AnimationEditorStore })
         onCompile={() => store.compile()}
         onChangeEditorView={setEditorView}
         onExportRuntimeBundle={() => void project.handleExportRuntimeBundle()}
+        onNewFile={project.handleNewProject}
         onSaveProject={() => void project.handleSaveProject()}
         onLoadProject={() => projectInputRef.current?.click()}
         onImportCharacter={() => characterInputRef.current?.click()}
