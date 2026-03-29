@@ -1,25 +1,41 @@
 import type { AnimationEditorStore } from "@ggez/anim-editor-core";
 import { slugifyProjectName } from "@ggez/dev-sync";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { ImportedCharacterAsset, ImportedPreviewClip } from "../preview-assets";
 import { importCharacterFile } from "../preview-assets";
-import { createProjectBundleArchive, parseProjectBundleFile } from "../project-bundle";
+import { createProjectBundleArchive, parseProjectBundleFile, type ParsedProjectBundle } from "../project-bundle";
 import { createRuntimeBundleSyncResult, createRuntimeBundleZip } from "../runtime-bundle";
 import { synchronizeAnimationDocument } from "../document-sync";
 import type { AssetState } from "./use-asset-state";
 import type { useGameConnection } from "./use-game-connection";
 import type { UseEquipmentStateReturn } from "./use-equipment-state";
 
+type DraftMetadata = {
+  projectName?: string;
+  projectSlug?: string;
+  projectSlugDirty?: boolean;
+};
+
+type RestoreProjectOptions = {
+  sourceName?: string;
+  startStatus?: string;
+  successStatus?: string;
+};
+
 export type ProjectOperations = {
   projectName: string;
+  projectSlugDirty: boolean;
   resolvedProjectName: string;
   resolvedProjectSlug: string;
+  applyDraftMetadata: (metadata?: DraftMetadata) => void;
+  createProjectArchive: () => Promise<Uint8Array>;
   handleProjectNameChange: (value: string) => void;
   handleProjectSlugChange: (value: string) => void;
   handleSaveProject: () => Promise<void>;
   handleExportRuntimeBundle: () => Promise<void>;
   handlePushAnimationToGame: (options?: { gameId?: string; projectName?: string; projectSlug?: string }) => Promise<unknown>;
   handleProjectLoad: (event: React.ChangeEvent<HTMLInputElement>, assets: AssetState) => Promise<void>;
+  restoreProjectBundleFile: (file: File, options?: RestoreProjectOptions) => Promise<void>;
 };
 
 export function useProjectOperations(
@@ -35,7 +51,36 @@ export function useProjectOperations(
   const resolvedProjectName = projectName.trim() || store.getState().document.name.trim() || "Untitled Animation";
   const resolvedProjectSlug = slugifyProjectName(projectSlug.trim() || resolvedProjectName);
 
-  function handleProjectNameChange(value: string) {
+  const applyDraftMetadata = useCallback((metadata?: DraftMetadata) => {
+    if (!metadata) {
+      return;
+    }
+
+    const nextProjectName = metadata.projectName?.trim() || store.getState().document.name || "Untitled Animation";
+    const nextProjectSlug = slugifyProjectName(metadata.projectSlug?.trim() || nextProjectName);
+
+    setProjectName(nextProjectName);
+    setProjectSlug(nextProjectSlug);
+    setProjectSlugDirty(Boolean(metadata.projectSlugDirty));
+  }, [store]);
+
+  const createProjectArchive = useCallback(async () => {
+    const editorDocument = synchronizeAnimationDocument(store.getState().document, assets.importedClips);
+    const equipmentFiles = [...equipment.filesRef.current.entries()].map(([id, file]) => ({
+      id,
+      file,
+    }));
+
+    return createProjectBundleArchive({
+      document: editorDocument,
+      characterFile: assets.characterSourceFile,
+      clips: assets.importedClips.map((clip) => clip.asset),
+      equipmentBundle: equipment.getBundle(),
+      equipmentFiles,
+    });
+  }, [assets.characterSourceFile, assets.importedClips, equipment, store]);
+
+  const handleProjectNameChange = useCallback((value: string) => {
     const previousAutoSlug = slugifyProjectName(projectName);
     setProjectName(value);
 
@@ -43,29 +88,46 @@ export function useProjectOperations(
       setProjectSlug(slugifyProjectName(value));
       setProjectSlugDirty(false);
     }
-  }
+  }, [projectName, projectSlug, projectSlugDirty]);
 
-  function handleProjectSlugChange(value: string) {
+  const handleProjectSlugChange = useCallback((value: string) => {
     setProjectSlug(slugifyProjectName(value));
     setProjectSlugDirty(true);
-  }
+  }, []);
 
-  async function handleSaveProject() {
+  const restoreProjectBundleFile = useCallback(async (file: File, options?: RestoreProjectOptions) => {
+    try {
+      assets.setAssetError(null);
+      assets.setAssetStatus(options?.startStatus ?? `Loading project "${options?.sourceName ?? file.name}"...`);
+      const loaded = await parseProjectBundleFile(file);
+      await restoreParsedProjectBundle({
+        assets,
+        equipment,
+        loaded,
+        store
+      });
+
+      const restoredProjectName = loaded.document.name || "Untitled Animation";
+      setProjectName(restoredProjectName);
+      setProjectSlug(slugifyProjectName(restoredProjectName));
+      setProjectSlugDirty(false);
+      assets.setAssetStatus(
+        options?.successStatus ??
+          `Loaded project "${options?.sourceName ?? file.name}" with ${loaded.document.graphs.length} graph(s) and ${loaded.clips.length} clip asset(s).`
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to load project bundle.";
+      assets.setAssetError(message);
+      assets.setAssetStatus("Project load failed.");
+    }
+  }, [assets, equipment, store]);
+
+  const handleSaveProject = useCallback(async () => {
     try {
       assets.setAssetError(null);
       assets.setAssetStatus("Saving project bundle...");
       const editorDocument = synchronizeAnimationDocument(store.getState().document, assets.importedClips);
-      const equipmentFiles = [...equipment.filesRef.current.entries()].map(([id, file]) => ({
-        id,
-        file,
-      }));
-      const archive = await createProjectBundleArchive({
-        document: editorDocument,
-        characterFile: assets.characterSourceFile,
-        clips: assets.importedClips.map((clip) => clip.asset),
-        equipmentBundle: equipment.getBundle(),
-        equipmentFiles,
-      });
+      const archive = await createProjectArchive();
       const fileName = `${editorDocument.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "animation-graph"}.ggezanimproj.zip`;
       const zipBytes = new Uint8Array(archive.byteLength);
       zipBytes.set(archive);
@@ -82,9 +144,9 @@ export function useProjectOperations(
       assets.setAssetError(message);
       assets.setAssetStatus("Project save failed.");
     }
-  }
+  }, [assets, createProjectArchive, store]);
 
-  async function handleExportRuntimeBundle() {
+  const handleExportRuntimeBundle = useCallback(async () => {
     try {
       assets.setAssetError(null);
       assets.setAssetStatus("Exporting runtime bundle...");
@@ -109,9 +171,9 @@ export function useProjectOperations(
       assets.setAssetError(message);
       assets.setAssetStatus("Runtime bundle export failed.");
     }
-  }
+  }, [assets, store]);
 
-  async function handlePushAnimationToGame(options?: { gameId?: string; projectName?: string; projectSlug?: string }) {
+  const handlePushAnimationToGame = useCallback(async (options?: { gameId?: string; projectName?: string; projectSlug?: string }) => {
     const nextProjectName = options?.projectName?.trim() || resolvedProjectName;
     const nextProjectSlug = slugifyProjectName(
       options?.projectSlug?.trim() || options?.projectName?.trim() || resolvedProjectSlug || nextProjectName
@@ -155,9 +217,9 @@ export function useProjectOperations(
       assets.setAssetStatus("Animation sync failed.");
       throw error;
     }
-  }
+  }, [assets, gameConnection, resolvedProjectName, resolvedProjectSlug, store]);
 
-  async function handleProjectLoad(event: React.ChangeEvent<HTMLInputElement>, a: AssetState) {
+  const handleProjectLoad = useCallback(async (event: React.ChangeEvent<HTMLInputElement>, a: AssetState) => {
     const file = event.target.files?.[0];
     event.target.value = "";
 
@@ -165,69 +227,14 @@ export function useProjectOperations(
       return;
     }
 
-    try {
-      a.setAssetError(null);
-      a.setAssetStatus(`Loading project "${file.name}"...`);
-      const loaded = await parseProjectBundleFile(file);
-      store.setDocument(loaded.document);
-
-      const clipReferencesById = new Map(loaded.document.clips.map((clip) => [clip.id, clip]));
-      let nextCharacter: ImportedCharacterAsset | null = null;
-
-      if (loaded.characterFile) {
-        const importedCharacter = await importCharacterFile(loaded.characterFile, []);
-        nextCharacter = {
-          ...importedCharacter,
-          documentRig: loaded.document.rig ?? importedCharacter.documentRig,
-          clips: [],
-        };
-      }
-
-      const restoredClips: ImportedPreviewClip[] = loaded.clips.map((asset) => {
-        const reference = clipReferencesById.get(asset.id) ?? {
-          id: asset.id,
-          name: asset.name,
-          duration: asset.duration,
-          source: undefined,
-        };
-
-        return {
-          id: asset.id,
-          name: reference.name,
-          duration: reference.duration,
-          source: reference.source ?? "project-bundle",
-          asset,
-          reference,
-        };
-      });
-
-      if (nextCharacter) {
-        nextCharacter = { ...nextCharacter, clips: restoredClips };
-      }
-
-      a.setCharacter(nextCharacter);
-      a.setCharacterSourceFile(loaded.characterFile);
-      a.setImportedClips(restoredClips);
-
-      // Restore equipment sockets, items, and GLB files
-      if (loaded.equipmentBundle) {
-        equipment.restoreFromBundle(loaded.equipmentBundle, loaded.equipmentFiles);
-      } else {
-        equipment.restoreFromBundle({ sockets: [], items: [] }, []);
-      }
-      setProjectName(loaded.document.name || "Untitled Animation");
-      setProjectSlug(slugifyProjectName(loaded.document.name || "Untitled Animation"));
-      setProjectSlugDirty(false);
-      a.setAssetStatus(`Loaded project "${file.name}" with ${loaded.document.graphs.length} graph(s) and ${restoredClips.length} clip asset(s).`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to load project bundle.";
-      a.setAssetError(message);
-      a.setAssetStatus("Project load failed.");
-    }
-  }
+    await restoreProjectBundleFile(file, { sourceName: file.name });
+  }, [restoreProjectBundleFile]);
 
   return {
+    applyDraftMetadata,
+    createProjectArchive,
     projectName,
+    projectSlugDirty,
     resolvedProjectName,
     resolvedProjectSlug,
     handleProjectNameChange,
@@ -236,5 +243,60 @@ export function useProjectOperations(
     handleExportRuntimeBundle,
     handlePushAnimationToGame,
     handleProjectLoad,
+    restoreProjectBundleFile,
   };
+}
+
+async function restoreParsedProjectBundle(input: {
+  assets: AssetState;
+  equipment: UseEquipmentStateReturn;
+  loaded: ParsedProjectBundle;
+  store: AnimationEditorStore;
+}) {
+  const { assets, equipment, loaded, store } = input;
+  store.setDocument(loaded.document);
+
+  const clipReferencesById = new Map(loaded.document.clips.map((clip) => [clip.id, clip]));
+  let nextCharacter: ImportedCharacterAsset | null = null;
+
+  if (loaded.characterFile) {
+    const importedCharacter = await importCharacterFile(loaded.characterFile, []);
+    nextCharacter = {
+      ...importedCharacter,
+      documentRig: loaded.document.rig ?? importedCharacter.documentRig,
+      clips: [],
+    };
+  }
+
+  const restoredClips: ImportedPreviewClip[] = loaded.clips.map((asset) => {
+    const reference = clipReferencesById.get(asset.id) ?? {
+      id: asset.id,
+      name: asset.name,
+      duration: asset.duration,
+      source: undefined,
+    };
+
+    return {
+      id: asset.id,
+      name: reference.name,
+      duration: reference.duration,
+      source: reference.source ?? "project-bundle",
+      asset,
+      reference,
+    };
+  });
+
+  if (nextCharacter) {
+    nextCharacter = { ...nextCharacter, clips: restoredClips };
+  }
+
+  assets.setCharacter(nextCharacter);
+  assets.setCharacterSourceFile(loaded.characterFile);
+  assets.setImportedClips(restoredClips);
+
+  if (loaded.equipmentBundle) {
+    equipment.restoreFromBundle(loaded.equipmentBundle, loaded.equipmentFiles);
+  } else {
+    equipment.restoreFromBundle({ sockets: [], items: [] }, []);
+  }
 }

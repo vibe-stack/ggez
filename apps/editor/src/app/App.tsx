@@ -127,6 +127,7 @@ import {
   type ViewModeId,
   type ViewportPaneId
 } from "@/viewport/viewports";
+import { loadStoredSceneEditorDraft, saveSceneEditorDraft } from "@/lib/draft-storage";
 
 export function App() {
   const [editor] = useState(() => createEditorCore(createSeedSceneDocument()));
@@ -157,6 +158,8 @@ export function App() {
   const [projectSlugDirty, setProjectSlugDirty] = useState(false);
   const [hiddenSceneItemIds, setHiddenSceneItemIds] = useState<string[]>([]);
   const [lockedSceneItemIds, setLockedSceneItemIds] = useState<string[]>([]);
+  const [draftHydrated, setDraftHydrated] = useState(false);
+  const latestDraftRef = useRef<ReturnType<typeof buildSceneDraftPayload> | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const glbImportInputRef = useRef<HTMLInputElement | null>(null);
   const renderSceneCacheRef = useRef(createDerivedRenderSceneCache());
@@ -1378,6 +1381,15 @@ export function App() {
     }
   });
 
+  const buildSceneDraftPayload = () => ({
+    projectName: resolvedProjectName,
+    projectSlug: resolvedProjectSlug,
+    projectSlugDirty,
+    snapshot: buildEditorSnapshot(),
+    updatedAt: Date.now(),
+    version: 1 as const
+  });
+
   const applyProjectMetadata = (metadata?: EditorFileMetadata) => {
     if (!metadata?.projectName && !metadata?.projectSlug) {
       return;
@@ -1389,6 +1401,67 @@ export function App() {
     setProjectSlug(nextProjectSlug);
     setProjectSlugDirty(Boolean(metadata.projectSlug));
   };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const draft = await loadStoredSceneEditorDraft();
+
+        if (!draft || cancelled) {
+          return;
+        }
+
+        editor.importSnapshot(draft.snapshot, "scene:restore-draft");
+        setProjectName(draft.projectName || "Untitled Scene");
+        setProjectSlug(slugifyProjectName(draft.projectSlug || draft.projectName || "Untitled Scene"));
+        setProjectSlugDirty(draft.projectSlugDirty);
+      } catch (error) {
+        console.warn("Failed to restore the Trident draft.", error);
+      } finally {
+        if (!cancelled) {
+          setDraftHydrated(true);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [editor]);
+
+  useEffect(() => {
+    if (!draftHydrated) {
+      return;
+    }
+
+    latestDraftRef.current = buildSceneDraftPayload();
+
+    const timeoutId = window.setTimeout(() => {
+      void saveSceneEditorDraft(buildSceneDraftPayload()).catch((error) => {
+        console.warn("Failed to save the Trident draft.", error);
+      });
+    }, 500);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [draftHydrated, projectSlugDirty, resolvedProjectName, resolvedProjectSlug, sceneRevision]);
+
+  useEffect(() => {
+    return () => {
+      const draft = latestDraftRef.current;
+
+      if (!draft) {
+        return;
+      }
+
+      void saveSceneEditorDraft(draft).catch((error) => {
+        console.warn("Failed to flush the Trident draft on unload.", error);
+      });
+    };
+  }, []);
 
   const handleProjectNameChange = (value: string) => {
     const previousAutoSlug = slugifyProjectName(projectName);

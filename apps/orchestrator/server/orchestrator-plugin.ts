@@ -108,6 +108,12 @@ function registerApi(server: MiddlewareHost, service: OrchestratorService) {
         return sendJson(res, 200, await service.getSnapshot());
       }
 
+      if (req.method === "POST" && pathname === "/api/orchestrator/projects/switch-scene") {
+        const body = await readJsonBody<{ projectId?: string; sceneId?: string }>(req);
+        await service.switchGameScene(body.projectId ?? "", body.sceneId ?? "");
+        return sendJson(res, 200, await service.getSnapshot());
+      }
+
       if (req.method === "POST" && pathname === "/api/orchestrator/view") {
         const body = await readJsonBody<{ view?: ViewId }>(req);
         await service.setActiveView(body.view ?? "trident");

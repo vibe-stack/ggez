@@ -5,6 +5,11 @@ import { createInterface } from "node:readline";
 import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
+import {
+  listLiveGameRegistrations,
+  setGameCommand
+} from "../../../packages/dev-sync/src/node";
+import type { DevSyncGameRegistration } from "../../../packages/dev-sync/src/shared";
 
 const HOST = "127.0.0.1";
 const TRIDENT_PORT = 8080;
@@ -57,10 +62,12 @@ type ManagedRuntime = {
 
 export type RuntimeSnapshot = {
   commandLabel: string;
+  currentSceneId: string | null;
   cwd: string;
   lastError: string | null;
   logLines: string[];
   port: number;
+  sceneIds: string[];
   startedAt: number | null;
   status: RuntimeStatus;
   url: string;
@@ -166,6 +173,9 @@ export class OrchestratorService {
     await this.initialize();
 
     const state = this.state!;
+    const liveGameRegistrations = new Map(
+      (await listLiveGameRegistrations()).map((registration) => [registration.projectRoot, registration])
+    );
     const selectedProject = state.projects.find((project) => project.id === state.activeProjectId) ?? null;
     const editors = [this.editors.trident, this.editors["animation-studio"]]
       .filter((editor): editor is ManagedRuntime => Boolean(editor))
@@ -178,7 +188,10 @@ export class OrchestratorService {
     const projects = state.projects.map((project) => ({
       ...project,
       isSelected: project.id === state.activeProjectId,
-      runtime: toRuntimeSnapshot(this.games.get(project.id) ?? createStoppedGameRuntime(project))
+      runtime: toRuntimeSnapshot(
+        this.games.get(project.id) ?? createStoppedGameRuntime(project),
+        liveGameRegistrations.get(project.projectRoot)
+      )
     }));
 
     return {
@@ -194,7 +207,10 @@ export class OrchestratorService {
           ? {
               ...selectedProject,
               isSelected: true,
-              runtime: toRuntimeSnapshot(this.games.get(selectedProject.id) ?? createStoppedGameRuntime(selectedProject))
+              runtime: toRuntimeSnapshot(
+                this.games.get(selectedProject.id) ?? createStoppedGameRuntime(selectedProject),
+                liveGameRegistrations.get(selectedProject.projectRoot)
+              )
             }
           : null
       })
@@ -422,6 +438,33 @@ export class OrchestratorService {
       name: project.name,
       projectRoot: project.projectRoot
     };
+  }
+
+  async switchGameScene(projectId: string, sceneId: string) {
+    await this.initialize();
+
+    const project = this.state?.projects.find((entry) => entry.id === projectId);
+
+    if (!project) {
+      throw new Error("Project not found.");
+    }
+
+    const registration = (await listLiveGameRegistrations()).find((entry) => entry.projectRoot === project.projectRoot);
+
+    if (!registration) {
+      throw new Error("No live game dev server was found for that project.");
+    }
+
+    if (!registration.sceneIds.includes(sceneId)) {
+      throw new Error(`Scene \"${sceneId}\" is not available in the running game.`);
+    }
+
+    await setGameCommand(registration.id, {
+      issuedAt: Date.now(),
+      nonce: `${Date.now()}:${sceneId}`,
+      sceneId,
+      type: "switch-scene"
+    });
   }
 
   async shutdown() {
@@ -722,13 +765,15 @@ function createStoppedGameRuntime(project: StoredProject): ManagedRuntime {
   });
 }
 
-function toRuntimeSnapshot(runtime: ManagedRuntime): RuntimeSnapshot {
+function toRuntimeSnapshot(runtime: ManagedRuntime, registration?: DevSyncGameRegistration): RuntimeSnapshot {
   return {
     commandLabel: runtime.commandLabel,
+    currentSceneId: registration?.currentCommand?.sceneId ?? null,
     cwd: runtime.cwd,
     lastError: runtime.lastError,
     logLines: runtime.logLines,
     port: runtime.port,
+    sceneIds: registration?.sceneIds ?? [],
     startedAt: runtime.startedAt,
     status: runtime.status,
     url: runtime.url

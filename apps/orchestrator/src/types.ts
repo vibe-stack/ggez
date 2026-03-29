@@ -5,10 +5,12 @@ export type DockMode = ViewId | "settings" | "welcome";
 
 export type RuntimeSnapshot = {
   commandLabel: string;
+  currentSceneId: string | null;
   cwd: string;
   lastError: string | null;
   logLines: string[];
   port: number;
+  sceneIds: string[];
   startedAt: number | null;
   status: RuntimeStatus;
   url: string;

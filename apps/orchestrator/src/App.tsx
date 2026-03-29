@@ -12,6 +12,7 @@ import { requestJson } from "./api";
 import type { DockMode, Notice, OrchestratorSnapshot, PackageManager, ViewId } from "./types";
 import { GamesScreen } from "./components/GamesScreen";
 import { GameCopilot } from "./components/GameCopilot";
+import { GameSceneBar } from "./components/GameSceneBar";
 import { OrbDock } from "./components/OrbDock";
 import { SettingsSheet } from "./components/SettingsSheet";
 import { ViewportFallback } from "./components/ViewportFallback";
@@ -60,37 +61,13 @@ export function App() {
     () => snapshot?.projects.find((p) => p.isSelected) ?? null,
     [snapshot]
   );
-
-  // Track the game iframe URL separately so the iframe stays mounted (and its
-  // editor-sync polling client stays alive) even when the view switches to an editor.
-  const [gameIframeUrl, setGameIframeUrl] = useState<string | null>(null);
   const gameIframeRef = useRef<HTMLIFrameElement | null>(null);
-  useEffect(() => {
-    const running = snapshot?.projects.find(
-      (p) => p.isSelected && p.runtime.status === "running"
-    );
-    if (running) {
-      setGameIframeUrl(running.runtime.url);
-    } else if (snapshot?.projects.every((p) => p.runtime.status === "stopped")) {
-      setGameIframeUrl(null);
-    }
-  }, [snapshot]);
-
-  // Track editor iframe URLs so we can keep them alive (visibility:hidden) and
-  // preserve their in-memory state when the user switches between views.
-  const [editorUrls, setEditorUrls] = useState<Partial<Record<"trident" | "animation-studio", string>>>({});
-  useEffect(() => {
-    if (!snapshot) return;
-    setEditorUrls((prev) => {
-      const next = { ...prev };
-      for (const editor of snapshot.editors) {
-        if (editor.status === "running" && editor.url) {
-          next[editor.id as "trident" | "animation-studio"] = editor.url;
-        }
-      }
-      return next;
-    });
-  }, [snapshot]);
+  const activeEditor = snapshot?.activeView === "trident" || snapshot?.activeView === "animation-studio"
+    ? snapshot.editors.find((editor) => editor.id === snapshot.activeView) ?? null
+    : null;
+  const activeEditorUrl = activeEditor?.status === "running" ? activeEditor.url : null;
+  const activeGameRuntime = selectedProject?.runtime.status === "running" ? selectedProject.runtime : null;
+  const activeGameUrl = snapshot?.activeView === "game" ? activeGameRuntime?.url ?? null : null;
 
   const activeDockMode: DockMode = settingsOpen
     ? "settings"
@@ -103,7 +80,7 @@ export function App() {
     !settingsOpen &&
     snapshot?.activeView === "game" &&
     Boolean(selectedProject) &&
-    Boolean(gameIframeUrl);
+    Boolean(activeGameUrl);
 
   const handleOpenSettings = () => {
     setGamesOpen(false);
@@ -259,6 +236,26 @@ export function App() {
     }
   };
 
+  const handleSwitchGameScene = async (sceneId: string) => {
+    if (!selectedProject) {
+      return;
+    }
+
+    try {
+      await runAction(`scene:${sceneId}`, () =>
+        requestJson("/api/orchestrator/projects/switch-scene", {
+          method: "POST",
+          body: JSON.stringify({
+            projectId: selectedProject.id,
+            sceneId
+          })
+        })
+      );
+    } catch {
+      /* handled */
+    }
+  };
+
   // Listen for postMessage events from editor iframes (e.g. after a push-with-switch).
   // useEffectEvent captures the latest handleSetView without needing it in deps.
   const onIframeMessage = useEffectEvent((e: MessageEvent) => {
@@ -280,52 +277,41 @@ export function App() {
     <div className="engine-shell">
       <div className="engine-grid absolute inset-0 opacity-50" aria-hidden="true" />
 
-      {/* Editor iframes — kept alive once their server starts so in-memory state
-          (unsaved scene work, UI state) survives view switches. Hidden when not active. */}
-      {(["trident", "animation-studio"] as const).map((viewId) => {
-        const url = editorUrls[viewId];
-        if (!url) return null;
-        const isActive = snapshot?.activeView === viewId;
-        return (
-          <iframe
-            key={url}
-            src={url}
-            title={viewId}
-            className="engine-viewport"
-            style={{
-              visibility: isActive ? "visible" : "hidden",
-              zIndex: isActive ? 2 : 0,
-              pointerEvents: isActive ? "auto" : "none"
-            }}
-          />
-        );
-      })}
+      {activeEditorUrl ? (
+        <iframe
+          src={activeEditorUrl}
+          title={snapshot?.activeView ?? "editor"}
+          className="engine-viewport"
+        />
+      ) : null}
 
-      {/* Game iframe — kept alive once running so the editor-sync polling client
-          stays connected even when the view switches to an editor. */}
-      {gameIframeUrl ? (
+      {activeGameUrl ? (
         <iframe
           ref={gameIframeRef}
-          src={gameIframeUrl}
+          src={activeGameUrl}
           title="Game"
           className="engine-viewport"
-          style={{
-            visibility: snapshot?.activeView === "game" ? "visible" : "hidden",
-            zIndex: snapshot?.activeView === "game" ? 1 : 0,
-            pointerEvents: snapshot?.activeView === "game" ? "auto" : "none"
-          }}
+        />
+      ) : null}
+
+      {snapshot?.activeView === "game" && activeGameRuntime ? (
+        <GameSceneBar
+          activeSceneId={activeGameRuntime.currentSceneId}
+          busySceneId={busyKey?.startsWith("scene:") ? busyKey.slice("scene:".length) : null}
+          onSwitchScene={handleSwitchGameScene}
+          sceneIds={activeGameRuntime.sceneIds}
         />
       ) : null}
 
       <GameCopilot
         gameIframeRef={gameIframeRef}
-        gameIframeUrl={gameIframeUrl}
+        gameIframeUrl={activeGameUrl}
         project={selectedProject}
         visible={gameCopilotVisible}
       />
 
       {/* Fallback — shown only when no iframes are available for the current view */}
-      {!gameIframeUrl && !editorUrls[snapshot?.activeView as "trident" | "animation-studio"] ? (
+      {!activeGameUrl && !activeEditorUrl ? (
         <ViewportFallback snapshot={snapshot} />
       ) : null}
 

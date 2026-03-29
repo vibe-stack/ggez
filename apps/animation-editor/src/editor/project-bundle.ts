@@ -52,7 +52,7 @@ type AnimationEditorProjectBundle = {
   };
 };
 
-type ParsedProjectBundle = {
+export type ParsedProjectBundle = {
   document: AnimationEditorDocument;
   characterFile: File | null;
   clips: AnimationClipAsset[];
