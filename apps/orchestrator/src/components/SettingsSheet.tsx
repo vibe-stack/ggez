@@ -411,7 +411,6 @@ function ProjectCard({
             <h3 className="truncate text-sm font-medium text-white">{project.name}</h3>
             <StatusPill status={project.runtime.status} />
           </div>
-          <p className="mt-1 truncate text-[11px] text-white/42">{project.projectRoot}</p>
         </button>
         <button
           type="button"

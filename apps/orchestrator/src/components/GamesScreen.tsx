@@ -109,9 +109,6 @@ function GameRow({
           <StatusDot status={status} />
           <span className="text-[13px] font-medium text-white">{project.name}</span>
         </div>
-        <p className="mt-0.5 truncate pl-[18px] text-[11px] text-white/36">
-          {project.projectRoot}
-        </p>
       </button>
 
       <div className="flex flex-shrink-0 gap-1.5">
