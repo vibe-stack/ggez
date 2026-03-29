@@ -3,7 +3,8 @@ import type { SceneSettings } from "@ggez/shared";
 import type { RuntimeScene } from "@ggez/runtime-format";
 import type { CrashcatPhysicsWorld } from "@ggez/runtime-physics-crashcat";
 import type { ThreeRuntimeSceneInstance } from "@ggez/three-runtime";
-import type { PerspectiveCamera, Scene, WebGLRenderer } from "three";
+import type { PerspectiveCamera, Scene } from "three";
+import type { WebGPURenderer } from "three/webgpu";
 import type { StarterPlayerController } from "./starter-player-controller";
 import type { RuntimePhysicsSession } from "./runtime-physics";
 
@@ -23,7 +24,7 @@ export type GameSceneBootstrapContext = {
   gotoScene: (sceneId: string) => Promise<void>;
   preloadScene: (sceneId: string) => Promise<void>;
   physicsWorld: CrashcatPhysicsWorld;
-  renderer: WebGLRenderer;
+  renderer: WebGPURenderer;
   runtimeScene: ThreeRuntimeSceneInstance;
   scene: Scene;
   sceneId: string;

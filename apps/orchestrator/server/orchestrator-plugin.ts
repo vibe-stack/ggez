@@ -1,5 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Plugin, PreviewServer, ViteDevServer } from "vite";
+import {
+  checkCodexAvailability,
+  registerOrchestratorCodexWebSocket,
+  saveProjectScreenshot
+} from "./codex-bridge";
 import { OrchestratorService, type ViewId } from "./orchestrator-service";
 
 type MiddlewareHost = Pick<ViteDevServer, "middlewares"> | Pick<PreviewServer, "middlewares">;
@@ -13,6 +18,7 @@ export function createOrchestratorPlugin(options: { repoRoot: string }): Plugin 
     name: "web-hammer-orchestrator",
     configureServer(server) {
       registerApi(server, service);
+      registerOrchestratorCodexWebSocket(server, service);
       void service.initialize();
     },
     configurePreviewServer(server) {
@@ -46,6 +52,10 @@ function registerApi(server: MiddlewareHost, service: OrchestratorService) {
     try {
       if (req.method === "GET" && pathname === "/api/orchestrator/state") {
         return sendJson(res, 200, await service.getSnapshot());
+      }
+
+      if (req.method === "GET" && pathname === "/api/orchestrator/codex/status") {
+        return sendJson(res, 200, checkCodexAvailability());
       }
 
       if (req.method === "POST" && pathname === "/api/orchestrator/projects/add") {
@@ -102,6 +112,19 @@ function registerApi(server: MiddlewareHost, service: OrchestratorService) {
         const body = await readJsonBody<{ view?: ViewId }>(req);
         await service.setActiveView(body.view ?? "trident");
         return sendJson(res, 200, await service.getSnapshot());
+      }
+
+      if (req.method === "POST" && pathname === "/api/orchestrator/codex/screenshot") {
+        const body = await readJsonBody<{ dataUrl?: string; projectId?: string }>(req);
+
+        if (!body.projectId || !body.dataUrl) {
+          throw new Error("Missing screenshot payload.");
+        }
+
+        return sendJson(res, 200, await saveProjectScreenshot(service, {
+          dataUrl: body.dataUrl,
+          projectId: body.projectId
+        }));
       }
 
       if (req.method === "POST" && pathname === "/api/orchestrator/editors/restart") {

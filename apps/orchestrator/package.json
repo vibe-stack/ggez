@@ -14,13 +14,15 @@
     "@fontsource-variable/space-grotesk": "^5.2.8",
     "lucide-react": "^1.7.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "ws": "^8.20.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.2",
     "@types/node": "^24.12.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react-swc": "^4.1.0",
     "tailwindcss": "^4.2.2",
     "typescript": "~5.9.3",

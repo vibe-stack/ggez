@@ -272,6 +272,55 @@ textarea {
   user-select: none;
 }
 
+.codex-orb {
+  position: relative;
+  display: inline-flex;
+  height: 3rem;
+  width: 3rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  cursor: pointer;
+  border: 1px solid rgba(110, 231, 183, 0.18);
+  background:
+    radial-gradient(circle at 35% 30%, rgba(110, 231, 183, 0.38), transparent 45%),
+    radial-gradient(circle at 70% 70%, rgba(34, 197, 94, 0.2), transparent 50%),
+    rgba(9, 16, 18, 0.96);
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 0 0 1px rgba(110, 231, 183, 0.08);
+  transition: transform 160ms cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 160ms ease, filter 160ms ease;
+}
+
+.codex-orb:hover {
+  filter: saturate(1.08) brightness(1.04);
+  transform: scale(1.06);
+  box-shadow:
+    0 22px 52px rgba(0, 0, 0, 0.46),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 0 0 1px rgba(110, 231, 183, 0.12);
+}
+
+.codex-orb:active {
+  transform: scale(0.96);
+}
+
+.codex-orb-active {
+  animation: codex-pulse 1.8s ease-in-out infinite;
+}
+
+.codex-orb-inner {
+  display: inline-flex;
+  height: 2.2rem;
+  width: 2.2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: rgba(5, 12, 10, 0.56);
+  color: rgba(209, 250, 229, 0.92);
+}
+
 /* Games / Welcome screen */
 .games-screen-overlay {
   position: absolute;
@@ -322,6 +371,24 @@ textarea {
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes codex-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 18px 42px rgba(0, 0, 0, 0.4),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05),
+      0 0 0 1px rgba(110, 231, 183, 0.08),
+      0 0 0 0 rgba(52, 211, 153, 0.22);
+  }
+  50% {
+    box-shadow:
+      0 20px 48px rgba(0, 0, 0, 0.45),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06),
+      0 0 0 1px rgba(110, 231, 183, 0.14),
+      0 0 0 10px rgba(52, 211, 153, 0);
   }
 }
 

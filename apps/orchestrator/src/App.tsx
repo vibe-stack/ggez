@@ -3,6 +3,7 @@ import {
   useEffect,
   useEffectEvent,
   useMemo,
+  useRef,
   useState,
   type FormEvent
 } from "react";
@@ -10,6 +11,7 @@ import {
 import { requestJson } from "./api";
 import type { DockMode, Notice, OrchestratorSnapshot, PackageManager, ViewId } from "./types";
 import { GamesScreen } from "./components/GamesScreen";
+import { GameCopilot } from "./components/GameCopilot";
 import { OrbDock } from "./components/OrbDock";
 import { SettingsSheet } from "./components/SettingsSheet";
 import { ViewportFallback } from "./components/ViewportFallback";
@@ -62,6 +64,7 @@ export function App() {
   // Track the game iframe URL separately so the iframe stays mounted (and its
   // editor-sync polling client stays alive) even when the view switches to an editor.
   const [gameIframeUrl, setGameIframeUrl] = useState<string | null>(null);
+  const gameIframeRef = useRef<HTMLIFrameElement | null>(null);
   useEffect(() => {
     const running = snapshot?.projects.find(
       (p) => p.isSelected && p.runtime.status === "running"
@@ -94,6 +97,13 @@ export function App() {
     : gamesOpen
       ? "welcome"
       : (snapshot?.activeView ?? "welcome");
+  const gameCopilotVisible =
+    orbVisible &&
+    !gamesOpen &&
+    !settingsOpen &&
+    snapshot?.activeView === "game" &&
+    Boolean(selectedProject) &&
+    Boolean(gameIframeUrl);
 
   const handleOpenSettings = () => {
     setGamesOpen(false);
@@ -295,6 +305,7 @@ export function App() {
           stays connected even when the view switches to an editor. */}
       {gameIframeUrl ? (
         <iframe
+          ref={gameIframeRef}
           src={gameIframeUrl}
           title="Game"
           className="engine-viewport"
@@ -305,6 +316,13 @@ export function App() {
           }}
         />
       ) : null}
+
+      <GameCopilot
+        gameIframeRef={gameIframeRef}
+        gameIframeUrl={gameIframeUrl}
+        project={selectedProject}
+        visible={gameCopilotVisible}
+      />
 
       {/* Fallback — shown only when no iframes are available for the current view */}
       {!gameIframeUrl && !editorUrls[snapshot?.activeView as "trident" | "animation-studio"] ? (

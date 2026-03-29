@@ -12,6 +12,7 @@ import {
 } from "@ggez/runtime-physics-crashcat";
 import { createThreeRuntimeSceneInstance, type ThreeRuntimeSceneInstance } from "@ggez/three-runtime";
 import * as THREE from "three";
+import { WebGPURenderer } from "three/webgpu";
 import { frameCameraOnObject } from "./camera";
 import { createDefaultGameplaySystems, createStarterGameplayHost, mergeGameplaySystems } from "./gameplay";
 import { createRuntimePhysicsSession, type RuntimePhysicsSession } from "./runtime-physics";
@@ -38,7 +39,7 @@ type ActiveScene = {
 const FIXED_STEP_SECONDS = 1 / 60;
 const MAX_PHYSICS_CATCH_UP_SECONDS = FIXED_STEP_SECONDS * 4;
 
-export function createGameApp(options: GameAppOptions) {
+export async function createGameApp(options: GameAppOptions) {
   options.root.innerHTML = `
     <div class="game-shell"></div>
   `;
@@ -49,7 +50,8 @@ export function createGameApp(options: GameAppOptions) {
     throw new Error("Failed to initialize game shell.");
   }
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  const renderer = new WebGPURenderer({ antialias: true });
+  await renderer.init();
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
@@ -293,7 +295,7 @@ function createBootstrapContext(options: {
   gotoScene: (sceneId: string) => Promise<void>;
   physicsWorld: CrashcatPhysicsWorld;
   preloadScene: (sceneId: string) => Promise<void>;
-  renderer: THREE.WebGLRenderer;
+  renderer: WebGPURenderer;
   runtimeScene: ThreeRuntimeSceneInstance;
   scene: THREE.Scene;
   sceneId: string;

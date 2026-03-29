@@ -8,7 +8,7 @@ if (!root) {
   throw new Error("Missing #app root.");
 }
 
-const app = createGameApp({
+const app = await createGameApp({
   initialSceneId,
   root,
   scenes

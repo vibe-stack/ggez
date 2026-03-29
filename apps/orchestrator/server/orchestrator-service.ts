@@ -90,6 +90,12 @@ export type OrchestratorSnapshot = {
   };
 };
 
+export type ProjectCodexContext = {
+  id: string;
+  name: string;
+  projectRoot: string;
+};
+
 type CreateProjectInput = {
   destinationRoot: string;
   force: boolean;
@@ -400,6 +406,22 @@ export class OrchestratorService {
 
     await this.stopRuntime(runtime);
     await this.ensureEditorRunning(editorId);
+  }
+
+  async getProjectCodexContext(projectId: string): Promise<ProjectCodexContext> {
+    await this.initialize();
+
+    const project = this.state?.projects.find((entry) => entry.id === projectId);
+
+    if (!project) {
+      throw new Error("Project not found.");
+    }
+
+    return {
+      id: project.id,
+      name: project.name,
+      projectRoot: project.projectRoot
+    };
   }
 
   async shutdown() {
