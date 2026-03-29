@@ -73,6 +73,22 @@ export function App() {
     }
   }, [snapshot]);
 
+  // Track editor iframe URLs so we can keep them alive (visibility:hidden) and
+  // preserve their in-memory state when the user switches between views.
+  const [editorUrls, setEditorUrls] = useState<Partial<Record<"trident" | "animation-studio", string>>>({});
+  useEffect(() => {
+    if (!snapshot) return;
+    setEditorUrls((prev) => {
+      const next = { ...prev };
+      for (const editor of snapshot.editors) {
+        if (editor.status === "running" && editor.url) {
+          next[editor.id as "trident" | "animation-studio"] = editor.url;
+        }
+      }
+      return next;
+    });
+  }, [snapshot]);
+
   const activeDockMode: DockMode = settingsOpen
     ? "settings"
     : gamesOpen
@@ -233,13 +249,50 @@ export function App() {
     }
   };
 
+  // Listen for postMessage events from editor iframes (e.g. after a push-with-switch).
+  // useEffectEvent captures the latest handleSetView without needing it in deps.
+  const onIframeMessage = useEffectEvent((e: MessageEvent) => {
+    if (
+      e.data &&
+      typeof e.data === "object" &&
+      e.data.type === "wh-orchestrator:switch-view" &&
+      typeof e.data.view === "string"
+    ) {
+      void handleSetView(e.data.view as ViewId);
+    }
+  });
+  useEffect(() => {
+    window.addEventListener("message", onIframeMessage);
+    return () => window.removeEventListener("message", onIframeMessage);
+  }, []);
+
   return (
     <div className="engine-shell">
       <div className="engine-grid absolute inset-0 opacity-50" aria-hidden="true" />
 
+      {/* Editor iframes — kept alive once their server starts so in-memory state
+          (unsaved scene work, UI state) survives view switches. Hidden when not active. */}
+      {(["trident", "animation-studio"] as const).map((viewId) => {
+        const url = editorUrls[viewId];
+        if (!url) return null;
+        const isActive = snapshot?.activeView === viewId;
+        return (
+          <iframe
+            key={url}
+            src={url}
+            title={viewId}
+            className="engine-viewport"
+            style={{
+              visibility: isActive ? "visible" : "hidden",
+              zIndex: isActive ? 2 : 0,
+              pointerEvents: isActive ? "auto" : "none"
+            }}
+          />
+        );
+      })}
+
       {/* Game iframe — kept alive once running so the editor-sync polling client
-          stays connected even when the view switches to an editor. Hidden via
-          visibility:hidden (not display:none) so JS timers keep running. */}
+          stays connected even when the view switches to an editor. */}
       {gameIframeUrl ? (
         <iframe
           src={gameIframeUrl}
@@ -247,25 +300,14 @@ export function App() {
           className="engine-viewport"
           style={{
             visibility: snapshot?.activeView === "game" ? "visible" : "hidden",
-            zIndex: snapshot?.activeView === "game" ? 1 : 0
+            zIndex: snapshot?.activeView === "game" ? 1 : 0,
+            pointerEvents: snapshot?.activeView === "game" ? "auto" : "none"
           }}
         />
       ) : null}
 
-      {/* Editor iframe — only mounted when on a non-game view */}
-      {snapshot?.activeView !== "game" ? (
-        snapshot?.viewport.url ? (
-          <iframe
-            key={snapshot.viewport.url}
-            src={snapshot.viewport.url}
-            title={snapshot.viewport.label}
-            className="engine-viewport"
-            style={{ zIndex: 2 }}
-          />
-        ) : (
-          <ViewportFallback snapshot={snapshot} />
-        )
-      ) : !gameIframeUrl ? (
+      {/* Fallback — shown only when no iframes are available for the current view */}
+      {!gameIframeUrl && !editorUrls[snapshot?.activeView as "trident" | "animation-studio"] ? (
         <ViewportFallback snapshot={snapshot} />
       ) : null}
 

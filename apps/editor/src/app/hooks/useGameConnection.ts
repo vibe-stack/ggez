@@ -112,6 +112,13 @@ export function useGameConnection() {
       setLastPush(payload);
       setError(undefined);
       setRefreshToken((current) => current + 1);
+
+      // Signal the orchestrator (if this editor is running inside one) to switch
+      // to the game view so the user sees the result immediately.
+      if (options?.forceSwitch) {
+        window.parent.postMessage({ type: "wh-orchestrator:switch-view", view: "game" }, "*");
+      }
+
       return payload;
     } catch (pushError) {
       const message = pushError instanceof Error ? pushError.message : "Failed to push scene to game.";
