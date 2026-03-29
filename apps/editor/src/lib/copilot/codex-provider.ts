@@ -207,7 +207,7 @@ export function createCodexProvider(): SessionBasedCopilotProvider {
         ws.onerror = () => {
           if (aborted) return;
           session.status = "error";
-          session.error = "WebSocket connection failed. Is the dev server running?";
+          session.error = "WebSocket connection failed. Is the editor server running?";
           config.onUpdate({ ...session, messages: [...messages] });
           config.signal?.removeEventListener("abort", handleAbort);
           resolve(session);

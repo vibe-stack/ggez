@@ -183,7 +183,7 @@ export function createCodexProvider(): SessionBasedCopilotProvider {
           }
 
           session.status = "error";
-          session.error = "WebSocket connection failed. Is the animation-editor dev server running?";
+          session.error = "WebSocket connection failed. Is the animation-editor server running?";
           config.onUpdate({ ...session, messages: [...messages] });
           config.signal?.removeEventListener("abort", handleAbort);
           resolve(session);
