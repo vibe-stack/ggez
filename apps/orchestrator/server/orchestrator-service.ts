@@ -529,10 +529,7 @@ export class OrchestratorService {
     try {
       await access(distPath);
     } catch {
-      runtime.status = "error";
-      runtime.lastError = `Missing build output at ${distPath}. Run the editor build first.`;
-      runtime.logLines = [runtime.lastError];
-      return;
+      await this.buildEditorPreview(editorId, runtime, distPath);
     }
 
     const command =
@@ -571,6 +568,40 @@ export class OrchestratorService {
           };
 
     await this.startRuntime(runtime, command);
+  }
+
+  private async buildEditorPreview(
+    editorId: Exclude<ViewId, "game">,
+    runtime: ManagedRuntime,
+    distPath: string
+  ) {
+    const appPath = editorId === "trident"
+      ? join(this.repoRoot, "apps/editor")
+      : join(this.repoRoot, "apps/animation-editor");
+
+    runtime.status = "starting";
+    runtime.lastError = null;
+    runtime.logLines = [`Missing build output at ${distPath}. Building ${runtime.label} once...`];
+
+    try {
+      await runCommand({
+        args: ["run", "--cwd", appPath, "build"],
+        command: "bun",
+        cwd: this.repoRoot
+      }, {
+        label: `build ${runtime.label}`
+      });
+      appendLog(runtime, `${runtime.label} build complete.`);
+    } catch (error) {
+      runtime.status = "error";
+      runtime.lastError = error instanceof Error
+        ? error.message
+        : `Failed to build ${runtime.label}.`;
+      appendLog(runtime, runtime.lastError);
+      throw error;
+    }
+
+    await access(distPath);
   }
 
   private async startRuntime(runtime: ManagedRuntime, command: RuntimeCommand) {

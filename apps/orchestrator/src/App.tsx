@@ -34,6 +34,9 @@ export function App() {
   const [gamesOpen, setGamesOpen] = useState(true);
   const [dockOpen, setDockOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [requestedGameSceneId, setRequestedGameSceneId] = useState<string | null>(null);
+  const [gameReloadToken, setGameReloadToken] = useState(0);
+  const [gameSceneLoading, setGameSceneLoading] = useState(false);
 
   const refreshSnapshot = useEffectEvent(async () => {
     const next = await requestJson<OrchestratorSnapshot>("/api/orchestrator/state");
@@ -67,7 +70,35 @@ export function App() {
     : null;
   const activeEditorUrl = activeEditor?.status === "running" ? activeEditor.url : null;
   const activeGameRuntime = selectedProject?.runtime.status === "running" ? selectedProject.runtime : null;
-  const activeGameUrl = snapshot?.activeView === "game" ? activeGameRuntime?.url ?? null : null;
+  const resolvedGameSceneId = requestedGameSceneId && activeGameRuntime?.sceneIds.includes(requestedGameSceneId)
+    ? requestedGameSceneId
+    : activeGameRuntime?.currentSceneId ?? null;
+  const activeGameUrl = snapshot?.activeView === "game"
+    ? buildGameUrl(activeGameRuntime?.url ?? null, resolvedGameSceneId, gameReloadToken)
+    : null;
+
+  useEffect(() => {
+    if (!selectedProject) {
+      setRequestedGameSceneId(null);
+      return;
+    }
+
+    setRequestedGameSceneId((current) => {
+      if (current && selectedProject.runtime.sceneIds.includes(current)) {
+        return current;
+      }
+
+      return selectedProject.runtime.currentSceneId && selectedProject.runtime.sceneIds.includes(selectedProject.runtime.currentSceneId)
+        ? selectedProject.runtime.currentSceneId
+        : null;
+    });
+  }, [selectedProject?.id, selectedProject?.runtime.currentSceneId, selectedProject?.runtime.sceneIds]);
+
+  useEffect(() => {
+    if (snapshot?.activeView === "game" && activeGameUrl) {
+      setGameSceneLoading(true);
+    }
+  }, [activeGameUrl, snapshot?.activeView]);
 
   const activeDockMode: DockMode = settingsOpen
     ? "settings"
@@ -241,6 +272,13 @@ export function App() {
       return;
     }
 
+    if (sceneId === resolvedGameSceneId) {
+      return;
+    }
+
+    setRequestedGameSceneId(sceneId);
+    setGameReloadToken((current) => current + 1);
+
     try {
       await runAction(`scene:${sceneId}`, () =>
         requestJson("/api/orchestrator/projects/switch-scene", {
@@ -265,6 +303,11 @@ export function App() {
       e.data.type === "wh-orchestrator:switch-view" &&
       typeof e.data.view === "string"
     ) {
+      if (typeof e.data.sceneId === "string" && e.data.sceneId.length > 0) {
+        setRequestedGameSceneId(e.data.sceneId);
+        setGameReloadToken((current) => current + 1);
+      }
+
       void handleSetView(e.data.view as ViewId);
     }
   });
@@ -287,19 +330,21 @@ export function App() {
 
       {activeGameUrl ? (
         <iframe
+          key={activeGameUrl}
           ref={gameIframeRef}
           src={activeGameUrl}
           title="Game"
           className="engine-viewport"
+          onLoad={() => setGameSceneLoading(false)}
         />
       ) : null}
 
       {snapshot?.activeView === "game" && activeGameRuntime ? (
         <GameSceneBar
-          activeSceneId={activeGameRuntime.currentSceneId}
-          busySceneId={busyKey?.startsWith("scene:") ? busyKey.slice("scene:".length) : null}
+          isLoading={gameSceneLoading}
           onSwitchScene={handleSwitchGameScene}
           sceneIds={activeGameRuntime.sceneIds}
+          selectedSceneId={resolvedGameSceneId}
         />
       ) : null}
 
@@ -394,4 +439,21 @@ export function App() {
       />
     </div>
   );
+}
+
+function buildGameUrl(baseUrl: string | null, sceneId: string | null, reloadToken: number) {
+  if (!baseUrl) {
+    return null;
+  }
+
+  const url = new URL(baseUrl);
+
+  if (sceneId) {
+    url.searchParams.set("whScene", sceneId);
+  } else {
+    url.searchParams.delete("whScene");
+  }
+
+  url.searchParams.set("whReload", String(reloadToken));
+  return url.toString();
 }

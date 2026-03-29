@@ -116,7 +116,11 @@ export function useGameConnection() {
       // Signal the orchestrator (if this editor is running inside one) to switch
       // to the game view so the user sees the result immediately.
       if (options?.forceSwitch) {
-        window.parent.postMessage({ type: "wh-orchestrator:switch-view", view: "game" }, "*");
+        window.parent.postMessage({
+          type: "wh-orchestrator:switch-view",
+          sceneId: options.metadata.projectSlug,
+          view: "game"
+        }, "*");
       }
 
       return payload;

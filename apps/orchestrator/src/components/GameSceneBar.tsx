@@ -1,8 +1,10 @@
+import { Loader2 } from "lucide-react";
+
 type GameSceneBarProps = {
-  activeSceneId: string | null;
-  busySceneId: string | null;
+  isLoading: boolean;
   onSwitchScene: (sceneId: string) => void;
   sceneIds: string[];
+  selectedSceneId: string | null;
 };
 
 export function GameSceneBar(props: GameSceneBarProps) {
@@ -10,32 +12,27 @@ export function GameSceneBar(props: GameSceneBarProps) {
     return null;
   }
 
-  return (
-    <div className="pointer-events-none absolute left-1/2 top-4 z-20 flex w-[min(72rem,calc(100vw-2rem))] -translate-x-1/2 justify-center px-2">
-      <div className="pointer-events-auto flex max-w-full items-center gap-2 overflow-x-auto rounded-[22px] border border-white/8 bg-zinc-950/76 px-3 py-2 shadow-[0_20px_60px_rgba(0,0,0,0.34)] backdrop-blur-2xl">
-        <div className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">
-          Scenes
-        </div>
-        {props.sceneIds.map((sceneId) => {
-          const isActive = props.activeSceneId === sceneId;
-          const isBusy = props.busySceneId === sceneId;
+  const selectedSceneId = props.selectedSceneId && props.sceneIds.includes(props.selectedSceneId)
+    ? props.selectedSceneId
+    : props.sceneIds[0] ?? "";
 
-          return (
-            <button
-              key={sceneId}
-              type="button"
-              className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] transition-colors ${
-                isActive
-                  ? "border-cyan-300/25 bg-cyan-400/16 text-cyan-100"
-                  : "border-white/8 bg-white/4 text-white/60 hover:bg-white/8 hover:text-white/86"
-              } ${isBusy ? "opacity-70" : ""}`}
-              disabled={isBusy}
-              onClick={() => props.onSwitchScene(sceneId)}
-            >
+  return (
+    <div className="pointer-events-none absolute left-1/2 top-4 z-20 flex -translate-x-1/2 justify-center px-2">
+      <div className="pointer-events-auto flex items-center gap-2 rounded-[18px] border border-white/8 bg-zinc-950/76 px-3 py-2 shadow-[0_20px_60px_rgba(0,0,0,0.34)] backdrop-blur-2xl">
+        <select
+          className="min-w-44 appearance-none rounded-full border border-white/8 bg-white/6 px-3 py-1.5 text-[11px] text-white outline-none transition-colors hover:bg-white/8 disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={props.isLoading}
+          onChange={(event) => props.onSwitchScene(event.target.value)}
+          value={selectedSceneId}
+        >
+          {props.sceneIds.map((sceneId) => (
+            <option key={sceneId} value={sceneId}>
               {sceneId}
-            </button>
-          );
-        })}
+            </option>
+          ))}
+        </select>
+
+        {props.isLoading ? <Loader2 className="size-3.5 animate-spin text-cyan-200" /> : null}
       </div>
     </div>
   );

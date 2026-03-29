@@ -347,6 +347,12 @@ function resolveInitialSceneId(defaultSceneId, allScenes) {
     return defaultSceneId;
   }
 
+  const requestedSceneId = new URLSearchParams(window.location.search).get("whScene");
+
+  if (requestedSceneId && requestedSceneId in allScenes) {
+    return requestedSceneId;
+  }
+
   const pendingSceneId = window.sessionStorage.getItem(${JSON.stringify(`web-hammer:editor-sync:${editorSyncStorageNamespace}:pending-scene`)});
 
   if (pendingSceneId && pendingSceneId in allScenes) {
