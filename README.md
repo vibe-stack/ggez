@@ -1,124 +1,181 @@
-# Trident
+# GGEZ
 
-Trident is a browser-based Source-style level editor built as a Bun monorepo. It is aimed at fast blockouts and quick iteration, with brush tools, mesh editing, material authoring, entity placement, lighting, imports, exports, and optional AI-assisted asset generation.
+GGEZ, pronounced "GG, Easy", is a framework for vibe-coding Three.js games.
 
-The public GitHub Pages build is a static demo of the editor shell. The local development build includes the lightweight Vite API routes used for Fal-powered texture and model generation.
+The shortest description is: GGEZ aims to be a "Next.js for Three.js games". It gives you an opinionated monorepo, runtime packages, editors, an orchestration layer and a path from rough worldbuilding to playable web game prototypes.
 
-## What It Includes
+## Public Alpha
 
-- Brush primitives for cube, cylinder, cone, sphere, stairs, and custom polygon blockouts
-- Prop and model placement, including GLB import
-- Entity and light placement for common gameplay and scene setup tasks
-- Material library editing with texture slots, UV controls, and reusable materials
-- Scene save/load and export flows, including `.whmap`, glTF, and engine export actions
-- A standalone Three.js runtime package for loading structured scene exports in vanilla games
-- Optional AI texture and 3D generation backed by Fal when running locally with a server-side API key
+This is the first public alpha release.
 
-## Project Layout
+Expect rapid iteration, breaking changes, renamed APIs, moved files, and workflow churn until at least beta. If you build on GGEZ today, assume you are building with a fast-moving alpha and plan accordingly.
 
-- `apps/editor`: Vite + React + TypeScript editor application
-- `apps/website`: Vite + React + TypeScript multi-page website for GGEZ docs and onboarding
-- `packages/editor-core`: scene document, command stack, selection, and event bus
+## What GGEZ Is
+
+GGEZ combines several layers that usually live in separate repos or are bundled in one big engine:
+
+- A world editor for building runtime scenes
+- An animation editor for character and graph authoring
+- Runtime packages for loading and playing authored content in Three.js games
+- An orchestrator app that ties the tools and a running game together during development
+- Documentation and starter-oriented package structure for publishing and reuse
+
+## What You Get
+- Codex everywhere: Inside the world editor to build scenes, inside the animation editor to construct animation graphs or edit clips and inside the orchestrator to modify the game directly!
+- Brush and blockout tools for fast world iteration
+- Mesh editing and material authoring
+- Light, entity, prop, and model placement
+- Scene save/load and runtime export workflows
+- Animation graph authoring and clip import/export flows
+- Three.js runtime packages for loading exported scene data in games
+- A local orchestration workflow for switching between tools and a running game
+- Monorepo package publishing support for reusable engine/runtime modules
+
+## Repository Layout
+
+### Apps
+
+- `apps/orchestrator`: main local entrypoint that launches and coordinates the tools
+- `apps/editor`: the world editor, formerly referred to as Trident
+- `apps/animation-editor`: animation authoring tool
+- `apps/website`: docs and onboarding site
+- `apps/three-vanilla-playground`: isolated playground for runtime experimentation
+
+### Packages
+
+- `packages/three-runtime`: runtime scene loading for vanilla Three.js apps
+- `packages/editor-core`: editor document model, commands, selection, and events
 - `packages/geometry-kernel`: brush and mesh operations
-- `packages/render-pipeline`: render-facing scene and viewport contracts
-- `packages/tool-system`: tool registry and tool state machines
-- `packages/shared`: shared types and utilities
-- `packages/three-runtime`: vanilla Three.js loader for runtime scene exports
-- `packages/workers`: worker task contracts and manager code
-- `apps/three-runtime-playground`: minimal Vite + TypeScript app that exercises the runtime loader
+- `packages/render-pipeline`: render-facing derived scene contracts
+- `packages/game-dev`: game-side dev tooling, scene discovery, and editor sync hooks
+- `packages/shared`: shared scene types and runtime-facing data structures
+- `packages/*`: additional runtime, animation, tooling, and publishing packages used by the apps and samples
+
+### Docs
+
+- `docs/`: package and runtime documentation, mostly outdated atm, will fix later sry, just run the app you'll see how it works
 
 ## Requirements
 
 - Bun 1.3 or newer
-- A modern desktop browser
-- A Fal API key if you want the AI generation features locally
+- macOS, Linux, or Windows with a modern browser
+- Node-compatible toolchain support for some ecosystem scripts
+- An npm account if you plan to publish packages
+- A Fal API key only if you want AI-assisted generation features locally
 
-## Install
+## Clone And Install
 
+1. Clone this Repository
+
+2. Run it:
 ```bash
+cd ggez
 bun install
+bun run start
 ```
 
-## Run It Locally
+## Quick Start
 
-Start the editor in development mode:
+The normal way to run GGEZ locally is through the orchestrator:
+
+```bash
+bun run start
+```
+
+That starts the orchestrator in `apps/orchestrator`. From there you can:
+
+- Open the world editor
+- Open the animation editor
+- Start and stop sample or local game projects
+- Switch between tools and the running game during iteration
+
+If the editor preview builds do not exist yet, the orchestrator will build them once before starting their preview servers.
+
+## Running Individual Apps
+
+If you want to work on one app directly instead of using the orchestrator:
 
 ```bash
 bun run dev
+bun run dev:animation-editor
+bun run dev:website
+bun run dev:three-vanilla
 ```
 
-That runs the Vite app in `apps/editor` and includes the local API routes for AI features.
+Those commands map to:
 
-## Build The Static Demo
+- `bun run dev`: world editor dev server
+- `bun run dev:animation-editor`: animation editor dev server
+- `bun run dev:website`: docs site dev server
+- `bun run dev:three-vanilla`: runtime playground dev server
+
+## Common Commands
 
 ```bash
+bun run start
 bun run build
-```
-
-This produces the static site output in `apps/editor/dist`.
-
-## Typecheck
-
-```bash
+bun run build:animation-editor
+bun run build:orchestrator
 bun run typecheck
+bun run typecheck:animation-editor
+bun run typecheck:orchestrator
 ```
 
-Typecheck or build the standalone Three runtime playground:
+## Typical Workflow
 
-```bash
-bun run typecheck:three-runtime
-bun run build:three-runtime
-```
+### Building a world
 
-## How To Use Trident
+1. Start the orchestrator with `bun run start`.
+2. Open the world editor.
+3. Block out geometry, materials, lights, entities, and models.
+4. Push or export the scene into a running game.
+5. Switch to the game view and iterate.
 
-When the editor opens, you can start blocking out a space immediately:
+### Building animation content
 
-1. Use the creation toolbar to place brush shapes, props, lights, and entities.
-2. Select objects in the viewport and use the inspector and material panels to adjust transforms, materials, UVs, and other properties.
-3. Save your scene as `.whmap`, or export it as glTF or through the engine export action from the File menu.
+1. Open the animation editor.
+2. Import a character and animation clips.
+3. Build graphs and preview motion.
+4. Push animation bundles into a running game.
 
-The editor is designed around fast iteration, so most of the workflow is direct manipulation in the viewport with supporting controls in the floating panels and sidebars.
+### Building a game
 
-## Runtime Import Workflow
-
-- Use `.whmap` for editor-native save/load and round-tripping.
-- Use `Export Runtime Bundle` when you want to ship a map to a vanilla Three.js game.
-- The bundle contains a small `scene.runtime.json` manifest plus external asset files under `assets/`, instead of stuffing textures into one giant JSON blob.
-- Load the manifest with `@ggez/three-runtime`, which rebuilds geometry, materials, lights, model assets, and preserves node physics metadata for your game code.
-- Runtime package docs and code examples live in `packages/three-runtime/README.md`.
-- For large web worlds, do not export one giant scene and preload it all. Export streamable level chunks and load/unload runtime bundles on demand.
-- If you need shared heavy assets across many chunks, keep them external and let chunk manifests reference them instead of copying them into every bundle.
-
-The playground app in `apps/three-runtime-playground` demonstrates that workflow outside the editor.
+1. Use one of the sample projects as a reference or start from your own workspace package/app setup.
+2. Keep your runtime scenes under `src/scenes/<scene-id>/`.
+3. Let `@ggez/game-dev` discover scenes and wire editor-sync behavior during development.
+4. Load exported runtime bundles with the runtime packages in your game code.
 
 ## Environment Variables
 
-Trident only requires an environment variable if you want AI model or texture generation.
+The repo does not require environment variables for normal local use.
 
-Create `apps/editor/.env.local` with:
+If you want AI generation features in the world editor, create `apps/editor/.env.local`:
 
 ```bash
 FAL_KEY=your_fal_api_key_here
 ```
 
-`FAL_KEY` is read on the server side by the Vite dev server plugins in `apps/editor/server`. It is not needed for the static GitHub Pages demo.
+That key is used only by the local editor server routes and is not required for core editing, animation tooling, runtime work, or the orchestrator.
 
-## How To Get A Fal API Key
+## Documentation
 
-1. Create an account or sign in at Fal.
-2. Open the dashboard and go to the API keys section.
-3. Create a new key.
-4. Copy the key into `apps/editor/.env.local` as `FAL_KEY=...`.
+- Runtime and package docs live in `docs/`
+- Additional package-specific notes live in the relevant `packages/*/README.md` files
 
-If you only want to try the public demo on GitHub Pages, you can skip this entirely. The demo is intentionally static, so the AI generation routes are not deployed there.
+## Current Status
 
-## GitHub Pages Deployment
+GGEZ is usable, but it is still early.
 
-This repository includes a GitHub Actions workflow that builds `apps/website` as a static site and deploys it to GitHub Pages.
+You should expect:
 
-The workflow lives at `.github/workflows/deploy-pages.yml` and assumes the site is hosted from the repository path, so the Vite base path is set automatically for Pages builds.
+- Breaking API changes
+- Tooling and naming cleanup
+- Package splits and reorganizations
+- Editor workflow changes
+- Release process changes while the project stabilizes
+
+If you want the newest ideas and are comfortable moving with the repo, alpha is the right time to get in.
 
 ## License
 
-MIT. See the `LICENSE` file for details.
+MIT. See `LICENSE` for details.
