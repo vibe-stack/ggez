@@ -1,6 +1,6 @@
 {
   "name": "@ggez/editor-core",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Scene document, command stack, selection, and event bus primitives for Web Hammer editors.",
   "license": "MIT",
   "type": "module",
