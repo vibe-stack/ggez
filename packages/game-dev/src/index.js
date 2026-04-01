@@ -226,7 +226,7 @@ async function createSceneRegistryModule(options) {
   const editorSyncStorageNamespace = createEditorSyncStorageNamespace(options.projectRoot);
 
   return `
-import { createColocatedRuntimeSceneSource, defineGameScene } from ${JSON.stringify("/src/game/runtime-scene-sources.ts")};
+import { createColocatedRuntimeSceneSource, defineGameScene } from ${JSON.stringify("/src/game/loaders/scene-sources.ts")};
 
 ${importLines.join("\n")}
 
@@ -402,7 +402,7 @@ async function createAnimationRegistryModule(options) {
   const animationRootPattern = `/${normalizePath(options.animationRoot)}/*`;
 
   return `
-import { createColocatedRuntimeAnimationSource, defineGameAnimationBundle } from ${JSON.stringify("/src/game/runtime-animation-sources.ts")};
+import { createColocatedRuntimeAnimationSource, defineGameAnimationBundle } from ${JSON.stringify("/src/game/loaders/animation-sources.ts")};
 
 ${importLines.join("\n")}
 
