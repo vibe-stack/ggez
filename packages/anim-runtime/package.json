@@ -1,6 +1,6 @@
 {
   "name": "@ggez/anim-runtime",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Animator runtime evaluator for compiled ggez animation graphs.",
   "license": "MIT",
   "type": "module",

@@ -1,6 +1,6 @@
 {
   "name": "@ggez/workers",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Worker task contracts and managers for Web Hammer export and processing flows.",
   "license": "MIT",
   "type": "module",

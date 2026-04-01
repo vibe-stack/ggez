@@ -1,6 +1,6 @@
 {
   "name": "@ggez/anim-compiler",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Compiler pipeline from editor documents to compiled runtime animation graphs.",
   "license": "MIT",
   "type": "module",

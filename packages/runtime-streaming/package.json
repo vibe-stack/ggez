@@ -1,6 +1,6 @@
 {
   "name": "@ggez/runtime-streaming",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Chunk and world streaming helpers for Web Hammer runtime content.",
   "license": "MIT",
   "type": "module",

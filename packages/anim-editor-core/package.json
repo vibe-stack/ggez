@@ -1,6 +1,6 @@
 {
   "name": "@ggez/anim-editor-core",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "React-independent animation graph editor domain logic and state store.",
   "license": "MIT",
   "type": "module",

@@ -1,6 +1,6 @@
 {
   "name": "create-ggez",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Bootstrap GGEZ apps with an interactive framework-style CLI.",
   "license": "MIT",
   "type": "module",
