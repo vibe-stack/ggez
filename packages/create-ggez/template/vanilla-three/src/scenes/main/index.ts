@@ -1,7 +1,7 @@
 import {
   createColocatedRuntimeSceneSource,
   defineGameScene
-} from "../../game/runtime-scene-sources";
+} from "../../game/loaders/scene-sources";
 
 const assetUrlLoaders = import.meta.glob("./assets/**/*", {
   import: "default",

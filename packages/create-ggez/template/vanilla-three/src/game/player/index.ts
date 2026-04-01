@@ -1,0 +1,1 @@
+export { StarterPlayerController } from "./controller";

@@ -33,3 +33,23 @@ canvas {
   width: 100vw;
   height: 100vh;
 }
+
+.game-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.9rem;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  background: rgba(5, 7, 10, 0.55);
+  backdrop-filter: blur(4px);
+  transition: opacity 0.15s ease;
+  z-index: 10;
+}
+
+.game-status[hidden] {
+  display: none;
+}
