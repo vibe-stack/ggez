@@ -40,6 +40,9 @@ export const quatSchema = z.object({
   w: z.number()
 });
 
+const vec3TupleSchema = z.tuple([z.number(), z.number(), z.number()]);
+const quat4TupleSchema = z.tuple([z.number(), z.number(), z.number(), z.number()]);
+
 export const parameterDefinitionSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -382,6 +385,32 @@ export const animationBundleClipSchema = z.object({
   asset: z.string().min(1).optional()
 });
 
+export const animationBundleEquipmentTransformSchema = z.object({
+  position: vec3TupleSchema,
+  rotation: quat4TupleSchema,
+  scale: vec3TupleSchema
+});
+
+export const animationBundleEquipmentSocketSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  boneName: z.string().min(1)
+});
+
+export const animationBundleEquipmentItemSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  socketId: z.string().min(1).nullable(),
+  enabled: z.boolean(),
+  transform: animationBundleEquipmentTransformSchema,
+  asset: z.string().min(1).optional()
+});
+
+export const animationBundleEquipmentSchema = z.object({
+  sockets: z.array(animationBundleEquipmentSocketSchema).default([]),
+  items: z.array(animationBundleEquipmentItemSchema).default([])
+});
+
 export const animationBundleSchema = z.object({
   format: z.literal(ANIMATION_BUNDLE_FORMAT),
   version: z.literal(ANIMATION_BUNDLE_VERSION),
@@ -389,7 +418,8 @@ export const animationBundleSchema = z.object({
   artifact: z.string().min(1),
   characterAsset: z.string().min(1).optional(),
   clips: z.array(animationBundleClipSchema).default([]),
-  clipAssets: z.record(z.string().min(1)).default({})
+  clipAssets: z.record(z.string().min(1)).default({}),
+  equipment: animationBundleEquipmentSchema.optional()
 });
 
 export type AnimationParameterType = z.infer<typeof animationParameterTypeSchema>;
@@ -421,6 +451,10 @@ export type CompiledParameter = z.infer<typeof compiledParameterSchema>;
 export type CompiledAnimatorGraph = z.infer<typeof compiledAnimatorGraphSchema>;
 export type AnimationArtifact = z.infer<typeof animationArtifactSchema>;
 export type AnimationBundleClip = z.infer<typeof animationBundleClipSchema>;
+export type AnimationBundleEquipmentTransform = z.infer<typeof animationBundleEquipmentTransformSchema>;
+export type AnimationBundleEquipmentSocket = z.infer<typeof animationBundleEquipmentSocketSchema>;
+export type AnimationBundleEquipmentItem = z.infer<typeof animationBundleEquipmentItemSchema>;
+export type AnimationBundleEquipment = z.infer<typeof animationBundleEquipmentSchema>;
 export type AnimationBundle = z.infer<typeof animationBundleSchema>;
 
 export function parseAnimationEditorDocument(input: unknown): AnimationEditorDocument {

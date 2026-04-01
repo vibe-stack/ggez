@@ -65,12 +65,16 @@ export function useProjectOperations(
     setProjectSlugDirty(Boolean(metadata.projectSlugDirty));
   }, [store]);
 
-  const createProjectArchive = useCallback(async () => {
-    const editorDocument = synchronizeAnimationDocument(store.getState().document, assets.importedClips);
-    const equipmentFiles = [...equipment.filesRef.current.entries()].map(([id, file]) => ({
+  const getRuntimeEquipmentFiles = useCallback(() => (
+    [...equipment.filesRef.current.entries()].map(([id, file]) => ({
       id,
       file,
-    }));
+    }))
+  ), [equipment]);
+
+  const createProjectArchive = useCallback(async () => {
+    const editorDocument = synchronizeAnimationDocument(store.getState().document, assets.importedClips);
+    const equipmentFiles = getRuntimeEquipmentFiles();
 
     return createProjectBundleArchive({
       document: editorDocument,
@@ -79,7 +83,7 @@ export function useProjectOperations(
       equipmentBundle: equipment.getBundle(),
       equipmentFiles,
     });
-  }, [assets.characterSourceFile, assets.importedClips, equipment, store]);
+  }, [assets.characterSourceFile, assets.importedClips, equipment, getRuntimeEquipmentFiles, store]);
 
   const handleProjectNameChange = useCallback((value: string) => {
     const previousAutoSlug = slugifyProjectName(projectName);
@@ -168,6 +172,8 @@ export function useProjectOperations(
       assets.setAssetStatus("Exporting runtime bundle...");
       const result = await createRuntimeBundleZip({
         characterFile: assets.characterSourceFile,
+        equipmentBundle: equipment.getBundle(),
+        equipmentFiles: getRuntimeEquipmentFiles(),
         importedClips: assets.importedClips,
         sourceDocument: store.getState().document,
       });
@@ -187,7 +193,7 @@ export function useProjectOperations(
       assets.setAssetError(message);
       assets.setAssetStatus("Runtime bundle export failed.");
     }
-  }, [assets, store]);
+  }, [assets, equipment, getRuntimeEquipmentFiles, store]);
 
   const handlePushAnimationToGame = useCallback(async (options?: { gameId?: string; projectName?: string; projectSlug?: string }) => {
     const nextProjectName = options?.projectName?.trim() || resolvedProjectName;
@@ -213,6 +219,8 @@ export function useProjectOperations(
       assets.setAssetStatus(`Pushing animation bundle to ${gameConnection.activeGame?.name ?? "connected game"}...`);
       const bundle = await createRuntimeBundleSyncResult({
         characterFile: assets.characterSourceFile,
+        equipmentBundle: equipment.getBundle(),
+        equipmentFiles: getRuntimeEquipmentFiles(),
         folderName: nextProjectSlug,
         importedClips: assets.importedClips,
         sourceDocument: store.getState().document,
@@ -233,7 +241,7 @@ export function useProjectOperations(
       assets.setAssetStatus("Animation sync failed.");
       throw error;
     }
-  }, [assets, gameConnection, resolvedProjectName, resolvedProjectSlug, store]);
+  }, [assets, equipment, gameConnection, getRuntimeEquipmentFiles, resolvedProjectName, resolvedProjectSlug, store]);
 
   const handleProjectLoad = useCallback(async (event: React.ChangeEvent<HTMLInputElement>, a: AssetState) => {
     const file = event.target.files?.[0];

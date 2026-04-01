@@ -1,6 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import type { CompiledAnimatorGraph } from "@ggez/anim-schema";
-import { createAnimationArtifact, parseAnimationArtifactJson, serializeAnimationArtifact } from "./exporter";
+import {
+  createAnimationArtifact,
+  createAnimationBundle,
+  parseAnimationArtifactJson,
+  parseAnimationBundleJson,
+  serializeAnimationArtifact,
+  serializeAnimationBundle
+} from "./exporter";
 
 describe("@ggez/anim-exporter", () => {
   it("preserves transition blend settings in serialized artifacts", () => {
@@ -69,6 +76,49 @@ describe("@ggez/anim-exporter", () => {
       blendCurve: "ease-out",
       syncNormalizedTime: true,
       interruptionSource: "current"
+    });
+  });
+
+  it("preserves optional equipment metadata in serialized bundles", () => {
+    const bundle = createAnimationBundle({
+      name: "Equipment Bundle",
+      equipment: {
+        sockets: [{ id: "hand", name: "Hand", boneName: "Hand.R" }],
+        items: [
+          {
+            id: "sword",
+            name: "Sword",
+            socketId: "hand",
+            enabled: true,
+            transform: {
+              position: [0, 0, 0],
+              rotation: [0, 0, 0, 1],
+              scale: [1, 1, 1]
+            },
+            asset: "./assets/sword.glb"
+          }
+        ]
+      }
+    });
+
+    const parsed = parseAnimationBundleJson(serializeAnimationBundle(bundle));
+
+    expect(parsed.equipment).toEqual({
+      sockets: [{ id: "hand", name: "Hand", boneName: "Hand.R" }],
+      items: [
+        {
+          id: "sword",
+          name: "Sword",
+          socketId: "hand",
+          enabled: true,
+          transform: {
+            position: [0, 0, 0],
+            rotation: [0, 0, 0, 1],
+            scale: [1, 1, 1]
+          },
+          asset: "./assets/sword.glb"
+        }
+      ]
     });
   });
 });

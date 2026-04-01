@@ -83,6 +83,55 @@ function createImportedClip(): ImportedPreviewClip {
 }
 
 describe("runtime bundle export", () => {
+  it("includes exported equipment manifests and GLBs in runtime bundles", async () => {
+    const equipmentBytes = new Uint8Array([5, 6, 7, 8]);
+    const result = await createRuntimeBundleSyncResult({
+      characterFile: null,
+      equipmentBundle: {
+        sockets: [{ id: "hand", name: "Hand", boneName: "Hand.R" }],
+        items: [
+          {
+            id: "sword",
+            name: "Sword",
+            socketId: "hand",
+            enabled: true,
+            transform: {
+              position: [1, 2, 3],
+              rotation: [0, 0, 0, 1],
+              scale: [1, 1, 1]
+            }
+          }
+        ]
+      },
+      equipmentFiles: [
+        {
+          id: "sword",
+          file: new File([equipmentBytes], "sword.glb", { type: "model/gltf-binary" })
+        }
+      ],
+      folderName: "player-locomotion",
+      importedClips: [createImportedClip()],
+      sourceDocument: createDocument(),
+      title: "Player Locomotion"
+    });
+
+    const manifestFile = result.files.find((file) => file.path === "animation.bundle.json");
+    const equipmentFile = result.files.find((file) => file.path === "assets/equipment-sword-sword.glb");
+    const manifest = JSON.parse(new TextDecoder().decode(Uint8Array.from(manifestFile?.bytes ?? []))) as {
+      equipment?: {
+        sockets: Array<{ boneName: string }>;
+        items: Array<{ asset?: string; socketId: string | null; transform: { position: [number, number, number] } }>;
+      };
+    };
+
+    expect(manifest.equipment?.sockets[0]?.boneName).toEqual("Hand.R");
+    expect(manifest.equipment?.items[0]?.socketId).toEqual("hand");
+    expect(manifest.equipment?.items[0]?.asset).toEqual("./assets/equipment-sword-sword.glb");
+    expect(manifest.equipment?.items[0]?.transform.position).toEqual([1, 2, 3]);
+    expect(equipmentFile?.mimeType).toEqual("model/gltf-binary");
+    expect(equipmentFile?.bytes).toEqual(Array.from(equipmentBytes));
+  });
+
   it("writes an index.ts entry module for sync/export bundles", async () => {
     const result = await createRuntimeBundleSyncResult({
       characterFile: null,
@@ -106,6 +155,10 @@ describe("runtime bundle export", () => {
   it("packs the generated index.ts into the runtime zip", async () => {
     const result = await createRuntimeBundleZip({
       characterFile: null,
+      equipmentBundle: {
+        sockets: [],
+        items: []
+      },
       importedClips: [createImportedClip()],
       sourceDocument: createDocument()
     });

@@ -10,6 +10,7 @@ import {
   type AnimationArtifact,
   type AnimationBundle,
   type AnimationBundleClip,
+  type AnimationBundleEquipment,
   type CompiledAnimatorGraph,
   type SerializableClip,
   type SerializableRig
@@ -71,6 +72,7 @@ export function createAnimationBundle(input: {
   artifactPath?: string;
   characterAssetPath?: string;
   clips?: AnimationBundleClip[];
+  equipment?: AnimationBundleEquipment;
 }): AnimationBundle {
   const clipAssets: Record<string, string> = {};
 
@@ -93,7 +95,8 @@ export function createAnimationBundle(input: {
     artifact: input.artifactPath ?? "./graph.animation.json",
     characterAsset: input.characterAssetPath,
     clips: input.clips ?? [],
-    clipAssets
+    clipAssets,
+    equipment: input.equipment ? structuredClone(input.equipment) : undefined
   };
 }
 

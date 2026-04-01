@@ -222,6 +222,12 @@ function createRuntimeAnimationBundle(input: {
     }
   });
 
+  input.manifest.equipment?.items.forEach((item) => {
+    if (item.asset) {
+      externalAssetUrls.add(resolveRuntimeAssetPath(item.asset, input.resolveAssetUrl));
+    }
+  });
+
   return {
     artifact: input.artifact,
     manifest: input.manifest,
@@ -333,6 +339,16 @@ function rewriteRuntimeAnimationBundleAssetUrls(
 
   if (rewritten.characterAsset) {
     rewritten.characterAsset = resolveRuntimeAssetPath(rewritten.characterAsset, resolveAssetUrl);
+  }
+
+  if (rewritten.equipment) {
+    rewritten.equipment = {
+      ...rewritten.equipment,
+      items: rewritten.equipment.items.map((item) => ({
+        ...item,
+        asset: item.asset ? resolveRuntimeAssetPath(item.asset, resolveAssetUrl) : undefined
+      }))
+    };
   }
 
   return rewritten;
