@@ -246,7 +246,10 @@ function rotateVectorByQuaternion(
   ];
 }
 
-function computeWorldPosition(rigDefinition: typeof orientationWarpRig, pose: { translations: Float32Array; rotations: Float32Array }, boneIndex: number): [number, number, number] {
+function computeWorldTransforms(rigDefinition: typeof orientationWarpRig, pose: { translations: Float32Array; rotations: Float32Array }): {
+  translations: Float32Array;
+  rotations: Float32Array;
+} {
   const worldTranslations = new Float32Array(rigDefinition.boneNames.length * 3);
   const worldRotations = new Float32Array(rigDefinition.boneNames.length * 4);
 
@@ -296,11 +299,34 @@ function computeWorldPosition(rigDefinition: typeof orientationWarpRig, pose: { 
     worldRotations[rotationOffset + 3] = aw * bw - ax * bx - ay * by - az * bz;
   }
 
+  return {
+    translations: worldTranslations,
+    rotations: worldRotations
+  };
+}
+
+function computeWorldPosition(rigDefinition: typeof orientationWarpRig, pose: { translations: Float32Array; rotations: Float32Array }, boneIndex: number): [number, number, number] {
+  const world = computeWorldTransforms(rigDefinition, pose);
   return [
-    worldTranslations[boneIndex * 3]!,
-    worldTranslations[boneIndex * 3 + 1]!,
-    worldTranslations[boneIndex * 3 + 2]!
+    world.translations[boneIndex * 3]!,
+    world.translations[boneIndex * 3 + 1]!,
+    world.translations[boneIndex * 3 + 2]!
   ];
+}
+
+function computeWorldForwardYaw(rigDefinition: typeof orientationWarpRig, pose: { translations: Float32Array; rotations: Float32Array }, boneIndex: number): number {
+  const world = computeWorldTransforms(rigDefinition, pose);
+  const rotationOffset = boneIndex * 4;
+  const forward = rotateVectorByQuaternion(
+    0,
+    0,
+    1,
+    world.rotations[rotationOffset]!,
+    world.rotations[rotationOffset + 1]!,
+    world.rotations[rotationOffset + 2]!,
+    world.rotations[rotationOffset + 3]!
+  );
+  return Math.atan2(forward[0], forward[2]);
 }
 
 function distanceBetween(a: [number, number, number], b: [number, number, number]): number {
@@ -759,6 +785,62 @@ describe("@ggez/anim-runtime", () => {
     expect(Math.abs(withLegsResult.pose.rotations[5])).toBeGreaterThan(0.2);
     expect(distanceBetween(withLeftFoot, baseLeftFoot)).toBeLessThan(distanceBetween(withoutLeftFoot, baseLeftFoot));
     expect(distanceBetween(withRightFoot, baseRightFoot)).toBeLessThan(distanceBetween(withoutRightFoot, baseRightFoot));
+  });
+
+  it("rotates the lower body without twisting the torso when leg chains are configured", () => {
+    const graph: CompiledAnimatorGraph = {
+      version: 1,
+      name: "Orientation Warp Lower Body",
+      parameters: [{ name: "headingOffset", type: "float", defaultValue: 0 }],
+      clipSlots: [{ id: "orientation-base", name: "Orientation Base", duration: 1 }],
+      masks: [],
+      graphs: [
+        {
+          name: "Main",
+          rootNodeIndex: 1,
+          nodes: [
+            { type: "clip", clipIndex: 0, speed: 1, loop: true, inPlace: false },
+            {
+              type: "orientationWarp",
+              sourceNodeIndex: 0,
+              parameterIndex: 0,
+              maxAngle: Math.PI / 2,
+              weight: 1,
+              hipBoneIndex: 1,
+              hipWeight: 0.45,
+              spineBoneIndices: [2],
+              legs: [
+                { upperBoneIndex: 3, lowerBoneIndex: 4, footBoneIndex: 5, weight: 1 },
+                { upperBoneIndex: 6, lowerBoneIndex: 7, footBoneIndex: 8, weight: 1 }
+              ]
+            }
+          ]
+        }
+      ],
+      layers: [
+        {
+          name: "Base",
+          graphIndex: 0,
+          weight: 1,
+          blendMode: "override",
+          rootMotionMode: "none",
+          enabled: true
+        }
+      ],
+      entryGraphIndex: 0
+    };
+
+    const animator = createAnimatorInstance({
+      rig: orientationWarpRig,
+      graph,
+      clips: [orientationWarpClip]
+    });
+    animator.setFloat("headingOffset", Math.PI / 2);
+    const result = animator.update(0.1);
+
+    expect(Math.abs(computeWorldForwardYaw(orientationWarpRig, result.pose, 2))).toBeLessThan(0.1);
+    expect(Math.abs(computeWorldForwardYaw(orientationWarpRig, result.pose, 3))).toBeGreaterThan(1.2);
+    expect(Math.abs(computeWorldForwardYaw(orientationWarpRig, result.pose, 6))).toBeGreaterThan(1.2);
   });
 
   it("syncs node playback across layers with sync groups", () => {

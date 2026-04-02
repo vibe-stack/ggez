@@ -454,6 +454,48 @@ function getWorldRotation(world: WorldPose, boneIndex: number): [number, number,
   ];
 }
 
+function applyWorldYawRotation(
+  pose: PoseBuffer,
+  rig: RigDefinition,
+  boneIndex: number,
+  angle: number
+): void {
+  if (Math.abs(angle) < 1e-5) {
+    return;
+  }
+
+  const world = computeWorldPose(rig, pose);
+  const currentWorldRotation = getWorldRotation(world, boneIndex);
+  const yawRotation = quaternionFromAxisAngleY(angle);
+  const desiredWorldRotation = multiplyQuaternion(
+    yawRotation[0],
+    yawRotation[1],
+    yawRotation[2],
+    yawRotation[3],
+    currentWorldRotation[0],
+    currentWorldRotation[1],
+    currentWorldRotation[2],
+    currentWorldRotation[3]
+  );
+  setBoneWorldRotation(pose, rig, boneIndex, world, desiredWorldRotation);
+}
+
+function getUniqueBoneIndices(boneIndices: number[], excludedBoneIndex?: number): number[] {
+  const seen = new Set<number>();
+  const unique: number[] = [];
+
+  boneIndices.forEach((boneIndex) => {
+    if (boneIndex === excludedBoneIndex || seen.has(boneIndex)) {
+      return;
+    }
+
+    seen.add(boneIndex);
+    unique.push(boneIndex);
+  });
+
+  return unique;
+}
+
 function computeChainPlaneNormal(
   upper: [number, number, number],
   lower: [number, number, number],
@@ -655,47 +697,40 @@ function applyOrientationWarp(
     return;
   }
 
-  const distributedRotations: { boneIndex: number; angle: number }[] = [];
-  const usedBoneIndices = new Set<number>();
-  const hipWeight = node.hipBoneIndex !== undefined ? node.hipWeight : 0;
-  if (node.hipBoneIndex !== undefined && hipWeight > 1e-5) {
-    distributedRotations.push({
-      boneIndex: node.hipBoneIndex,
-      angle: angle * hipWeight
-    });
-    usedBoneIndices.add(node.hipBoneIndex);
-  }
+  const spineBoneIndices = getUniqueBoneIndices(node.spineBoneIndices, node.hipBoneIndex);
+  const legUpperBoneIndices = getUniqueBoneIndices(
+    node.legs.map((leg) => leg.upperBoneIndex),
+    node.hipBoneIndex
+  );
 
-  const remainingWeight = Math.max(0, 1 - hipWeight);
-  const spineWeight = node.spineBoneIndices.length > 0 ? remainingWeight / node.spineBoneIndices.length : 0;
-  node.spineBoneIndices.forEach((boneIndex) => {
-    if (usedBoneIndices.has(boneIndex) || Math.abs(spineWeight) < 1e-5) {
-      return;
+  if (node.legs.length > 0) {
+    const hipAngle = node.hipBoneIndex !== undefined ? angle * clamp(node.hipWeight, 0, 1) : 0;
+    if (node.hipBoneIndex !== undefined) {
+      applyWorldYawRotation(outPose, context.rig, node.hipBoneIndex, hipAngle);
     }
 
-    distributedRotations.push({
-      boneIndex,
-      angle: angle * spineWeight
+    const directLegAngle = angle - hipAngle;
+    legUpperBoneIndices.forEach((boneIndex) => {
+      applyWorldYawRotation(outPose, context.rig, boneIndex, directLegAngle);
     });
-    usedBoneIndices.add(boneIndex);
-  });
 
-  distributedRotations.forEach((entry) => {
-    const world = computeWorldPose(context.rig, outPose);
-    const currentWorldRotation = getWorldRotation(world, entry.boneIndex);
-    const yawRotation = quaternionFromAxisAngleY(entry.angle);
-    const desiredWorldRotation = multiplyQuaternion(
-      yawRotation[0],
-      yawRotation[1],
-      yawRotation[2],
-      yawRotation[3],
-      currentWorldRotation[0],
-      currentWorldRotation[1],
-      currentWorldRotation[2],
-      currentWorldRotation[3]
-    );
-    setBoneWorldRotation(outPose, context.rig, entry.boneIndex, world, desiredWorldRotation);
-  });
+    const spineCompensationAngle = spineBoneIndices.length > 0 ? -hipAngle / spineBoneIndices.length : 0;
+    spineBoneIndices.forEach((boneIndex) => {
+      applyWorldYawRotation(outPose, context.rig, boneIndex, spineCompensationAngle);
+    });
+  } else if (node.hipBoneIndex !== undefined) {
+    applyWorldYawRotation(outPose, context.rig, node.hipBoneIndex, angle);
+
+    const spineCompensationAngle = spineBoneIndices.length > 0 ? -angle / spineBoneIndices.length : 0;
+    spineBoneIndices.forEach((boneIndex) => {
+      applyWorldYawRotation(outPose, context.rig, boneIndex, spineCompensationAngle);
+    });
+  } else {
+    const spineAngle = spineBoneIndices.length > 0 ? angle / spineBoneIndices.length : 0;
+    spineBoneIndices.forEach((boneIndex) => {
+      applyWorldYawRotation(outPose, context.rig, boneIndex, spineAngle);
+    });
+  }
 
   if (node.legs.length === 0) {
     return;
