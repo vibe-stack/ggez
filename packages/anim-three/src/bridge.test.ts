@@ -81,6 +81,31 @@ describe("@ggez/anim-three", () => {
     expect(root.matrixWorld.equals(new Matrix4())).toBe(false);
   });
 
+  it("applies canonical pose buffers through helper nodes without collapsing the rig", () => {
+    const root = new Bone();
+    root.name = "root";
+    const helper = new Object3D();
+    helper.position.set(0, 10, 0);
+    const child = new Bone();
+    child.name = "child";
+    child.position.set(0, 5, 0);
+    root.add(helper);
+    helper.add(child);
+
+    const skeleton = new Skeleton([root, child]);
+    root.updateMatrixWorld(true);
+    skeleton.calculateInverses();
+
+    const rig = createRigFromSkeleton(skeleton);
+    const pose = createPoseBufferFromRig(rig);
+
+    applyPoseBufferToSkeleton(pose, skeleton);
+    root.updateMatrixWorld(true);
+
+    expect(child.position.toArray().map((value) => Number(value.toFixed(3)))).toEqual([0, 5, 0]);
+    expect(child.getWorldPosition(new Vector3()).toArray().map((value) => Number(value.toFixed(3)))).toEqual([0, 15, 0]);
+  });
+
   it("derives bind pose from bone inverses instead of the current animated pose", () => {
     const root = new Bone();
     root.name = "root";

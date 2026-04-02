@@ -15,8 +15,8 @@ import {
   useNodesState,
 } from "@xyflow/react";
 import type { EditorGraphNode } from "@ggez/anim-schema";
-import { Boxes, Film, Layers3, SlidersHorizontal, Workflow } from "lucide-react";
-import type { MouseEvent as ReactMouseEvent } from "react";
+import { Boxes, Film, Layers3, RotateCcw, SlidersHorizontal, Workflow } from "lucide-react";
+import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
@@ -25,11 +25,21 @@ const NODE_ACTIONS = [
   { kind: "clip", label: "Clip Node", icon: Film },
   { kind: "blend1d", label: "Blend 1D", icon: SlidersHorizontal },
   { kind: "blend2d", label: "Blend 2D", icon: Boxes },
+  { kind: "selector", label: "Selector", icon: SlidersHorizontal },
+  { kind: "orientationWarp", label: "Orientation Warp", icon: RotateCcw },
   { kind: "stateMachine", label: "State Machine", icon: Workflow },
   { kind: "subgraph", label: "Subgraph", icon: Layers3 },
 ] as const;
 
-type NodeActionKind = (typeof NODE_ACTIONS)[number]["kind"];
+export type NodeActionKind = (typeof NODE_ACTIONS)[number]["kind"];
+
+type CanvasNodeData = {
+  isVirtual?: boolean;
+  kind?: EditorGraphNode["kind"];
+  name?: string;
+  summary?: string;
+  label: ReactNode;
+};
 
 function areStringArraysEqual(left: string[], right: string[]): boolean {
   if (left.length !== right.length) {
@@ -50,9 +60,13 @@ function areCanvasNodesEqual(left: FlowNode[], right: FlowNode[]): boolean {
       candidate &&
       node.id === candidate.id &&
       node.selected === candidate.selected &&
+      node.draggable === candidate.draggable &&
+      node.selectable === candidate.selectable &&
       node.className === candidate.className &&
-      (node.data as { kind?: string; name?: string }).kind === (candidate.data as { kind?: string; name?: string }).kind &&
-      (node.data as { kind?: string; name?: string }).name === (candidate.data as { kind?: string; name?: string }).name &&
+      (node.data as CanvasNodeData).kind === (candidate.data as CanvasNodeData).kind &&
+      (node.data as CanvasNodeData).name === (candidate.data as CanvasNodeData).name &&
+      (node.data as CanvasNodeData).summary === (candidate.data as CanvasNodeData).summary &&
+      Boolean((node.data as CanvasNodeData).isVirtual) === Boolean((candidate.data as CanvasNodeData).isVirtual) &&
       node.position.x === candidate.position.x &&
       node.position.y === candidate.position.y
     );
@@ -77,7 +91,30 @@ function areCanvasEdgesEqual(left: Edge[], right: Edge[]): boolean {
   });
 }
 
-function toCanvasNode(node: EditorGraphNode, selected = false) {
+function getNodeSummary(node: EditorGraphNode, graphNamesById?: Record<string, string>): string | undefined {
+  switch (node.kind) {
+    case "blend1d":
+      return `${node.children.length} input${node.children.length === 1 ? "" : "s"}`;
+    case "blend2d":
+      return `${node.children.length} input${node.children.length === 1 ? "" : "s"}`;
+    case "selector":
+      return `${node.children.length} option${node.children.length === 1 ? "" : "s"}`;
+    case "orientationWarp":
+      return `${node.spineBoneNames.length} spine / ${node.legs.length} leg${node.legs.length === 1 ? "" : "s"}`;
+    case "stateMachine":
+      return `${node.states.length} state${node.states.length === 1 ? "" : "s"}`;
+    case "subgraph": {
+      const graphName = graphNamesById?.[node.graphId];
+      return graphName ? `opens ${graphName}` : "unassigned graph";
+    }
+    default:
+      return undefined;
+  }
+}
+
+function toCanvasNode(node: EditorGraphNode, selected = false, graphNamesById?: Record<string, string>) {
+  const summary = getNodeSummary(node, graphNamesById);
+
   return {
     id: node.id,
     position: node.position,
@@ -88,17 +125,19 @@ function toCanvasNode(node: EditorGraphNode, selected = false) {
     data: {
       kind: node.kind,
       name: node.name,
+      summary,
       label: (
         <div className="pointer-events-none flex flex-col gap-1">
           <span className="text-[10px] font-medium text-emerald-300/70">{node.kind}</span>
           <span className="text-sm font-medium text-zinc-100">{node.name}</span>
+          {summary ? <span className="text-[11px] text-zinc-400">{summary}</span> : null}
         </div>
       ),
     },
   };
 }
 
-type CanvasNode = ReturnType<typeof toCanvasNode>;
+type CanvasNode = FlowNode<CanvasNodeData>;
 
 function buildCanvasEdges(
   nodes: EditorGraphNode[],
@@ -129,6 +168,25 @@ function buildCanvasEdges(
         });
       });
     }
+
+    if (node.kind === "selector") {
+      node.children.forEach((child) => {
+        edges.push({
+          id: `${child.nodeId}->${node.id}`,
+          source: child.nodeId,
+          target: node.id,
+          label: child.value.toString(),
+        });
+      });
+    }
+
+    if (node.kind === "orientationWarp" && node.sourceNodeId) {
+      edges.push({
+        id: `${node.sourceNodeId}->${node.id}`,
+        source: node.sourceNodeId,
+        target: node.id,
+      });
+    }
   });
 
   const deduped = new Map<string, Edge>();
@@ -152,9 +210,13 @@ function buildCanvasEdges(
 export function GraphCanvas(props: {
   graph: { id: string; name: string; nodes: EditorGraphNode[]; edges: { id: string; sourceNodeId: string; targetNodeId: string }[] };
   selectedNodeIds: string[];
+  graphNamesById?: Record<string, string>;
+  syntheticNodes?: CanvasNode[];
+  syntheticEdges?: Edge[];
   onConnect: (connection: Connection) => void;
   onSelectionChange: (nodeIds: string[]) => void;
   onOpenStateMachine?: (nodeId: string) => void;
+  onOpenSubgraph?: (nodeId: string) => void;
   onNodeDragStop: (nodeId: string, position: { x: number; y: number }) => void;
   onAddNode: (kind: NodeActionKind, position: { x: number; y: number }) => void;
   onDeleteNodes: () => void;
@@ -170,13 +232,16 @@ export function GraphCanvas(props: {
   const [selectedEdgeIds, setSelectedEdgeIds] = useState<string[]>([]);
 
   const computedNodes = useMemo<CanvasNode[]>(
-    () => props.graph.nodes.map((node) => toCanvasNode(node, props.selectedNodeIds.includes(node.id))),
-    [props.graph.nodes, props.selectedNodeIds]
+    () => [
+      ...(props.syntheticNodes ?? []),
+      ...props.graph.nodes.map((node) => toCanvasNode(node, props.selectedNodeIds.includes(node.id), props.graphNamesById))
+    ],
+    [props.graph.nodes, props.graphNamesById, props.selectedNodeIds, props.syntheticNodes]
   );
 
   const computedEdges = useMemo(
-    () => buildCanvasEdges(props.graph.nodes, props.graph.edges, selectedEdgeIds),
-    [props.graph.edges, props.graph.nodes, selectedEdgeIds]
+    () => [...(props.syntheticEdges ?? []), ...buildCanvasEdges(props.graph.nodes, props.graph.edges, selectedEdgeIds)],
+    [props.graph.edges, props.graph.nodes, props.syntheticEdges, selectedEdgeIds]
   );
   const [nodes, setNodes, onNodesChange] = useNodesState(computedNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(computedEdges);
@@ -319,6 +384,14 @@ export function GraphCanvas(props: {
     }
   };
 
+  function clearNodeSelection() {
+    setNodes((current) => current.map((node) => ({ ...node, selected: false })));
+    if (lastSelectedNodeIdsRef.current.length > 0) {
+      lastSelectedNodeIdsRef.current = [];
+      props.onSelectionChange([]);
+    }
+  }
+
   return (
     <div ref={containerRef} className="relative flex h-full min-h-0 flex-col bg-[#0d1012]" onContextMenu={handleOpenContextMenu}>
       <div className="min-h-0 flex-1">
@@ -341,9 +414,14 @@ export function GraphCanvas(props: {
               },
             }}
             onNodeClick={(_, node) => {
+              const nodeData = node.data as CanvasNodeData;
               if (lastSelectedEdgeIdsRef.current.length > 0) {
                 lastSelectedEdgeIdsRef.current = [];
                 setSelectedEdgeIds([]);
+              }
+              if (!nodeData.kind || nodeData.isVirtual) {
+                clearNodeSelection();
+                return;
               }
               setNodes((current) =>
                 current.map((entry) => ({
@@ -357,12 +435,18 @@ export function GraphCanvas(props: {
               }
             }}
             onNodeDoubleClick={(_, node) => {
-              if ((node.data as { kind?: string }).kind === "stateMachine") {
+              const nodeKind = (node.data as CanvasNodeData).kind;
+              if (nodeKind === "stateMachine") {
                 props.onOpenStateMachine?.(node.id);
+              } else if (nodeKind === "subgraph") {
+                props.onOpenSubgraph?.(node.id);
               }
             }}
             onEdgeClick={handleEdgeClick}
             onNodeDragStop={(_, draggedNode) => {
+              if (!(draggedNode.data as CanvasNodeData).kind) {
+                return;
+              }
               props.onNodeDragStop(draggedNode.id, draggedNode.position);
             }}
             onPaneClick={() => {
@@ -371,11 +455,7 @@ export function GraphCanvas(props: {
                 lastSelectedEdgeIdsRef.current = [];
                 setSelectedEdgeIds([]);
               }
-              setNodes((current) => current.map((node) => ({ ...node, selected: false })));
-              if (lastSelectedNodeIdsRef.current.length > 0) {
-                lastSelectedNodeIdsRef.current = [];
-                props.onSelectionChange([]);
-              }
+              clearNodeSelection();
             }}
             onPaneContextMenu={handleOpenContextMenu}
             onConnect={props.onConnect}

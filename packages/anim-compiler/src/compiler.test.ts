@@ -273,4 +273,145 @@ describe("@ggez/anim-compiler", () => {
       anyStateTransitions: []
     });
   });
+
+  it("compiles selector nodes and warns when int parameters use blend1d", () => {
+    const result = compileAnimationEditorDocument({
+      version: 1,
+      name: "Selector Graph",
+      entryGraphId: "graph-main",
+      parameters: [{ id: "weapon-type", name: "weaponType", type: "int", defaultValue: 0 }],
+      clips: [
+        { id: "idle", name: "Idle", duration: 1 },
+        { id: "rifle", name: "Rifle", duration: 1 }
+      ],
+      masks: [],
+      graphs: [
+        {
+          id: "graph-main",
+          name: "Main",
+          outputNodeId: "out",
+          edges: [],
+          nodes: [
+            { id: "clip-idle", name: "Idle", kind: "clip", clipId: "idle", speed: 1, loop: true, inPlace: false, position: { x: 0, y: 0 } },
+            { id: "clip-rifle", name: "Rifle", kind: "clip", clipId: "rifle", speed: 1, loop: true, inPlace: false, position: { x: 0, y: 160 } },
+            {
+              id: "selector",
+              name: "Weapon Selector",
+              kind: "selector",
+              parameterId: "weapon-type",
+              children: [
+                { nodeId: "clip-idle", value: 0 },
+                { nodeId: "legacy-blend", value: 2 }
+              ],
+              position: { x: 320, y: 0 }
+            },
+            {
+              id: "legacy-blend",
+              name: "Legacy Blend",
+              kind: "blend1d",
+              parameterId: "weapon-type",
+              children: [
+                { nodeId: "clip-idle", threshold: 0 },
+                { nodeId: "clip-rifle", threshold: 2 }
+              ],
+              position: { x: 320, y: 160 }
+            },
+            { id: "out", name: "Output", kind: "output", sourceNodeId: "selector", position: { x: 560, y: 0 } }
+          ]
+        }
+      ],
+      layers: [
+        {
+          id: "layer-base",
+          name: "Base",
+          graphId: "graph-main",
+          weight: 1,
+          blendMode: "override",
+          rootMotionMode: "none",
+          enabled: true
+        }
+      ]
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.graph?.graphs[0]?.nodes[2]).toEqual({
+      type: "selector",
+      parameterIndex: 0,
+      children: [
+        { nodeIndex: 0, value: 0 },
+        { nodeIndex: 3, value: 2 }
+      ],
+      syncGroup: undefined
+    });
+    expect(result.diagnostics.some((diagnostic) => diagnostic.severity === "warning" && diagnostic.message.includes("Selector"))).toBe(true);
+  });
+
+  it("compiles orientation warp nodes into runtime bone indices", () => {
+    const result = compileAnimationEditorDocument({
+      version: 1,
+      name: "Orientation Warp",
+      entryGraphId: "graph-main",
+      rig: {
+        boneNames: ["root", "hips", "spine", "leftUpperLeg", "leftLowerLeg", "leftFoot"],
+        parentIndices: [-1, 0, 1, 1, 3, 4],
+        rootBoneIndex: 0,
+        bindTranslations: [0, 0, 0, 0, 1, 0, 0, 0.5, 0, -0.35, -0.3, 0.2, 0, -0.9, 0, 0, -0.9, 0.25],
+        bindRotations: [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+        bindScales: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+      },
+      parameters: [{ id: "heading", name: "headingOffset", type: "float", defaultValue: 0 }],
+      clips: [{ id: "idle", name: "Idle", duration: 1 }],
+      masks: [],
+      graphs: [
+        {
+          id: "graph-main",
+          name: "Main",
+          outputNodeId: "out",
+          edges: [],
+          nodes: [
+            { id: "clip-idle", name: "Idle", kind: "clip", clipId: "idle", speed: 1, loop: true, inPlace: false, position: { x: 0, y: 0 } },
+            {
+              id: "warp",
+              name: "Orientation Warp",
+              kind: "orientationWarp",
+              sourceNodeId: "clip-idle",
+              angleParameterId: "heading",
+              maxAngle: Math.PI / 2,
+              weight: 1,
+              hipBoneName: "hips",
+              hipWeight: 0.4,
+              spineBoneNames: ["spine"],
+              legs: [{ upperBoneName: "leftUpperLeg", lowerBoneName: "leftLowerLeg", footBoneName: "leftFoot", weight: 1 }],
+              position: { x: 320, y: 0 }
+            },
+            { id: "out", name: "Output", kind: "output", sourceNodeId: "warp", position: { x: 560, y: 0 } }
+          ]
+        }
+      ],
+      layers: [
+        {
+          id: "layer-base",
+          name: "Base",
+          graphId: "graph-main",
+          weight: 1,
+          blendMode: "override",
+          rootMotionMode: "none",
+          enabled: true
+        }
+      ]
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.graph?.graphs[0]?.nodes[1]).toEqual({
+      type: "orientationWarp",
+      sourceNodeIndex: 0,
+      parameterIndex: 0,
+      maxAngle: Math.PI / 2,
+      weight: 1,
+      hipBoneIndex: 1,
+      hipWeight: 0.4,
+      spineBoneIndices: [2],
+      legs: [{ upperBoneIndex: 3, lowerBoneIndex: 4, footBoneIndex: 5, weight: 1 }]
+    });
+  });
 });

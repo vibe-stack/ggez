@@ -503,7 +503,7 @@ function StatesEditor(props: {
             </PropertyField>
           </div>
 
-          <div className="grid gap-2 sm:grid-cols-[120px_120px]">
+          <div className="grid gap-2 sm:grid-cols-[120px_120px_minmax(0,1fr)]">
             <PropertyField label="Speed">
               <NumericDragInput
                 value={state.speed}
@@ -528,6 +528,21 @@ function StatesEditor(props: {
                     states: current.states.map((entry) => (entry.id === state.id ? { ...entry, cycleOffset: value } : entry)),
                   }))
                 }
+              />
+            </PropertyField>
+            <PropertyField label="Sync Group">
+              <Input
+                value={state.syncGroup ?? ""}
+                onChange={(event) =>
+                  updateStateMachineNode(props.store, props.graph.id, props.node.id, (current) => ({
+                    ...current,
+                    states: current.states.map((entry) =>
+                      entry.id === state.id ? { ...entry, syncGroup: event.target.value.trim() || undefined } : entry
+                    ),
+                  }))
+                }
+                placeholder="optional"
+                className={editorInputClassName}
               />
             </PropertyField>
           </div>

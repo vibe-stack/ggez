@@ -18,14 +18,16 @@ export function createDefaultNode(kind: EditorGraphNode["kind"], name?: string):
         clipId: "",
         speed: 1,
         loop: true,
-        inPlace: false
+        inPlace: false,
+        syncGroup: undefined
       };
     case "blend1d":
       return {
         ...base,
         kind,
         parameterId: "",
-        children: []
+        children: [],
+        syncGroup: undefined
       };
     case "blend2d":
       return {
@@ -33,7 +35,29 @@ export function createDefaultNode(kind: EditorGraphNode["kind"], name?: string):
         kind,
         xParameterId: "",
         yParameterId: "",
-        children: []
+        children: [],
+        syncGroup: undefined
+      };
+    case "selector":
+      return {
+        ...base,
+        kind,
+        parameterId: "",
+        children: [],
+        syncGroup: undefined
+      };
+    case "orientationWarp":
+      return {
+        ...base,
+        kind,
+        sourceNodeId: undefined,
+        angleParameterId: "",
+        maxAngle: Math.PI / 2,
+        weight: 1,
+        hipBoneName: undefined,
+        hipWeight: 0.35,
+        spineBoneNames: [],
+        legs: []
       };
     case "stateMachine":
       const initialStateId = createStableId("state");
@@ -49,6 +73,7 @@ export function createDefaultNode(kind: EditorGraphNode["kind"], name?: string):
             position: { x: 220, y: 160 },
             speed: 1,
             cycleOffset: 0,
+            syncGroup: undefined,
           },
         ],
         transitions: [],
@@ -58,7 +83,8 @@ export function createDefaultNode(kind: EditorGraphNode["kind"], name?: string):
       return {
         ...base,
         kind,
-        graphId: ""
+        graphId: "",
+        syncGroup: undefined
       };
     case "output":
       return {

@@ -59,6 +59,26 @@ function findNearestAncestorBone(object: Object3D | null): Bone | null {
   return null;
 }
 
+function findTopmostBoneAncestor(bone: Bone): Bone {
+  let current: Object3D | null = bone;
+  let topmost = bone;
+
+  while (current) {
+    if (current instanceof Bone) {
+      topmost = current;
+    }
+
+    current = current.parent;
+  }
+
+  return topmost;
+}
+
+function hasCanonicalParentSpaceConversion(bone: Bone): boolean {
+  const effectiveParentBone = findNearestAncestorBone(bone.parent);
+  return (!effectiveParentBone && Boolean(bone.parent)) || (effectiveParentBone !== null && effectiveParentBone !== bone.parent);
+}
+
 function getBoneParentSpaceTransform(bone: Bone): Matrix4 | null {
   const directParent = bone.parent;
   if (!directParent) {
@@ -576,30 +596,76 @@ export function createClipAssetFromThreeClip(clip: AnimationClip, skeleton: Skel
 }
 
 export function applyPoseBufferToSkeleton(pose: PoseBuffer, skeleton: Skeleton): void {
+  const parentInverseMatrix = new Matrix4();
+  const composedMatrix = new Matrix4();
+  const worldTranslation = new Vector3();
+  const worldRotation = new Quaternion();
+  const worldScale = new Vector3();
+  const localTranslation = new Vector3();
+  const localRotation = new Quaternion();
+  const localScale = new Vector3();
+  const updatedRoots = new Set<Bone>();
+
   skeleton.bones.forEach((bone, boneIndex) => {
     const vectorOffset = boneIndex * 3;
     const quaternionOffset = boneIndex * 4;
-    bone.position.set(
-      pose.translations[vectorOffset]!,
-      pose.translations[vectorOffset + 1]!,
-      pose.translations[vectorOffset + 2]!
-    );
-    bone.quaternion.set(
-      pose.rotations[quaternionOffset]!,
-      pose.rotations[quaternionOffset + 1]!,
-      pose.rotations[quaternionOffset + 2]!,
-      pose.rotations[quaternionOffset + 3]!
-    );
-    bone.scale.set(
-      pose.scales[vectorOffset]!,
-      pose.scales[vectorOffset + 1]!,
-      pose.scales[vectorOffset + 2]!
-    );
+
+    if (hasCanonicalParentSpaceConversion(bone) && bone.parent) {
+      const effectiveParentBone = findNearestAncestorBone(bone.parent);
+      if (effectiveParentBone) {
+        effectiveParentBone.updateMatrixWorld(true);
+        parentInverseMatrix.copy(bone.parent.matrixWorld).invert().multiply(effectiveParentBone.matrixWorld);
+      } else {
+        bone.parent.updateMatrixWorld(true);
+        parentInverseMatrix.copy(bone.parent.matrixWorld).invert();
+      }
+
+      worldTranslation.set(
+        pose.translations[vectorOffset]!,
+        pose.translations[vectorOffset + 1]!,
+        pose.translations[vectorOffset + 2]!
+      );
+      worldRotation.set(
+        pose.rotations[quaternionOffset]!,
+        pose.rotations[quaternionOffset + 1]!,
+        pose.rotations[quaternionOffset + 2]!,
+        pose.rotations[quaternionOffset + 3]!
+      );
+      worldScale.set(
+        pose.scales[vectorOffset]!,
+        pose.scales[vectorOffset + 1]!,
+        pose.scales[vectorOffset + 2]!
+      );
+      composedMatrix.compose(worldTranslation, worldRotation, worldScale);
+      composedMatrix.premultiply(parentInverseMatrix);
+      composedMatrix.decompose(localTranslation, localRotation, localScale);
+      bone.position.copy(localTranslation);
+      bone.quaternion.copy(localRotation);
+      bone.scale.copy(localScale);
+    } else {
+      bone.position.set(
+        pose.translations[vectorOffset]!,
+        pose.translations[vectorOffset + 1]!,
+        pose.translations[vectorOffset + 2]!
+      );
+      bone.quaternion.set(
+        pose.rotations[quaternionOffset]!,
+        pose.rotations[quaternionOffset + 1]!,
+        pose.rotations[quaternionOffset + 2]!,
+        pose.rotations[quaternionOffset + 3]!
+      );
+      bone.scale.set(
+        pose.scales[vectorOffset]!,
+        pose.scales[vectorOffset + 1]!,
+        pose.scales[vectorOffset + 2]!
+      );
+    }
+
     bone.updateMatrix();
+    updatedRoots.add(findTopmostBoneAncestor(bone));
   });
 
-  const rootBone = skeleton.bones.find((bone) => !(bone.parent instanceof Bone));
-  rootBone?.updateMatrixWorld(true);
+  updatedRoots.forEach((rootBone) => rootBone.updateMatrixWorld(true));
   skeleton.update();
 }
 

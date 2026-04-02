@@ -38,6 +38,7 @@ import type { StateMachineNode, StateMachineState, StateMachineTransition } from
 
 const ENTRY_NODE_ID = "__entry__";
 const ANY_STATE_NODE_ID = "__any_state__";
+const OUTPUT_NODE_ID = "__output__";
 
 type SelectedTransition = {
   id: string;
@@ -144,6 +145,18 @@ function toSpecialNode(id: string, label: string, description: string, position:
   };
 }
 
+function getOutputNodePosition(node: StateMachineNode) {
+  const statePositions = node.states.map((state, index) => getStatePosition(node, state, index));
+  if (statePositions.length === 0) {
+    return { x: 760, y: 200 };
+  }
+
+  return {
+    x: Math.max(...statePositions.map((position) => position.x)) + 320,
+    y: statePositions.reduce((sum, position) => sum + position.y, 0) / statePositions.length,
+  };
+}
+
 function areCanvasNodesEqual(left: FlowNode[], right: FlowNode[]) {
   if (left.length !== right.length) {
     return false;
@@ -222,8 +235,9 @@ export function StateMachineCanvas(props: {
 
   const computedNodes = useMemo<FlowNode[]>(
     () => [
-      toSpecialNode(ENTRY_NODE_ID, "Entry", "Connect to the default starting state", { x: 24, y: 120 }),
+      toSpecialNode(ENTRY_NODE_ID, "In", "Entry into this state machine", { x: 24, y: 120 }),
       toSpecialNode(ANY_STATE_NODE_ID, "Any State", "Create interrupt-style transitions", { x: 24, y: 280 }),
+      toSpecialNode(OUTPUT_NODE_ID, "Out", "Resolved motion from the active state", getOutputNodePosition(props.node)),
       ...props.node.states.map((state, index) => toStateNode(props.graph, props.node, state, index, selectedStateId === state.id)),
     ],
     [props.graph, props.node, selectedStateId]
@@ -293,6 +307,27 @@ export function StateMachineCanvas(props: {
         },
         data: {
           isAnyState: true,
+        },
+      });
+    });
+
+    props.node.states.forEach((state) => {
+      edges.push({
+        id: `${state.id}->${OUTPUT_NODE_ID}`,
+        source: state.id,
+        target: OUTPUT_NODE_ID,
+        selectable: false,
+        className: "animation-flow__edge",
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: "#34d399",
+          width: 18,
+          height: 18,
+        },
+        style: {
+          stroke: "#34d399",
+          strokeDasharray: "6 5",
+          opacity: 0.7,
         },
       });
     });
@@ -508,7 +543,7 @@ export function StateMachineCanvas(props: {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onNodeClick={(_, flowNode) => {
-              if (flowNode.id === ENTRY_NODE_ID || flowNode.id === ANY_STATE_NODE_ID) {
+              if (flowNode.id === ENTRY_NODE_ID || flowNode.id === ANY_STATE_NODE_ID || flowNode.id === OUTPUT_NODE_ID) {
                 setSelectedStateId("");
                 setSelectedTransition(null);
                 return;
@@ -519,7 +554,7 @@ export function StateMachineCanvas(props: {
             }}
             onEdgeClick={handleEdgeClick}
             onNodeDragStop={(_, draggedNode) => {
-              if (draggedNode.id === ENTRY_NODE_ID || draggedNode.id === ANY_STATE_NODE_ID) {
+              if (draggedNode.id === ENTRY_NODE_ID || draggedNode.id === ANY_STATE_NODE_ID || draggedNode.id === OUTPUT_NODE_ID) {
                 return;
               }
 

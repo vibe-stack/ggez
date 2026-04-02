@@ -5,7 +5,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { useEditorStoreValue } from "../../use-editor-store-value";
 import { PropertyField, editorInputClassName, editorSelectClassName, sectionHintClassName } from "../shared";
-import { Blend1DChildrenEditor, Blend2DChildrenEditor } from "./blend-editors";
+import { Blend1DChildrenEditor, Blend2DChildrenEditor, OrientationWarpLegsEditor, SelectorChildrenEditor } from "./blend-editors";
 import { NumericDragInput, updateTypedNode } from "./shared";
 import { StateMachineInspector } from "./state-machine-inspector";
 
@@ -13,6 +13,28 @@ export function NodeInspector(props: { store: AnimationEditorStore }) {
   const state = useEditorStoreValue(props.store, () => props.store.getState(), ["document", "selection", "graphs", "parameters"]);
   const graph = state.document.graphs.find((entry) => entry.id === state.selection.graphId);
   const node = graph?.nodes.find((entry) => entry.id === state.selection.nodeIds[0]);
+
+  function renderSyncGroupField(kind: "clip" | "blend1d" | "blend2d" | "selector" | "subgraph") {
+    if (!graph || !node || node.kind !== kind) {
+      return null;
+    }
+
+    return (
+      <PropertyField label="Sync Group">
+        <Input
+          value={node.syncGroup ?? ""}
+          onChange={(event) =>
+            updateTypedNode(props.store, graph.id, node.id, kind, (current) => ({
+              ...current,
+              syncGroup: event.target.value.trim() || undefined,
+            }))
+          }
+          placeholder="optional"
+          className={editorInputClassName}
+        />
+      </PropertyField>
+    );
+  }
 
   return (
     <div className="space-y-3">
@@ -98,6 +120,7 @@ export function NodeInspector(props: { store: AnimationEditorStore }) {
                   </Button>
                 </ButtonGroup>
               </PropertyField>
+              {renderSyncGroupField("clip")}
             </>
           ) : null}
 
@@ -117,6 +140,7 @@ export function NodeInspector(props: { store: AnimationEditorStore }) {
                 </select>
               </PropertyField>
               <Blend1DChildrenEditor store={props.store} graph={graph} node={node} />
+              {renderSyncGroupField("blend1d")}
             </>
           ) : null}
 
@@ -149,23 +173,147 @@ export function NodeInspector(props: { store: AnimationEditorStore }) {
                 </select>
               </PropertyField>
               <Blend2DChildrenEditor store={props.store} graph={graph} node={node} />
+              {renderSyncGroupField("blend2d")}
+            </>
+          ) : null}
+
+          {node.kind === "selector" ? (
+            <>
+              <PropertyField label="Parameter">
+                <select
+                  value={node.parameterId}
+                  onChange={(event) => props.store.updateNode(graph.id, node.id, (current) => ({ ...current, parameterId: event.target.value }))}
+                  className={editorSelectClassName}
+                >
+                  {state.document.parameters.map((parameter) => (
+                    <option key={parameter.id} value={parameter.id}>
+                      {parameter.name}
+                    </option>
+                  ))}
+                </select>
+              </PropertyField>
+              <SelectorChildrenEditor store={props.store} graph={graph} node={node} />
+              {renderSyncGroupField("selector")}
+            </>
+          ) : null}
+
+          {node.kind === "orientationWarp" ? (
+            <>
+              <div className={sectionHintClassName}>Connect a locomotion pose into this node, then drive the warp angle from a float parameter in radians. Legs are stabilized against the pre-warp foot targets.</div>
+              <PropertyField label="Angle Parameter">
+                <select
+                  value={node.angleParameterId}
+                  onChange={(event) =>
+                    updateTypedNode(props.store, graph.id, node.id, "orientationWarp", (current) => ({
+                      ...current,
+                      angleParameterId: event.target.value,
+                    }))
+                  }
+                  className={editorSelectClassName}
+                >
+                  {state.document.parameters.map((parameter) => (
+                    <option key={parameter.id} value={parameter.id}>
+                      {parameter.name}
+                    </option>
+                  ))}
+                </select>
+              </PropertyField>
+              <PropertyField label="Weight">
+                <NumericDragInput
+                  value={node.weight}
+                  step={0.05}
+                  precision={2}
+                  min={0}
+                  max={1}
+                  onChange={(value) =>
+                    updateTypedNode(props.store, graph.id, node.id, "orientationWarp", (current) => ({
+                      ...current,
+                      weight: Math.max(0, Math.min(1, value)),
+                    }))
+                  }
+                />
+              </PropertyField>
+              <PropertyField label="Max Angle (rad)">
+                <NumericDragInput
+                  value={node.maxAngle}
+                  step={0.05}
+                  precision={2}
+                  min={0.05}
+                  onChange={(value) =>
+                    updateTypedNode(props.store, graph.id, node.id, "orientationWarp", (current) => ({
+                      ...current,
+                      maxAngle: Math.max(0.05, value),
+                    }))
+                  }
+                />
+              </PropertyField>
+              <PropertyField label="Hip Bone">
+                <Input
+                  value={node.hipBoneName ?? ""}
+                  onChange={(event) =>
+                    updateTypedNode(props.store, graph.id, node.id, "orientationWarp", (current) => ({
+                      ...current,
+                      hipBoneName: event.target.value.trim() || undefined,
+                    }))
+                  }
+                  placeholder="Hips"
+                  className={editorInputClassName}
+                />
+              </PropertyField>
+              <PropertyField label="Hip Weight">
+                <NumericDragInput
+                  value={node.hipWeight}
+                  step={0.05}
+                  precision={2}
+                  min={0}
+                  max={1}
+                  onChange={(value) =>
+                    updateTypedNode(props.store, graph.id, node.id, "orientationWarp", (current) => ({
+                      ...current,
+                      hipWeight: Math.max(0, Math.min(1, value)),
+                    }))
+                  }
+                />
+              </PropertyField>
+              <PropertyField label="Spine Bones">
+                <Input
+                  value={node.spineBoneNames.join(", ")}
+                  onChange={(event) =>
+                    updateTypedNode(props.store, graph.id, node.id, "orientationWarp", (current) => ({
+                      ...current,
+                      spineBoneNames: event.target.value
+                        .split(",")
+                        .map((entry) => entry.trim())
+                        .filter(Boolean),
+                    }))
+                  }
+                  placeholder="Spine, Spine1, Spine2"
+                  className={editorInputClassName}
+                />
+              </PropertyField>
+              <PropertyField label="Leg IK">
+                <OrientationWarpLegsEditor store={props.store} graph={graph} node={node} />
+              </PropertyField>
             </>
           ) : null}
 
           {node.kind === "subgraph" ? (
-            <PropertyField label="Graph">
-              <select
-                value={node.graphId}
-                onChange={(event) => props.store.updateNode(graph.id, node.id, (current) => ({ ...current, graphId: event.target.value }))}
-                className={editorSelectClassName}
-              >
-                {state.document.graphs.map((entry) => (
-                  <option key={entry.id} value={entry.id}>
-                    {entry.name}
-                  </option>
-                ))}
-              </select>
-            </PropertyField>
+            <>
+              <PropertyField label="Graph">
+                <select
+                  value={node.graphId}
+                  onChange={(event) => props.store.updateNode(graph.id, node.id, (current) => ({ ...current, graphId: event.target.value }))}
+                  className={editorSelectClassName}
+                >
+                  {state.document.graphs.map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+              </PropertyField>
+              {renderSyncGroupField("subgraph")}
+            </>
           ) : null}
 
           {node.kind === "output" ? <div className={sectionHintClassName}>Connect a motion node into the output node to define the graph result.</div> : null}

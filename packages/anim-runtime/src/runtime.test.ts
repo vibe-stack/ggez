@@ -52,6 +52,32 @@ const poseTenClip: AnimationClipAsset = {
   ]
 };
 
+const poseTwentyClip: AnimationClipAsset = {
+  id: "pose-twenty",
+  name: "Pose Twenty",
+  duration: 1,
+  tracks: [
+    {
+      boneIndex: 0,
+      translationTimes: new Float32Array([0]),
+      translationValues: new Float32Array([20, 0, 0])
+    }
+  ]
+};
+
+const poseThousandClip: AnimationClipAsset = {
+  id: "pose-thousand",
+  name: "Pose Thousand",
+  duration: 1,
+  tracks: [
+    {
+      boneIndex: 0,
+      translationTimes: new Float32Array([0]),
+      translationValues: new Float32Array([1000, 0, 0])
+    }
+  ]
+};
+
 const fastRunClip: AnimationClipAsset = {
   id: "run-fast",
   name: "Run Fast",
@@ -61,6 +87,19 @@ const fastRunClip: AnimationClipAsset = {
       boneIndex: 0,
       translationTimes: new Float32Array([0, 0.5]),
       translationValues: new Float32Array([0, 0, 0, 1, 0, 0])
+    }
+  ]
+};
+
+const longIdleClip: AnimationClipAsset = {
+  id: "idle-long",
+  name: "Idle Long",
+  duration: 2,
+  tracks: [
+    {
+      boneIndex: 0,
+      translationTimes: new Float32Array([0]),
+      translationValues: new Float32Array([0, 0, 0])
     }
   ]
 };
@@ -140,6 +179,133 @@ const weaponAimSparseClip: AnimationClipAsset = {
     }
   ]
 };
+
+const orientationWarpRig = createRigDefinition({
+  boneNames: ["root", "hips", "spine", "leftUpperLeg", "leftLowerLeg", "leftFoot", "rightUpperLeg", "rightLowerLeg", "rightFoot"],
+  parentIndices: [-1, 0, 1, 1, 3, 4, 1, 6, 7],
+  rootBoneIndex: 0,
+  bindTranslations: [
+    0, 0, 0,
+    0, 1, 0,
+    0, 0.5, 0,
+    -0.35, -0.3, 0.2,
+    0, -0.9, 0,
+    0, -0.9, 0.25,
+    0.35, -0.3, 0.2,
+    0, -0.9, 0,
+    0, -0.9, 0.25
+  ],
+  bindRotations: [
+    0, 0, 0, 1,
+    0, 0, 0, 1,
+    0, 0, 0, 1,
+    0, 0, 0, 1,
+    0, 0, 0, 1,
+    0, 0, 0, 1,
+    0, 0, 0, 1,
+    0, 0, 0, 1,
+    0, 0, 0, 1
+  ],
+  bindScales: [
+    1, 1, 1,
+    1, 1, 1,
+    1, 1, 1,
+    1, 1, 1,
+    1, 1, 1,
+    1, 1, 1,
+    1, 1, 1,
+    1, 1, 1,
+    1, 1, 1
+  ]
+});
+
+const orientationWarpClip: AnimationClipAsset = {
+  id: "orientation-base",
+  name: "Orientation Base",
+  duration: 1,
+  tracks: []
+};
+
+function rotateVectorByQuaternion(
+  x: number,
+  y: number,
+  z: number,
+  qx: number,
+  qy: number,
+  qz: number,
+  qw: number
+): [number, number, number] {
+  const tx = 2 * (qy * z - qz * y);
+  const ty = 2 * (qz * x - qx * z);
+  const tz = 2 * (qx * y - qy * x);
+
+  return [
+    x + qw * tx + (qy * tz - qz * ty),
+    y + qw * ty + (qz * tx - qx * tz),
+    z + qw * tz + (qx * ty - qy * tx)
+  ];
+}
+
+function computeWorldPosition(rigDefinition: typeof orientationWarpRig, pose: { translations: Float32Array; rotations: Float32Array }, boneIndex: number): [number, number, number] {
+  const worldTranslations = new Float32Array(rigDefinition.boneNames.length * 3);
+  const worldRotations = new Float32Array(rigDefinition.boneNames.length * 4);
+
+  for (let index = 0; index < rigDefinition.boneNames.length; index += 1) {
+    const parentIndex = rigDefinition.parentIndices[index] ?? -1;
+    const translationOffset = index * 3;
+    const rotationOffset = index * 4;
+
+    if (parentIndex < 0) {
+      worldTranslations[translationOffset] = pose.translations[translationOffset]!;
+      worldTranslations[translationOffset + 1] = pose.translations[translationOffset + 1]!;
+      worldTranslations[translationOffset + 2] = pose.translations[translationOffset + 2]!;
+      worldRotations[rotationOffset] = pose.rotations[rotationOffset]!;
+      worldRotations[rotationOffset + 1] = pose.rotations[rotationOffset + 1]!;
+      worldRotations[rotationOffset + 2] = pose.rotations[rotationOffset + 2]!;
+      worldRotations[rotationOffset + 3] = pose.rotations[rotationOffset + 3]!;
+      continue;
+    }
+
+    const parentTranslationOffset = parentIndex * 3;
+    const parentRotationOffset = parentIndex * 4;
+    const rotatedLocal = rotateVectorByQuaternion(
+      pose.translations[translationOffset]!,
+      pose.translations[translationOffset + 1]!,
+      pose.translations[translationOffset + 2]!,
+      worldRotations[parentRotationOffset]!,
+      worldRotations[parentRotationOffset + 1]!,
+      worldRotations[parentRotationOffset + 2]!,
+      worldRotations[parentRotationOffset + 3]!
+    );
+
+    worldTranslations[translationOffset] = worldTranslations[parentTranslationOffset]! + rotatedLocal[0];
+    worldTranslations[translationOffset + 1] = worldTranslations[parentTranslationOffset + 1]! + rotatedLocal[1];
+    worldTranslations[translationOffset + 2] = worldTranslations[parentTranslationOffset + 2]! + rotatedLocal[2];
+
+    const ax = worldRotations[parentRotationOffset]!;
+    const ay = worldRotations[parentRotationOffset + 1]!;
+    const az = worldRotations[parentRotationOffset + 2]!;
+    const aw = worldRotations[parentRotationOffset + 3]!;
+    const bx = pose.rotations[rotationOffset]!;
+    const by = pose.rotations[rotationOffset + 1]!;
+    const bz = pose.rotations[rotationOffset + 2]!;
+    const bw = pose.rotations[rotationOffset + 3]!;
+    worldRotations[rotationOffset] = aw * bx + ax * bw + ay * bz - az * by;
+    worldRotations[rotationOffset + 1] = aw * by - ax * bz + ay * bw + az * bx;
+    worldRotations[rotationOffset + 2] = aw * bz + ax * by - ay * bx + az * bw;
+    worldRotations[rotationOffset + 3] = aw * bw - ax * bx - ay * by - az * bz;
+  }
+
+  return [
+    worldTranslations[boneIndex * 3]!,
+    worldTranslations[boneIndex * 3 + 1]!,
+    worldTranslations[boneIndex * 3 + 2]!
+  ];
+}
+
+function distanceBetween(a: [number, number, number], b: [number, number, number]): number {
+  return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
 
 describe("@ggez/anim-runtime", () => {
   it("evaluates 1d blends and root motion", () => {
@@ -314,6 +480,403 @@ describe("@ggez/anim-runtime", () => {
     const result = animator.update(0.75);
 
     expect(result.pose.translations[0]).toBeCloseTo(1.125);
+  });
+
+  it("keeps exact blend2d child matches at their native playback speed", () => {
+    const graph: CompiledAnimatorGraph = {
+      version: 1,
+      name: "Exact 2D Blend Match",
+      parameters: [
+        { name: "moveX", type: "float", defaultValue: 0 },
+        { name: "moveY", type: "float", defaultValue: 0 }
+      ],
+      clipSlots: [
+        { id: "idle-long", name: "Idle Long", duration: 2 },
+        { id: "run-fast", name: "Run Fast", duration: 0.5 }
+      ],
+      masks: [],
+      graphs: [
+        {
+          name: "Locomotion",
+          rootNodeIndex: 2,
+          nodes: [
+            { type: "clip", clipIndex: 0, speed: 1, loop: true, inPlace: false },
+            { type: "clip", clipIndex: 1, speed: 1, loop: true, inPlace: false },
+            {
+              type: "blend2d",
+              xParameterIndex: 0,
+              yParameterIndex: 1,
+              children: [
+                { nodeIndex: 0, x: 0, y: 0 },
+                { nodeIndex: 1, x: 0, y: 2 }
+              ]
+            }
+          ]
+        }
+      ],
+      layers: [
+        {
+          name: "Base",
+          graphIndex: 0,
+          weight: 1,
+          blendMode: "override",
+          rootMotionMode: "none",
+          enabled: true
+        }
+      ],
+      entryGraphIndex: 0
+    };
+
+    const animator = createAnimatorInstance({
+      rig,
+      graph,
+      clips: [longIdleClip, fastRunClip]
+    });
+
+    animator.setFloat("moveX", 0);
+    animator.setFloat("moveY", 2);
+    const result = animator.update(0.25);
+
+    expect(result.pose.translations[0]).toBeCloseTo(0.5);
+  });
+
+  it("uses the local blend2d triangle instead of averaging all distant samples", () => {
+    const graph: CompiledAnimatorGraph = {
+      version: 1,
+      name: "Local 2D Triangle Blend",
+      parameters: [
+        { name: "moveX", type: "float", defaultValue: 0 },
+        { name: "moveY", type: "float", defaultValue: 0 }
+      ],
+      clipSlots: [
+        { id: "idle", name: "Idle", duration: 1 },
+        { id: "pose-ten", name: "Pose Ten", duration: 1 },
+        { id: "pose-twenty", name: "Pose Twenty", duration: 1 },
+        { id: "pose-thousand", name: "Pose Thousand", duration: 1 }
+      ],
+      masks: [],
+      graphs: [
+        {
+          name: "Locomotion",
+          rootNodeIndex: 4,
+          nodes: [
+            { type: "clip", clipIndex: 0, speed: 1, loop: true, inPlace: false },
+            { type: "clip", clipIndex: 1, speed: 1, loop: true, inPlace: false },
+            { type: "clip", clipIndex: 2, speed: 1, loop: true, inPlace: false },
+            { type: "clip", clipIndex: 3, speed: 1, loop: true, inPlace: false },
+            {
+              type: "blend2d",
+              xParameterIndex: 0,
+              yParameterIndex: 1,
+              children: [
+                { nodeIndex: 0, x: 0, y: 0 },
+                { nodeIndex: 1, x: 1, y: 0 },
+                { nodeIndex: 2, x: 0, y: 1 },
+                { nodeIndex: 3, x: 1, y: 1 }
+              ]
+            }
+          ]
+        }
+      ],
+      layers: [
+        {
+          name: "Base",
+          graphIndex: 0,
+          weight: 1,
+          blendMode: "override",
+          rootMotionMode: "none",
+          enabled: true
+        }
+      ],
+      entryGraphIndex: 0
+    };
+
+    const animator = createAnimatorInstance({
+      rig,
+      graph,
+      clips: [idleClip, poseTenClip, poseTwentyClip, poseThousandClip]
+    });
+
+    animator.setFloat("moveX", 0.2);
+    animator.setFloat("moveY", 0.2);
+    const result = animator.update(0.1);
+
+    expect(result.pose.translations[0]).toBeCloseTo(6);
+  });
+
+  it("selects discrete child motions by integer parameter", () => {
+    const graph: CompiledAnimatorGraph = {
+      version: 1,
+      name: "Selector Graph",
+      parameters: [{ name: "weaponType", type: "int", defaultValue: 0 }],
+      clipSlots: [
+        { id: "pose-ten", name: "Pose Ten", duration: 1 },
+        { id: "pose-twenty", name: "Pose Twenty", duration: 1 }
+      ],
+      masks: [],
+      graphs: [
+        {
+          name: "Main",
+          rootNodeIndex: 2,
+          nodes: [
+            { type: "clip", clipIndex: 0, speed: 1, loop: true, inPlace: false },
+            { type: "clip", clipIndex: 1, speed: 1, loop: true, inPlace: false },
+            {
+              type: "selector",
+              parameterIndex: 0,
+              children: [
+                { nodeIndex: 0, value: 0 },
+                { nodeIndex: 1, value: 2 }
+              ]
+            }
+          ]
+        }
+      ],
+      layers: [
+        {
+          name: "Base",
+          graphIndex: 0,
+          weight: 1,
+          blendMode: "override",
+          rootMotionMode: "none",
+          enabled: true
+        }
+      ],
+      entryGraphIndex: 0
+    };
+
+    const animator = createAnimatorInstance({
+      rig,
+      graph,
+      clips: [poseTenClip, poseTwentyClip]
+    });
+
+    animator.setInt("weaponType", 2);
+    const result = animator.update(0.1);
+
+    expect(result.pose.translations[0]).toBeCloseTo(20);
+  });
+
+  it("reduces foot drift when orientation warp leg stabilization is configured", () => {
+    const makeGraph = (withLegs: boolean): CompiledAnimatorGraph => ({
+      version: 1,
+      name: withLegs ? "Orientation Warp With Legs" : "Orientation Warp Without Legs",
+      parameters: [{ name: "headingOffset", type: "float", defaultValue: 0 }],
+      clipSlots: [{ id: "orientation-base", name: "Orientation Base", duration: 1 }],
+      masks: [],
+      graphs: [
+        {
+          name: "Main",
+          rootNodeIndex: 1,
+          nodes: [
+            { type: "clip", clipIndex: 0, speed: 1, loop: true, inPlace: false },
+            {
+              type: "orientationWarp",
+              sourceNodeIndex: 0,
+              parameterIndex: 0,
+              maxAngle: Math.PI / 2,
+              weight: 1,
+              hipBoneIndex: 1,
+              hipWeight: 0.45,
+              spineBoneIndices: [2],
+              legs: withLegs
+                ? [
+                    { upperBoneIndex: 3, lowerBoneIndex: 4, footBoneIndex: 5, weight: 1 },
+                    { upperBoneIndex: 6, lowerBoneIndex: 7, footBoneIndex: 8, weight: 1 }
+                  ]
+                : []
+            }
+          ]
+        }
+      ],
+      layers: [
+        {
+          name: "Base",
+          graphIndex: 0,
+          weight: 1,
+          blendMode: "override",
+          rootMotionMode: "none",
+          enabled: true
+        }
+      ],
+      entryGraphIndex: 0
+    });
+
+    const baseAnimator = createAnimatorInstance({
+      rig: orientationWarpRig,
+      graph: {
+        version: 1,
+        name: "Base Orientation Pose",
+        parameters: [],
+        clipSlots: [{ id: "orientation-base", name: "Orientation Base", duration: 1 }],
+        masks: [],
+        graphs: [
+          {
+            name: "Main",
+            rootNodeIndex: 0,
+            nodes: [{ type: "clip", clipIndex: 0, speed: 1, loop: true, inPlace: false }]
+          }
+        ],
+        layers: [
+          {
+            name: "Base",
+            graphIndex: 0,
+            weight: 1,
+            blendMode: "override",
+            rootMotionMode: "none",
+            enabled: true
+          }
+        ],
+        entryGraphIndex: 0
+      },
+      clips: [orientationWarpClip]
+    });
+    const baseResult = baseAnimator.update(0.1);
+    const baseLeftFoot = computeWorldPosition(orientationWarpRig, baseResult.pose, 5);
+    const baseRightFoot = computeWorldPosition(orientationWarpRig, baseResult.pose, 8);
+
+    const warpedWithoutLegs = createAnimatorInstance({
+      rig: orientationWarpRig,
+      graph: makeGraph(false),
+      clips: [orientationWarpClip]
+    });
+    warpedWithoutLegs.setFloat("headingOffset", Math.PI / 2);
+    const withoutLegsResult = warpedWithoutLegs.update(0.1);
+
+    const warpedWithLegs = createAnimatorInstance({
+      rig: orientationWarpRig,
+      graph: makeGraph(true),
+      clips: [orientationWarpClip]
+    });
+    warpedWithLegs.setFloat("headingOffset", Math.PI / 2);
+    const withLegsResult = warpedWithLegs.update(0.1);
+
+    const withoutLeftFoot = computeWorldPosition(orientationWarpRig, withoutLegsResult.pose, 5);
+    const withoutRightFoot = computeWorldPosition(orientationWarpRig, withoutLegsResult.pose, 8);
+    const withLeftFoot = computeWorldPosition(orientationWarpRig, withLegsResult.pose, 5);
+    const withRightFoot = computeWorldPosition(orientationWarpRig, withLegsResult.pose, 8);
+
+    expect(Math.abs(withLegsResult.pose.rotations[5])).toBeGreaterThan(0.2);
+    expect(distanceBetween(withLeftFoot, baseLeftFoot)).toBeLessThan(distanceBetween(withoutLeftFoot, baseLeftFoot));
+    expect(distanceBetween(withRightFoot, baseRightFoot)).toBeLessThan(distanceBetween(withoutRightFoot, baseRightFoot));
+  });
+
+  it("syncs node playback across layers with sync groups", () => {
+    const graph: CompiledAnimatorGraph = {
+      version: 1,
+      name: "Node Sync Groups",
+      parameters: [],
+      clipSlots: [
+        { id: "walk", name: "Walk", duration: 1 },
+        { id: "run-fast", name: "Run Fast", duration: 0.5 }
+      ],
+      masks: [],
+      graphs: [
+        {
+          name: "Base",
+          rootNodeIndex: 0,
+          nodes: [{ type: "clip", clipIndex: 0, speed: 1, loop: true, inPlace: false, syncGroup: "locomotion" }]
+        },
+        {
+          name: "Upper",
+          rootNodeIndex: 0,
+          nodes: [{ type: "clip", clipIndex: 1, speed: 1, loop: true, inPlace: false, syncGroup: "locomotion" }]
+        }
+      ],
+      layers: [
+        {
+          name: "Base",
+          graphIndex: 0,
+          weight: 1,
+          blendMode: "override",
+          rootMotionMode: "none",
+          enabled: true
+        },
+        {
+          name: "Upper",
+          graphIndex: 1,
+          weight: 1,
+          blendMode: "override",
+          rootMotionMode: "none",
+          enabled: true
+        }
+      ],
+      entryGraphIndex: 0
+    };
+
+    const animator = createAnimatorInstance({
+      rig,
+      graph,
+      clips: [walkClip, fastRunClip]
+    });
+
+    const result = animator.update(0.25);
+
+    expect(result.pose.translations[0]).toBeCloseTo(0.25);
+  });
+
+  it("syncs state machine states across layers with sync groups", () => {
+    const graph: CompiledAnimatorGraph = {
+      version: 1,
+      name: "State Sync Groups",
+      parameters: [],
+      clipSlots: [
+        { id: "walk", name: "Walk", duration: 1 },
+        { id: "run-fast", name: "Run Fast", duration: 0.5 }
+      ],
+      masks: [],
+      graphs: [
+        {
+          name: "Base",
+          rootNodeIndex: 0,
+          nodes: [{ type: "clip", clipIndex: 0, speed: 1, loop: true, inPlace: false, syncGroup: "locomotion" }]
+        },
+        {
+          name: "Upper",
+          rootNodeIndex: 1,
+          nodes: [
+            { type: "clip", clipIndex: 1, speed: 1, loop: true, inPlace: false },
+            {
+              type: "stateMachine",
+              machineIndex: 0,
+              entryStateIndex: 0,
+              states: [{ name: "Run", motionNodeIndex: 0, speed: 1, cycleOffset: 0, syncGroup: "locomotion" }],
+              transitions: [],
+              anyStateTransitions: []
+            }
+          ]
+        }
+      ],
+      layers: [
+        {
+          name: "Base",
+          graphIndex: 0,
+          weight: 1,
+          blendMode: "override",
+          rootMotionMode: "none",
+          enabled: true
+        },
+        {
+          name: "Upper",
+          graphIndex: 1,
+          weight: 1,
+          blendMode: "override",
+          rootMotionMode: "none",
+          enabled: true
+        }
+      ],
+      entryGraphIndex: 0
+    };
+
+    const animator = createAnimatorInstance({
+      rig,
+      graph,
+      clips: [walkClip, fastRunClip]
+    });
+
+    const result = animator.update(0.25);
+
+    expect(result.pose.translations[0]).toBeCloseTo(0.25);
   });
 
   it("supports easing curves for state machine crossfades", () => {
@@ -796,5 +1359,66 @@ describe("@ggez/anim-runtime", () => {
     expect(result.pose.translations[6]).toBeCloseTo(0);
     expect(result.pose.translations[7]).toBeCloseTo(2);
     expect(result.pose.translations[8]).toBeCloseTo(0);
+  });
+
+  it("advances reused subgraph state machines only once per update", () => {
+    const graph: CompiledAnimatorGraph = {
+      version: 1,
+      name: "Shared Subgraph Machine",
+      parameters: [],
+      clipSlots: [{ id: "walk", name: "Walk", duration: 1 }],
+      masks: [],
+      graphs: [
+        {
+          name: "Locomotion",
+          rootNodeIndex: 1,
+          nodes: [
+            { type: "clip", clipIndex: 0, speed: 1, loop: true, inPlace: false },
+            {
+              type: "stateMachine",
+              machineIndex: 0,
+              entryStateIndex: 0,
+              states: [{ name: "Walk", motionNodeIndex: 0, speed: 1, cycleOffset: 0 }],
+              transitions: [],
+              anyStateTransitions: []
+            }
+          ]
+        },
+        {
+          name: "Overlay",
+          rootNodeIndex: 0,
+          nodes: [{ type: "subgraph", graphIndex: 0 }]
+        }
+      ],
+      layers: [
+        {
+          name: "Base",
+          graphIndex: 0,
+          weight: 1,
+          blendMode: "override",
+          rootMotionMode: "none",
+          enabled: true
+        },
+        {
+          name: "Overlay",
+          graphIndex: 1,
+          weight: 1,
+          blendMode: "override",
+          rootMotionMode: "none",
+          enabled: true
+        }
+      ],
+      entryGraphIndex: 0
+    };
+
+    const animator = createAnimatorInstance({
+      rig,
+      graph,
+      clips: [walkClip]
+    });
+
+    const result = animator.update(0.5);
+
+    expect(result.pose.translations[0]).toBeCloseTo(1);
   });
 });

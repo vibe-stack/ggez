@@ -93,7 +93,8 @@ export const clipNodeSchema = graphNodeBaseSchema.extend({
   clipId: z.string(),
   speed: z.number().default(1),
   loop: z.boolean().default(true),
-  inPlace: z.boolean().default(false)
+  inPlace: z.boolean().default(false),
+  syncGroup: z.string().min(1).optional()
 });
 
 export const blend1DChildSchema = z.object({
@@ -105,7 +106,8 @@ export const blend1DChildSchema = z.object({
 export const blend1DNodeSchema = graphNodeBaseSchema.extend({
   kind: z.literal("blend1d"),
   parameterId: z.string(),
-  children: z.array(blend1DChildSchema).default([])
+  children: z.array(blend1DChildSchema).default([]),
+  syncGroup: z.string().min(1).optional()
 });
 
 export const blend2DChildSchema = z.object({
@@ -119,7 +121,40 @@ export const blend2DNodeSchema = graphNodeBaseSchema.extend({
   kind: z.literal("blend2d"),
   xParameterId: z.string(),
   yParameterId: z.string(),
-  children: z.array(blend2DChildSchema).default([])
+  children: z.array(blend2DChildSchema).default([]),
+  syncGroup: z.string().min(1).optional()
+});
+
+export const selectorChildSchema = z.object({
+  nodeId: z.string().min(1),
+  value: z.number().int(),
+  label: z.string().optional()
+});
+
+export const selectorNodeSchema = graphNodeBaseSchema.extend({
+  kind: z.literal("selector"),
+  parameterId: z.string(),
+  children: z.array(selectorChildSchema).default([]),
+  syncGroup: z.string().min(1).optional()
+});
+
+export const orientationWarpLegSchema = z.object({
+  upperBoneName: z.string().min(1),
+  lowerBoneName: z.string().min(1),
+  footBoneName: z.string().min(1),
+  weight: z.number().min(0).max(1).default(1)
+});
+
+export const orientationWarpNodeSchema = graphNodeBaseSchema.extend({
+  kind: z.literal("orientationWarp"),
+  sourceNodeId: z.string().min(1).optional(),
+  angleParameterId: z.string(),
+  maxAngle: z.number().positive().default(Math.PI / 2),
+  weight: z.number().min(0).max(1).default(1),
+  hipBoneName: z.string().min(1).optional(),
+  hipWeight: z.number().min(0).max(1).default(0.35),
+  spineBoneNames: z.array(z.string().min(1)).default([]),
+  legs: z.array(orientationWarpLegSchema).default([])
 });
 
 export const transitionConditionSchema = z.object({
@@ -134,7 +169,8 @@ export const stateMachineStateSchema = z.object({
   motionNodeId: z.string(),
   position: vec2Schema.optional(),
   speed: z.number().default(1),
-  cycleOffset: z.number().default(0)
+  cycleOffset: z.number().default(0),
+  syncGroup: z.string().min(1).optional()
 });
 
 export const stateMachineTransitionSchema = z.object({
@@ -160,7 +196,8 @@ export const stateMachineNodeSchema = graphNodeBaseSchema.extend({
 
 export const subgraphNodeSchema = graphNodeBaseSchema.extend({
   kind: z.literal("subgraph"),
-  graphId: z.string()
+  graphId: z.string(),
+  syncGroup: z.string().min(1).optional()
 });
 
 export const outputNodeSchema = graphNodeBaseSchema.extend({
@@ -172,6 +209,8 @@ export const graphNodeSchema = z.discriminatedUnion("kind", [
   clipNodeSchema,
   blend1DNodeSchema,
   blend2DNodeSchema,
+  selectorNodeSchema,
+  orientationWarpNodeSchema,
   stateMachineNodeSchema,
   subgraphNodeSchema,
   outputNodeSchema
@@ -263,7 +302,8 @@ export const compiledStateSchema = z.object({
   name: z.string().min(1),
   motionNodeIndex: z.number().int().min(-1),
   speed: z.number(),
-  cycleOffset: z.number()
+  cycleOffset: z.number(),
+  syncGroup: z.string().min(1).optional()
 });
 
 export const compiledClipNodeSchema = z.object({
@@ -271,7 +311,8 @@ export const compiledClipNodeSchema = z.object({
   clipIndex: z.number().int().nonnegative(),
   speed: z.number(),
   loop: z.boolean(),
-  inPlace: z.boolean().default(false)
+  inPlace: z.boolean().default(false),
+  syncGroup: z.string().min(1).optional()
 });
 
 export const compiledBlend1DNodeSchema = z.object({
@@ -284,7 +325,8 @@ export const compiledBlend1DNodeSchema = z.object({
         threshold: z.number()
       })
     )
-    .min(1)
+    .min(1),
+  syncGroup: z.string().min(1).optional()
 });
 
 export const compiledBlend2DNodeSchema = z.object({
@@ -299,7 +341,41 @@ export const compiledBlend2DNodeSchema = z.object({
         y: z.number()
       })
     )
-    .min(1)
+    .min(1),
+  syncGroup: z.string().min(1).optional()
+});
+
+export const compiledSelectorNodeSchema = z.object({
+  type: z.literal("selector"),
+  parameterIndex: z.number().int().nonnegative(),
+  children: z
+    .array(
+      z.object({
+        nodeIndex: z.number().int().nonnegative(),
+        value: z.number().int()
+      })
+  )
+    .min(1),
+  syncGroup: z.string().min(1).optional()
+});
+
+export const compiledOrientationWarpLegSchema = z.object({
+  upperBoneIndex: z.number().int().nonnegative(),
+  lowerBoneIndex: z.number().int().nonnegative(),
+  footBoneIndex: z.number().int().nonnegative(),
+  weight: z.number().min(0).max(1)
+});
+
+export const compiledOrientationWarpNodeSchema = z.object({
+  type: z.literal("orientationWarp"),
+  sourceNodeIndex: z.number().int().nonnegative(),
+  parameterIndex: z.number().int().nonnegative(),
+  maxAngle: z.number().positive(),
+  weight: z.number().min(0).max(1),
+  hipBoneIndex: z.number().int().nonnegative().optional(),
+  hipWeight: z.number().min(0).max(1),
+  spineBoneIndices: z.array(z.number().int().nonnegative()),
+  legs: z.array(compiledOrientationWarpLegSchema)
 });
 
 export const compiledStateMachineNodeSchema = z.object({
@@ -313,13 +389,16 @@ export const compiledStateMachineNodeSchema = z.object({
 
 export const compiledSubgraphNodeSchema = z.object({
   type: z.literal("subgraph"),
-  graphIndex: z.number().int().nonnegative()
+  graphIndex: z.number().int().nonnegative(),
+  syncGroup: z.string().min(1).optional()
 });
 
 export const compiledGraphNodeSchema = z.discriminatedUnion("type", [
   compiledClipNodeSchema,
   compiledBlend1DNodeSchema,
   compiledBlend2DNodeSchema,
+  compiledSelectorNodeSchema,
+  compiledOrientationWarpNodeSchema,
   compiledStateMachineNodeSchema,
   compiledSubgraphNodeSchema
 ]);

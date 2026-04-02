@@ -156,8 +156,13 @@ function collectReachableNodeIds(graph: AnimationEditorDocument["graphs"][number
 
     reachable.add(nodeId);
 
-    if (node.kind === "blend1d" || node.kind === "blend2d") {
+    if (node.kind === "blend1d" || node.kind === "blend2d" || node.kind === "selector") {
       node.children.forEach((child) => visit(child.nodeId));
+      return;
+    }
+
+    if (node.kind === "orientationWarp") {
+      visit(node.sourceNodeId);
       return;
     }
 
@@ -264,7 +269,8 @@ export function compileAnimationEditorDocument(input: unknown): CompileResult {
             clipIndex,
             speed: node.speed,
             loop: node.loop,
-            inPlace: node.inPlace
+            inPlace: node.inPlace,
+            syncGroup: node.syncGroup
           });
           return;
         }
@@ -273,6 +279,16 @@ export function compileAnimationEditorDocument(input: unknown): CompileResult {
           if (parameterIndex === undefined) {
             diagnostics.push(error(`Blend1D node "${node.name}" references missing parameter "${node.parameterId}".`, `graphs.${graphIndex}.nodes.${nodeIndex}.parameterId`));
             return;
+          }
+
+          const parameter = document.parameters[parameterIndex];
+          if (parameter?.type === "int") {
+            diagnostics.push(
+              warning(
+                `Blend1D node "${node.name}" is driven by int parameter "${parameter.name}". Use a Selector node for discrete values like weapon types to avoid unintended interpolation.`,
+                `graphs.${graphIndex}.nodes.${nodeIndex}.parameterId`
+              )
+            );
           }
 
           const children = node.children.flatMap((child, childIndex) => {
@@ -297,7 +313,8 @@ export function compileAnimationEditorDocument(input: unknown): CompileResult {
           compiledNodes.push({
             type: "blend1d",
             parameterIndex,
-            children
+            children,
+            syncGroup: node.syncGroup
           });
           return;
         }
@@ -329,7 +346,124 @@ export function compileAnimationEditorDocument(input: unknown): CompileResult {
             type: "blend2d",
             xParameterIndex,
             yParameterIndex,
-            children
+            children,
+            syncGroup: node.syncGroup
+          });
+          return;
+        }
+        case "selector": {
+          const parameterIndex = parameterIndexById.get(node.parameterId);
+          if (parameterIndex === undefined) {
+            diagnostics.push(error(`Selector node "${node.name}" references missing parameter "${node.parameterId}".`, `graphs.${graphIndex}.nodes.${nodeIndex}.parameterId`));
+            return;
+          }
+
+          const children = node.children.flatMap((child, childIndex) => {
+            const target = nodeIdToCompiledIndex.get(child.nodeId);
+            if (target === undefined) {
+              diagnostics.push(error(`Selector node "${node.name}" references unknown child node "${child.nodeId}".`, `graphs.${graphIndex}.nodes.${nodeIndex}.children.${childIndex}.nodeId`));
+              return [];
+            }
+
+            return [
+              {
+                nodeIndex: target,
+                value: child.value
+              }
+            ];
+          });
+
+          if (children.length === 0) {
+            diagnostics.push(error(`Selector node "${node.name}" has no valid children.`, `graphs.${graphIndex}.nodes.${nodeIndex}.children`));
+          }
+
+          compiledNodes.push({
+            type: "selector",
+            parameterIndex,
+            children,
+            syncGroup: node.syncGroup
+          });
+          return;
+        }
+        case "orientationWarp": {
+          const sourceNodeIndex = node.sourceNodeId ? nodeIdToCompiledIndex.get(node.sourceNodeId) : undefined;
+          if (sourceNodeIndex === undefined) {
+            diagnostics.push(error(`Orientation Warp node "${node.name}" requires a connected source motion.`, `graphs.${graphIndex}.nodes.${nodeIndex}.sourceNodeId`));
+            return;
+          }
+
+          const parameterIndex = parameterIndexById.get(node.angleParameterId);
+          if (parameterIndex === undefined) {
+            diagnostics.push(error(`Orientation Warp node "${node.name}" references missing parameter "${node.angleParameterId}".`, `graphs.${graphIndex}.nodes.${nodeIndex}.angleParameterId`));
+            return;
+          }
+
+          if (!rig) {
+            diagnostics.push(error(`Orientation Warp node "${node.name}" requires rig data to resolve authored bones.`, `graphs.${graphIndex}.nodes.${nodeIndex}`));
+            return;
+          }
+
+          const resolveBoneIndex = (boneName: string, path: string): number | undefined => {
+            const boneIndex = findBoneIndexByName(rig, boneName);
+            if (boneIndex < 0) {
+              diagnostics.push(error(`Orientation Warp node "${node.name}" references unknown bone "${boneName}".`, path));
+              return undefined;
+            }
+            return boneIndex;
+          };
+
+          const hipBoneIndex = node.hipBoneName
+            ? resolveBoneIndex(node.hipBoneName, `graphs.${graphIndex}.nodes.${nodeIndex}.hipBoneName`)
+            : undefined;
+          const spineBoneIndices = node.spineBoneNames.flatMap((boneName, spineIndex) => {
+            const boneIndex = resolveBoneIndex(
+              boneName,
+              `graphs.${graphIndex}.nodes.${nodeIndex}.spineBoneNames.${spineIndex}`
+            );
+            return boneIndex === undefined ? [] : [boneIndex];
+          });
+          const legs = node.legs.flatMap((leg, legIndex) => {
+            const upperBoneIndex = resolveBoneIndex(
+              leg.upperBoneName,
+              `graphs.${graphIndex}.nodes.${nodeIndex}.legs.${legIndex}.upperBoneName`
+            );
+            const lowerBoneIndex = resolveBoneIndex(
+              leg.lowerBoneName,
+              `graphs.${graphIndex}.nodes.${nodeIndex}.legs.${legIndex}.lowerBoneName`
+            );
+            const footBoneIndex = resolveBoneIndex(
+              leg.footBoneName,
+              `graphs.${graphIndex}.nodes.${nodeIndex}.legs.${legIndex}.footBoneName`
+            );
+
+            if (
+              upperBoneIndex === undefined ||
+              lowerBoneIndex === undefined ||
+              footBoneIndex === undefined
+            ) {
+              return [];
+            }
+
+            return [
+              {
+                upperBoneIndex,
+                lowerBoneIndex,
+                footBoneIndex,
+                weight: leg.weight
+              }
+            ];
+          });
+
+          compiledNodes.push({
+            type: "orientationWarp",
+            sourceNodeIndex,
+            parameterIndex,
+            maxAngle: node.maxAngle,
+            weight: node.weight,
+            hipBoneIndex,
+            hipWeight: node.hipWeight,
+            spineBoneIndices,
+            legs
           });
           return;
         }
@@ -342,7 +476,8 @@ export function compileAnimationEditorDocument(input: unknown): CompileResult {
 
           compiledNodes.push({
             type: "subgraph",
-            graphIndex: targetGraphIndex
+            graphIndex: targetGraphIndex,
+            syncGroup: node.syncGroup
           });
           return;
         }
@@ -355,7 +490,8 @@ export function compileAnimationEditorDocument(input: unknown): CompileResult {
                   name: state.name,
                   motionNodeIndex: -1,
                   speed: state.speed,
-                  cycleOffset: state.cycleOffset
+                  cycleOffset: state.cycleOffset,
+                  syncGroup: state.syncGroup
                 }
               ];
             }
@@ -367,13 +503,14 @@ export function compileAnimationEditorDocument(input: unknown): CompileResult {
             }
 
             return [
-              {
-                name: state.name,
-                motionNodeIndex,
-                speed: state.speed,
-                cycleOffset: state.cycleOffset
-              }
-            ];
+                {
+                  name: state.name,
+                  motionNodeIndex,
+                  speed: state.speed,
+                  cycleOffset: state.cycleOffset,
+                  syncGroup: state.syncGroup
+                }
+              ];
           });
           const entryStateIndex = stateIndexById.get(node.entryStateId);
           if (entryStateIndex === undefined) {

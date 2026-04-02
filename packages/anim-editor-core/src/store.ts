@@ -120,6 +120,20 @@ function disconnectSourceFromTarget(graph: EditorGraph, sourceNodeId: string, ta
     });
   }
 
+  if (targetNode.kind === "selector") {
+    return replaceNode(graph, targetNode.id, {
+      ...targetNode,
+      children: targetNode.children.filter((child) => child.nodeId !== sourceNodeId)
+    });
+  }
+
+  if (targetNode.kind === "orientationWarp" && targetNode.sourceNodeId === sourceNodeId) {
+    return replaceNode(graph, targetNode.id, {
+      ...targetNode,
+      sourceNodeId: undefined
+    });
+  }
+
   return graph;
 }
 
@@ -143,6 +157,17 @@ function removeNodeReferences(graph: EditorGraph, removedNodeIds: Set<string>): 
           ...node,
           children: node.children.filter((child) => !removedNodeIds.has(child.nodeId))
         };
+      }
+
+      if (node.kind === "selector") {
+        return {
+          ...node,
+          children: node.children.filter((child) => !removedNodeIds.has(child.nodeId))
+        };
+      }
+
+      if (node.kind === "orientationWarp") {
+        return removedNodeIds.has(node.sourceNodeId ?? "") ? { ...node, sourceNodeId: undefined } : node;
       }
 
       if (node.kind === "stateMachine") {
@@ -306,7 +331,18 @@ export function createAnimationEditorStore(initialDocument = createDefaultAnimat
       });
     },
     addNode(graphId, kind) {
-      const node = createDefaultNode(kind, kind === "blend1d" ? "Blend 1D" : kind === "blend2d" ? "Blend 2D" : kind);
+      const node = createDefaultNode(
+        kind,
+        kind === "blend1d"
+          ? "Blend 1D"
+          : kind === "blend2d"
+            ? "Blend 2D"
+            : kind === "selector"
+              ? "Selector"
+              : kind === "orientationWarp"
+                ? "Orientation Warp"
+              : kind
+      );
       const graph = state.document.graphs.find((entry) => entry.id === graphId);
       if (!graph) {
         throw new Error(`Unknown graph "${graphId}".`);
@@ -392,6 +428,22 @@ export function createAnimationEditorStore(initialDocument = createDefaultAnimat
                   y: 0
                 }
               ]
+            });
+          } else if (targetNode.kind === "selector") {
+            nextGraph = replaceNode(graph, targetNodeId, {
+              ...targetNode,
+              children: [
+                ...targetNode.children.filter((child) => child.nodeId !== sourceNodeId),
+                {
+                  nodeId: sourceNodeId,
+                  value: targetNode.children.length
+                }
+              ]
+            });
+          } else if (targetNode.kind === "orientationWarp") {
+            nextGraph = replaceNode(graph, targetNodeId, {
+              ...targetNode,
+              sourceNodeId
             });
           }
 
