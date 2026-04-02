@@ -73,20 +73,42 @@ function summarizeNode(node: EditorGraphNode) {
         clipId: node.clipId,
         speed: node.speed,
         loop: node.loop,
-        inPlace: node.inPlace
+        inPlace: node.inPlace,
+        syncGroup: node.syncGroup
       };
     case "blend1d":
       return {
         ...base,
         parameterId: node.parameterId,
-        children: node.children
+        children: node.children,
+        syncGroup: node.syncGroup
       };
     case "blend2d":
       return {
         ...base,
         xParameterId: node.xParameterId,
         yParameterId: node.yParameterId,
-        children: node.children
+        children: node.children,
+        syncGroup: node.syncGroup
+      };
+    case "selector":
+      return {
+        ...base,
+        parameterId: node.parameterId,
+        children: node.children,
+        syncGroup: node.syncGroup
+      };
+    case "orientationWarp":
+      return {
+        ...base,
+        sourceNodeId: node.sourceNodeId,
+        angleParameterId: node.angleParameterId,
+        maxAngle: node.maxAngle,
+        weight: node.weight,
+        hipBoneName: node.hipBoneName,
+        hipWeight: node.hipWeight,
+        spineBoneNames: node.spineBoneNames,
+        legs: node.legs
       };
     case "stateMachine":
       return {
@@ -99,7 +121,8 @@ function summarizeNode(node: EditorGraphNode) {
     case "subgraph":
       return {
         ...base,
-        graphId: node.graphId
+        graphId: node.graphId,
+        syncGroup: node.syncGroup
       };
     case "output":
       return {
@@ -167,23 +190,45 @@ function applyNodePatch(node: EditorGraphNode, args: Args): EditorGraphNode {
         clipId: str(args, "clipId", nextNode.clipId),
         speed: num(args, "speed") ?? nextNode.speed,
         loop: bool(args, "loop") ?? nextNode.loop,
-        inPlace: bool(args, "inPlace") ?? nextNode.inPlace
+        inPlace: bool(args, "inPlace") ?? nextNode.inPlace,
+        syncGroup: "syncGroup" in args ? str(args, "syncGroup") || undefined : nextNode.syncGroup
       };
     case "blend1d":
       return {
         ...nextNode,
-        parameterId: str(args, "parameterId", nextNode.parameterId)
+        parameterId: str(args, "parameterId", nextNode.parameterId),
+        syncGroup: "syncGroup" in args ? str(args, "syncGroup") || undefined : nextNode.syncGroup
       };
     case "blend2d":
       return {
         ...nextNode,
         xParameterId: str(args, "xParameterId", nextNode.xParameterId),
-        yParameterId: str(args, "yParameterId", nextNode.yParameterId)
+        yParameterId: str(args, "yParameterId", nextNode.yParameterId),
+        syncGroup: "syncGroup" in args ? str(args, "syncGroup") || undefined : nextNode.syncGroup
+      };
+    case "selector":
+      return {
+        ...nextNode,
+        parameterId: str(args, "parameterId", nextNode.parameterId),
+        syncGroup: "syncGroup" in args ? str(args, "syncGroup") || undefined : nextNode.syncGroup
+      };
+    case "orientationWarp":
+      return {
+        ...nextNode,
+        sourceNodeId: "sourceNodeId" in args ? str(args, "sourceNodeId") || undefined : nextNode.sourceNodeId,
+        angleParameterId: str(args, "angleParameterId", nextNode.angleParameterId),
+        maxAngle: num(args, "maxAngle") ?? nextNode.maxAngle,
+        weight: num(args, "weight") ?? nextNode.weight,
+        hipBoneName: "hipBoneName" in args ? str(args, "hipBoneName") || undefined : nextNode.hipBoneName,
+        hipWeight: num(args, "hipWeight") ?? nextNode.hipWeight,
+        spineBoneNames: "spineBoneNames" in args ? strArray(args, "spineBoneNames") : nextNode.spineBoneNames,
+        legs: "legs" in args ? parseOrientationWarpLegs(args.legs) : nextNode.legs
       };
     case "subgraph":
       return {
         ...nextNode,
-        graphId: str(args, "subgraphId", nextNode.graphId)
+        graphId: str(args, "subgraphId", nextNode.graphId),
+        syncGroup: "syncGroup" in args ? str(args, "syncGroup") || undefined : nextNode.syncGroup
       };
     default:
       return nextNode;
@@ -223,6 +268,48 @@ function parseBlend2DChildren(children: unknown): Extract<EditorGraphNode, { kin
       x: typeof entry.x === "number" ? entry.x : index,
       y: typeof entry.y === "number" ? entry.y : 0,
       label: typeof entry.label === "string" ? entry.label : undefined
+    };
+  });
+}
+
+function parseSelectorChildren(children: unknown): Extract<EditorGraphNode, { kind: "selector" }>["children"] {
+  if (!Array.isArray(children)) {
+    throw new Error("children must be an array.");
+  }
+
+  return children.map((entry, index) => {
+    if (!isRecord(entry) || typeof entry.nodeId !== "string") {
+      throw new Error(`children[${index}] must include a string nodeId.`);
+    }
+
+    return {
+      nodeId: entry.nodeId,
+      value: typeof entry.value === "number" ? Math.trunc(entry.value) : index,
+      label: typeof entry.label === "string" ? entry.label : undefined
+    };
+  });
+}
+
+function parseOrientationWarpLegs(legs: unknown): Extract<EditorGraphNode, { kind: "orientationWarp" }>["legs"] {
+  if (!Array.isArray(legs)) {
+    throw new Error("legs must be an array.");
+  }
+
+  return legs.map((entry, index) => {
+    if (
+      !isRecord(entry) ||
+      typeof entry.upperBoneName !== "string" ||
+      typeof entry.lowerBoneName !== "string" ||
+      typeof entry.footBoneName !== "string"
+    ) {
+      throw new Error(`legs[${index}] must include upperBoneName, lowerBoneName, and footBoneName strings.`);
+    }
+
+    return {
+      upperBoneName: entry.upperBoneName,
+      lowerBoneName: entry.lowerBoneName,
+      footBoneName: entry.footBoneName,
+      weight: typeof entry.weight === "number" ? entry.weight : 1
     };
   });
 }
@@ -520,6 +607,21 @@ function executeToolInner(
           store.updateNode(graphId, nodeId, (current) => current.kind === "blend2d" ? { ...current, children } : current);
         }
 
+        const nextGraph = getGraphOrFail(store.getState().document, graphId);
+        return ok({ node: summarizeNode(getNodeOrFail(nextGraph, nodeId)) });
+      }
+
+      case "set_selector_children": {
+        const graphId = str(args, "graphId");
+        const nodeId = str(args, "nodeId");
+        const graph = getGraphOrFail(document, graphId);
+        const node = getNodeOrFail(graph, nodeId);
+        if (node.kind !== "selector") {
+          return fail("set_selector_children only works on selector nodes.");
+        }
+
+        const children = parseSelectorChildren(args.children);
+        store.updateNode(graphId, nodeId, (current) => current.kind === "selector" ? { ...current, children } : current);
         const nextGraph = getGraphOrFail(store.getState().document, graphId);
         return ok({ node: summarizeNode(getNodeOrFail(nextGraph, nodeId)) });
       }

@@ -277,7 +277,7 @@ export const COPILOT_TOOL_DECLARATIONS: CopilotToolDeclaration[] = [
       type: "object",
       properties: {
         graphId: { type: "string" },
-        kind: { type: "string", enum: ["clip", "blend1d", "blend2d", "stateMachine", "subgraph"] },
+        kind: { type: "string", enum: ["clip", "blend1d", "blend2d", "selector", "orientationWarp", "stateMachine", "subgraph"] },
         name: { type: "string" },
         x: { type: "number" },
         y: { type: "number" },
@@ -285,10 +285,31 @@ export const COPILOT_TOOL_DECLARATIONS: CopilotToolDeclaration[] = [
         speed: { type: "number" },
         loop: { type: "boolean" },
         inPlace: { type: "boolean" },
+        syncGroup: { type: "string" },
         parameterId: { type: "string" },
         xParameterId: { type: "string" },
         yParameterId: { type: "string" },
-        subgraphId: { type: "string" }
+        subgraphId: { type: "string" },
+        sourceNodeId: { type: "string" },
+        angleParameterId: { type: "string" },
+        maxAngle: { type: "number" },
+        weight: { type: "number" },
+        hipBoneName: { type: "string" },
+        hipWeight: { type: "number" },
+        spineBoneNames: { type: "array", items: { type: "string" } },
+        legs: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              upperBoneName: { type: "string" },
+              lowerBoneName: { type: "string" },
+              footBoneName: { type: "string" },
+              weight: { type: "number" }
+            },
+            required: ["upperBoneName", "lowerBoneName", "footBoneName"]
+          }
+        }
       },
       required: ["graphId", "kind"]
     }
@@ -311,10 +332,31 @@ export const COPILOT_TOOL_DECLARATIONS: CopilotToolDeclaration[] = [
         speed: { type: "number" },
         loop: { type: "boolean" },
         inPlace: { type: "boolean" },
+        syncGroup: { type: "string" },
         parameterId: { type: "string" },
         xParameterId: { type: "string" },
         yParameterId: { type: "string" },
-        subgraphId: { type: "string" }
+        subgraphId: { type: "string" },
+        sourceNodeId: { type: "string" },
+        angleParameterId: { type: "string" },
+        maxAngle: { type: "number" },
+        weight: { type: "number" },
+        hipBoneName: { type: "string" },
+        hipWeight: { type: "number" },
+        spineBoneNames: { type: "array", items: { type: "string" } },
+        legs: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              upperBoneName: { type: "string" },
+              lowerBoneName: { type: "string" },
+              footBoneName: { type: "string" },
+              weight: { type: "number" }
+            },
+            required: ["upperBoneName", "lowerBoneName", "footBoneName"]
+          }
+        }
       },
       required: ["graphId", "nodeId"]
     }
@@ -349,6 +391,30 @@ export const COPILOT_TOOL_DECLARATIONS: CopilotToolDeclaration[] = [
               threshold: { type: "number" },
               x: { type: "number" },
               y: { type: "number" },
+              label: { type: "string" }
+            },
+            required: ["nodeId"]
+          }
+        }
+      },
+      required: ["graphId", "nodeId", "children"]
+    }
+  },
+  {
+    name: "set_selector_children",
+    description: "Replaces the children list for a selector node. Use this after wiring nodes to assign exact integer values.",
+    parameters: {
+      type: "object",
+      properties: {
+        graphId: { type: "string" },
+        nodeId: { type: "string" },
+        children: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              nodeId: { type: "string" },
+              value: { type: "number" },
               label: { type: "string" }
             },
             required: ["nodeId"]

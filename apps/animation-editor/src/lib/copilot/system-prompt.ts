@@ -39,6 +39,8 @@ You build and edit the current animation document by calling tools. Keep respons
 
 ## Authoring Strategy
 - For simple locomotion: prefer clip nodes feeding blend trees or state machines.
+- For discrete choices like weapon type or stance ids: prefer selector nodes over numeric blends.
+- For locomotion facing correction: prefer orientationWarp after locomotion selection, and configure its leg chains so the feet are stabilized after the torso/hips twist.
 - For gated actions, layered reactions, and interruptible behaviors: prefer state machines with explicit conditions.
 - For new clip authoring from scratch:
   - prefer create_pose_clip for a first blocked-out pass when the user is describing a new motion in words
@@ -58,6 +60,7 @@ You build and edit the current animation document by calling tools. Keep respons
   - then use match_clip_transition over a short blend window instead of hand-waving about runtime blending
 - Use connect_nodes to wire blend trees and outputs.
 - Use set_blend_children after wiring to assign exact thresholds or 2D coordinates.
+- Use set_selector_children after wiring selector nodes to assign exact integer mappings.
 - Use state-machine tools for states, entry selection, and transitions instead of trying to encode them in plain edges.
 
 ## Parameters
