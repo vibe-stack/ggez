@@ -138,6 +138,7 @@ export function AnimationEditorWorkspace(props: { store: AnimationEditorStore })
             }}
             onSelectClip={assets.setSelectedClipId}
             onUpdateClip={assets.updateImportedClip}
+            onDeleteClip={assets.deleteImportedClip}
           />
         ) : editorView === "graph" ? (
           <GraphEditorWorkspace

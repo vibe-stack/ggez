@@ -1,6 +1,6 @@
 import type { AnimationClipAsset, AnimationTrack, RigDefinition } from "@ggez/anim-core";
 import type { AnimationEditorStore } from "@ggez/anim-editor-core";
-import { Clock3, Film, Pause, Play, Plus, Scissors, Square, Upload } from "lucide-react";
+import { Clock3, Film, Pause, Play, Plus, Scissors, Square, Trash2, Upload } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { DragInput } from "@/components/ui/drag-input";
@@ -443,6 +443,7 @@ export function ClipEditorWorkspace(props: {
   onDropAnimationFiles: (files: File[]) => void;
   onSelectClip: (clipId: string) => void;
   onUpdateClip: (clipId: string, updater: (clip: ImportedPreviewClip) => ImportedPreviewClip) => void;
+  onDeleteClip: (clipId: string) => void;
 }) {
   const [isPlaying, setIsPlaying] = useState(true);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
@@ -1380,29 +1381,41 @@ export function ClipEditorWorkspace(props: {
                 props.importedClips.map((clip) => {
                   const isActive = activeClip?.id === clip.id;
                   return (
-                    <button
-                      key={clip.id}
-                      type="button"
-                      onClick={() => props.onSelectClip(clip.id)}
-                      className={cn(
-                        "flex w-full flex-col rounded-[20px] border px-3 py-3 text-left transition",
-                        isActive
-                          ? "border-emerald-300/20 bg-emerald-400/10 text-emerald-50"
-                          : "border-white/6 bg-white/4 text-zinc-200 hover:border-white/10 hover:bg-white/6"
-                      )}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate text-[12px] font-medium">{clip.name}</div>
-                          <div className="truncate text-[11px] text-zinc-500">{clip.source}</div>
+                    <div key={clip.id} className="group relative">
+                      <button
+                        type="button"
+                        onClick={() => props.onSelectClip(clip.id)}
+                        className={cn(
+                          "flex w-full flex-col rounded-[20px] border px-3 py-3 text-left transition",
+                          isActive
+                            ? "border-emerald-300/20 bg-emerald-400/10 text-emerald-50"
+                            : "border-white/6 bg-white/4 text-zinc-200 hover:border-white/10 hover:bg-white/6"
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate text-[12px] font-medium">{clip.name}</div>
+                            <div className="truncate text-[11px] text-zinc-500">{clip.source}</div>
+                          </div>
+                          <Film className={cn("size-4 shrink-0", isActive ? "text-emerald-200" : "text-zinc-500")} />
                         </div>
-                        <Film className={cn("size-4 shrink-0", isActive ? "text-emerald-200" : "text-zinc-500")} />
-                      </div>
-                      <div className="mt-2 flex items-center justify-between text-[11px] text-zinc-400">
-                        <span>{formatDuration(clip.duration)}</span>
-                        <span>{clip.asset.tracks.length} tracks</span>
-                      </div>
-                    </button>
+                        <div className="mt-2 flex items-center justify-between text-[11px] text-zinc-400">
+                          <span>{formatDuration(clip.duration)}</span>
+                          <span>{clip.asset.tracks.length} tracks</span>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          props.onDeleteClip(clip.id);
+                        }}
+                        aria-label={`Delete clip "${clip.name}"`}
+                        className="absolute top-2 right-2 hidden rounded-full p-1 text-zinc-500 transition hover:text-red-400 group-hover:flex"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
                   );
                 })
               )}

@@ -66,12 +66,14 @@ export interface AnimationEditorStore {
   pasteSelection(): void;
   addParameter(parameter?: Partial<ParameterDefinition>): void;
   updateParameter(parameterId: string, patch: Partial<ParameterDefinition>): void;
+  deleteParameter(parameterId: string): void;
   addLayer(layer?: Partial<EditorLayer>): void;
   updateLayer(layerId: string, patch: Partial<EditorLayer>): void;
   addMask(mask?: Partial<BoneMaskDefinition>): void;
   updateMask(maskId: string, patch: Partial<BoneMaskDefinition>): void;
   addClip(clip?: Partial<ClipReference>): void;
   updateClip(clipId: string, patch: Partial<ClipReference>): void;
+  deleteClip(clipId: string): void;
   setRig(rig?: SerializableRig): void;
   upsertClips(clips: ClipReference[]): void;
   compile(): CompileResult;
@@ -592,6 +594,14 @@ export function createAnimationEditorStore(initialDocument = createDefaultAnimat
         };
       });
     },
+    deleteParameter(parameterId) {
+      commit(["document", "parameters"], () => {
+        state.document = {
+          ...state.document,
+          parameters: state.document.parameters.filter((parameter) => parameter.id !== parameterId)
+        };
+      });
+    },
     addLayer(layer = {}) {
       commit(["document", "layers"], () => {
         state.document = {
@@ -666,6 +676,14 @@ export function createAnimationEditorStore(initialDocument = createDefaultAnimat
         state.document = {
           ...state.document,
           clips: state.document.clips.map((clip) => (clip.id === clipId ? { ...clip, ...patch } : clip))
+        };
+      });
+    },
+    deleteClip(clipId) {
+      commit(["document"], () => {
+        state.document = {
+          ...state.document,
+          clips: state.document.clips.filter((clip) => clip.id !== clipId)
         };
       });
     },

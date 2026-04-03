@@ -21,6 +21,7 @@ export type AssetState = {
   importAnimationFileList: (files: File[]) => Promise<void>;
   updateImportedClip: (clipId: string, updater: (clip: ImportedPreviewClip) => ImportedPreviewClip) => void;
   createImportedClip: (clip: ImportedPreviewClip, options?: { select?: boolean }) => void;
+  deleteImportedClip: (clipId: string) => void;
   setCharacter: React.Dispatch<React.SetStateAction<ImportedCharacterAsset | null>>;
   setImportedClips: React.Dispatch<React.SetStateAction<ImportedPreviewClip[]>>;
   setCharacterSourceFile: React.Dispatch<React.SetStateAction<File | null>>;
@@ -188,6 +189,20 @@ export function useAssetState(store: AnimationEditorStore, setEditorView: (view:
     setAssetStatus(`Created clip "${clip.name}".`);
   }
 
+  function deleteImportedClip(clipId: string) {
+    setImportedClips((current) => current.filter((clip) => clip.id !== clipId));
+    setCharacter((current) => {
+      if (!current) {
+        return current;
+      }
+      return {
+        ...current,
+        clips: current.clips.filter((clip) => clip.id !== clipId),
+      };
+    });
+    store.deleteClip(clipId);
+  }
+
   function resetAssets() {
     setCharacter(null);
     setImportedClips([]);
@@ -212,6 +227,7 @@ export function useAssetState(store: AnimationEditorStore, setEditorView: (view:
     importAnimationFileList,
     updateImportedClip,
     createImportedClip,
+    deleteImportedClip,
     setCharacter,
     setImportedClips,
     setCharacterSourceFile,
