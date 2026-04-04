@@ -4,7 +4,7 @@ import type { AnimationEditorStore } from "@ggez/anim-editor-core";
 import { createAnimatorInstance } from "@ggez/anim-runtime";
 import type { AnimatorInstance } from "@ggez/anim-runtime";
 import type { AnimationEditorDocument } from "@ggez/anim-schema";
-import { Film, Pause, Play, SlidersHorizontal, Workflow } from "lucide-react";
+import { Film, LocateFixed, Pause, Play, SlidersHorizontal, Workflow } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -26,7 +26,7 @@ import type { Object3D } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { ImportedCharacterAsset, ImportedPreviewClip } from "./preview-assets";
-import { applyPoseBufferToSceneBones } from "./preview-assets";
+import { applyPoseBufferToSceneBones, preparePreviewObject } from "./preview-assets";
 import { useEditorStoreValue } from "./use-editor-store-value";
 import { PropertyField, editorSelectClassName } from "./workspace/shared";
 
@@ -75,6 +75,29 @@ function forceBoneTranslationToBindPose(translations: Float32Array, bindTranslat
   translations[offset + 2] = bindTranslations[offset + 2]!;
 }
 
+function configureGridOpacity(grid: GridHelper, opacity: number): void {
+  const materials = Array.isArray(grid.material) ? grid.material : [grid.material];
+  materials.forEach((material) => {
+    material.transparent = true;
+    material.opacity = opacity;
+    material.depthWrite = false;
+  });
+}
+
+function updateInfiniteGrid(fineGrid: GridHelper, coarseGrid: GridHelper, anchorX: number, anchorZ: number): void {
+  const fineStep = 1;
+  const coarseStep = 10;
+  fineGrid.position.set(Math.round(anchorX / fineStep) * fineStep, 0, Math.round(anchorZ / fineStep) * fineStep);
+  coarseGrid.position.set(Math.round(anchorX / coarseStep) * coarseStep, 0.002, Math.round(anchorZ / coarseStep) * coarseStep);
+}
+
+function addBoneTranslationOffset(translations: Float32Array, boneIndex: number, x: number, y: number, z: number): void {
+  const offset = boneIndex * 3;
+  translations[offset] += x;
+  translations[offset + 1] += y;
+  translations[offset + 2] += z;
+}
+
 export function AnimationPreviewPanel(props: {
   store: AnimationEditorStore;
   character: ImportedCharacterAsset | null;
@@ -97,6 +120,7 @@ export function AnimationPreviewPanel(props: {
   const parameterValuesRef = useRef(parameterValues);
   const pendingTriggersRef = useRef<Set<string>>(new Set());
   const animatorRef = useRef<AnimatorInstance | null>(null);
+  const resetPreviewPositionRef = useRef(0);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -227,8 +251,11 @@ export function AnimationPreviewPanel(props: {
     keyLight.position.set(6, 12, 8);
     const fillLight = new DirectionalLight("#7dd3fc", 0.7);
     fillLight.position.set(-4, 6, -6);
-    const grid = new GridHelper(20, 20, "#14532d", "#052e16");
-    scene.add(ambient, keyLight, fillLight, grid);
+    const fineGrid = new GridHelper(240, 120, "#14532d", "#052e16");
+    const coarseGrid = new GridHelper(240, 24, "#1f7a4d", "#14532d");
+    configureGridOpacity(fineGrid, 0.34);
+    configureGridOpacity(coarseGrid, 0.18);
+    scene.add(ambient, keyLight, fillLight, fineGrid, coarseGrid);
 
     let previewObject: Object3D | null = null;
     let directClipTime = 0;
@@ -240,6 +267,7 @@ export function AnimationPreviewPanel(props: {
       previewObject = clone(character.scene);
 
       if (previewObject) {
+        preparePreviewObject(previewObject);
         scene.add(previewObject);
         fitCameraToObject(camera, controls, previewObject);
       }
@@ -262,6 +290,32 @@ export function AnimationPreviewPanel(props: {
 
     const clock = new Clock();
     let animationFrame = 0;
+    let lastMode = modeRef.current;
+    let lastAnimator: AnimatorInstance | null = animatorRef.current;
+    let hadRootMotion = false;
+    let handledResetPreviewPosition = resetPreviewPositionRef.current;
+    const previewMotionOffset = new Vector3();
+
+    function translateView(deltaX: number, deltaZ: number) {
+      camera.position.x += deltaX;
+      camera.position.z += deltaZ;
+      controls.target.x += deltaX;
+      controls.target.z += deltaZ;
+      controls.update();
+    }
+
+    function resetPreviewMotion() {
+      if (previewMotionOffset.x !== 0 || previewMotionOffset.z !== 0) {
+        translateView(-previewMotionOffset.x, -previewMotionOffset.z);
+      }
+
+      if (!previewObject) {
+        previewMotionOffset.set(0, 0, 0);
+        return;
+      }
+
+      previewMotionOffset.set(0, 0, 0);
+    }
 
     function renderFrame() {
       if (disposed) {
@@ -269,9 +323,22 @@ export function AnimationPreviewPanel(props: {
       }
 
       const delta = Math.min(clock.getDelta(), 1 / 24);
+      updateInfiniteGrid(fineGrid, coarseGrid, controls.target.x, controls.target.z);
+
+      if (resetPreviewPositionRef.current !== handledResetPreviewPosition) {
+        resetPreviewMotion();
+        handledResetPreviewPosition = resetPreviewPositionRef.current;
+      }
+
+      if (modeRef.current !== lastMode) {
+        resetPreviewMotion();
+        lastMode = modeRef.current;
+        hadRootMotion = false;
+      }
 
       if (previewObject && character) {
         if (modeRef.current === "clip") {
+          resetPreviewMotion();
           const clip = clipMap.get(selectedClipIdRef.current);
           if (clip) {
             if (isPlayingRef.current) {
@@ -284,6 +351,12 @@ export function AnimationPreviewPanel(props: {
             }
           }
         } else if (animatorRef.current) {
+          if (animatorRef.current !== lastAnimator) {
+            resetPreviewMotion();
+            lastAnimator = animatorRef.current;
+            hadRootMotion = false;
+          }
+
           for (const parameter of document.parameters) {
             if (parameter.type === "trigger") {
               if (pendingTriggersRef.current.has(parameter.name)) {
@@ -299,21 +372,42 @@ export function AnimationPreviewPanel(props: {
             }
           }
 
-          const result = animatorRef.current.update(isPlayingRef.current ? delta * playbackSpeedRef.current : 0);
-          const graphStaysInPlace = animatorRef.current.graph.layers.every(
-            (layer) => !layer.enabled || layer.weight <= 0 || layer.rootMotionMode === "none"
+          const hasRootMotion = animatorRef.current.graph.layers.some(
+            (layer) => layer.enabled && layer.weight > 0 && layer.rootMotionMode !== "none"
           );
+          if (!hasRootMotion && hadRootMotion) {
+            resetPreviewMotion();
+          }
 
-          if (graphDisplayPose && graphStaysInPlace) {
+          const result = animatorRef.current.update(isPlayingRef.current ? delta * playbackSpeedRef.current : 0);
+
+          if (graphDisplayPose) {
+            if (hasRootMotion) {
+              const deltaX = result.rootMotion.translation[0] ?? 0;
+              previewMotionOffset.y += result.rootMotion.translation[1] ?? 0;
+              const deltaZ = result.rootMotion.translation[2] ?? 0;
+              previewMotionOffset.x += deltaX;
+              previewMotionOffset.z += deltaZ;
+              translateView(deltaX, deltaZ);
+            }
+
             copyPose(result.pose, graphDisplayPose);
             forceBoneTranslationToBindPose(
               graphDisplayPose.translations,
               animatorRef.current.rig.bindTranslations,
               animatorRef.current.rig.rootBoneIndex
             );
+            if (hasRootMotion) {
+              addBoneTranslationOffset(
+                graphDisplayPose.translations,
+                animatorRef.current.rig.rootBoneIndex,
+                previewMotionOffset.x,
+                previewMotionOffset.y,
+                previewMotionOffset.z
+              );
+            }
             applyPoseBufferToSceneBones(graphDisplayPose, animatorRef.current.rig, previewObject);
-          } else {
-            applyPoseBufferToSceneBones(animatorRef.current.outputPose, animatorRef.current.rig, previewObject);
+            hadRootMotion = hasRootMotion;
           }
         }
       }
@@ -368,6 +462,17 @@ export function AnimationPreviewPanel(props: {
           aria-label={isPlaying ? "Pause preview" : "Play preview"}
         >
           {isPlaying ? <Pause className="size-4" /> : <Play className="size-4" />}
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          className="absolute top-3 left-3 z-10 h-9 rounded-full bg-black/65 px-3 text-zinc-100 shadow-lg hover:bg-black/80"
+          onClick={() => {
+            resetPreviewPositionRef.current += 1;
+          }}
+        >
+          <LocateFixed className="mr-2 size-4" />
+          Reset Position
         </Button>
         {/* {mode === "graph" && graphPreview.error ? (
           <div className="absolute right-3 bottom-3 z-10 max-w-[min(22rem,calc(100%-1.5rem))] rounded-2xl bg-black/70 px-3 py-2 text-[11px] leading-5 text-amber-100 ring-1 ring-amber-400/20 backdrop-blur">

@@ -4,6 +4,7 @@ import type { AnimationEditorStore } from "@ggez/anim-editor-core";
 import { createAnimatorInstance } from "@ggez/anim-runtime";
 import type { AnimatorInstance } from "@ggez/anim-runtime";
 import type { AnimationEditorDocument } from "@ggez/anim-schema";
+import { LocateFixed } from "lucide-react";
 import {
   AmbientLight,
   Bone,
@@ -25,10 +26,10 @@ import { useEffect, useMemo, useRef } from "react";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
+import type { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import type { ImportedCharacterAsset, ImportedPreviewClip } from "./preview-assets";
-import { applyPoseBufferToSceneBones } from "./preview-assets";
+import { applyPoseBufferToSceneBones, preparePreviewObject } from "./preview-assets";
+import { createConfiguredGLTFLoader } from "./gltf-loader";
 import { useEditorStoreValue } from "./use-editor-store-value";
 import type { CharacterPlaybackState } from "./hooks/use-character-playback";
 import type { UseEquipmentStateReturn } from "./hooks/use-equipment-state";
@@ -71,6 +72,35 @@ function forceBoneTranslationToBindPose(
   translations[offset + 2] = bindTranslations[offset + 2]!;
 }
 
+function addBoneTranslationOffset(
+  translations: Float32Array,
+  boneIndex: number,
+  x: number,
+  y: number,
+  z: number
+): void {
+  const offset = boneIndex * 3;
+  translations[offset] += x;
+  translations[offset + 1] += y;
+  translations[offset + 2] += z;
+}
+
+function configureGridOpacity(grid: GridHelper, opacity: number): void {
+  const materials = Array.isArray(grid.material) ? grid.material : [grid.material];
+  materials.forEach((material) => {
+    material.transparent = true;
+    material.opacity = opacity;
+    material.depthWrite = false;
+  });
+}
+
+function updateInfiniteGrid(fineGrid: GridHelper, coarseGrid: GridHelper, anchorX: number, anchorZ: number): void {
+  const fineStep = 1;
+  const coarseStep = 10;
+  fineGrid.position.set(Math.round(anchorX / fineStep) * fineStep, 0, Math.round(anchorZ / fineStep) * fineStep);
+  coarseGrid.position.set(Math.round(anchorX / coarseStep) * coarseStep, 0.002, Math.round(anchorZ / coarseStep) * coarseStep);
+}
+
 type CharacterViewportProps = {
   store: AnimationEditorStore;
   character: ImportedCharacterAsset | null;
@@ -82,6 +112,7 @@ type CharacterViewportProps = {
 export function CharacterViewport({ store, character, importedClips, playback, equipment }: CharacterViewportProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const animatorRef = useRef<AnimatorInstance | null>(null);
+  const resetPreviewPositionRef = useRef(0);
 
   // Scene refs — assigned inside the main setup effect, read by equipment effects
   const sceneRef = useRef<Scene | null>(null);
@@ -98,9 +129,7 @@ export function CharacterViewport({ store, character, importedClips, playback, e
   // Single shared GLTFLoader instance (created on first render, stable)
   const gltfLoaderRef = useRef<GLTFLoader | null>(null);
   if (!gltfLoaderRef.current) {
-    const loader = new GLTFLoader();
-    loader.setMeshoptDecoder(MeshoptDecoder);
-    gltfLoaderRef.current = loader;
+    gltfLoaderRef.current = createConfiguredGLTFLoader();
   }
 
   // Ref-copies of equipment state — updated every render so render loop is always current
@@ -227,13 +256,17 @@ export function CharacterViewport({ store, character, importedClips, playback, e
       }
     });
 
-    const ambient = new AmbientLight("#ffffff", 1.2);
-    const keyLight = new DirectionalLight("#ffffff", 1.5);
+    const ambient = new AmbientLight("#ffffff", 3.2);
+    const ambientFill = new AmbientLight("#dbeafe", 1.32);
+    const keyLight = new DirectionalLight("#ffffff", 5.5);
     keyLight.position.set(6, 12, 8);
-    const fillLight = new DirectionalLight("#7dd3fc", 0.7);
+    const fillLight = new DirectionalLight("#7dd3fc", 2.7);
     fillLight.position.set(-4, 6, -6);
-    const grid = new GridHelper(20, 20, "#14532d", "#052e16");
-    scene.add(ambient, keyLight, fillLight, grid);
+    const fineGrid = new GridHelper(240, 120, "#14532d", "#052e16");
+    const coarseGrid = new GridHelper(240, 24, "#1f7a4d", "#14532d");
+    configureGridOpacity(fineGrid, 0.34);
+    configureGridOpacity(coarseGrid, 0.18);
+    scene.add(ambient, ambientFill, keyLight, fillLight, fineGrid, coarseGrid);
 
     let previewObject: Object3D | null = null;
     let directClipTime = 0;
@@ -244,6 +277,7 @@ export function CharacterViewport({ store, character, importedClips, playback, e
     if (character) {
       previewObject = clone(character.scene);
       if (previewObject) {
+        preparePreviewObject(previewObject);
         scene.add(previewObject);
         // Apply bind pose BEFORE the first render so the character always starts
         // from its canonical rest pose regardless of any state carried in the clone.
@@ -278,13 +312,52 @@ export function CharacterViewport({ store, character, importedClips, playback, e
 
     const clock = new Clock();
     let animationFrame = 0;
+    let lastMode = playback.modeRef.current;
+    let lastAnimator: AnimatorInstance | null = animatorRef.current;
+    let hadRootMotion = false;
+    let handledResetPreviewPosition = resetPreviewPositionRef.current;
+    const previewMotionOffset = new Vector3();
+
+    function translateView(deltaX: number, deltaZ: number) {
+      camera.position.x += deltaX;
+      camera.position.z += deltaZ;
+      controls.target.x += deltaX;
+      controls.target.z += deltaZ;
+      controls.update();
+    }
+
+    function resetPreviewMotion() {
+      if (previewMotionOffset.x !== 0 || previewMotionOffset.z !== 0) {
+        translateView(-previewMotionOffset.x, -previewMotionOffset.z);
+      }
+
+      if (!previewObject) {
+        previewMotionOffset.set(0, 0, 0);
+        return;
+      }
+
+      previewMotionOffset.set(0, 0, 0);
+    }
 
     function renderFrame() {
       if (disposed) return;
       const delta = Math.min(clock.getDelta(), 1 / 24);
+      updateInfiniteGrid(fineGrid, coarseGrid, controls.target.x, controls.target.z);
+
+      if (resetPreviewPositionRef.current !== handledResetPreviewPosition) {
+        resetPreviewMotion();
+        handledResetPreviewPosition = resetPreviewPositionRef.current;
+      }
+
+      if (playback.modeRef.current !== lastMode) {
+        resetPreviewMotion();
+        lastMode = playback.modeRef.current;
+        hadRootMotion = false;
+      }
 
       if (previewObject && character) {
         if (playback.modeRef.current === "clip") {
+          resetPreviewMotion();
           const clip = clipMap.get(playback.selectedClipIdRef.current);
           if (clip) {
             if (playback.isPlayingRef.current) {
@@ -310,23 +383,50 @@ export function CharacterViewport({ store, character, importedClips, playback, e
             }
           }
 
+          if (animatorRef.current !== lastAnimator) {
+            resetPreviewMotion();
+            lastAnimator = animatorRef.current;
+            hadRootMotion = false;
+          }
+
+          const hasRootMotion = animatorRef.current.graph.layers.some(
+            (layer) => layer.enabled && layer.weight > 0 && layer.rootMotionMode !== "none"
+          );
+          if (!hasRootMotion && hadRootMotion) {
+            resetPreviewMotion();
+          }
+
           const result = animatorRef.current.update(
             playback.isPlayingRef.current ? delta * playback.playbackSpeedRef.current : 0
           );
-          const graphStaysInPlace = animatorRef.current.graph.layers.every(
-            (layer) => !layer.enabled || layer.weight <= 0 || layer.rootMotionMode === "none"
-          );
 
-          if (graphDisplayPose && graphStaysInPlace) {
+          if (graphDisplayPose) {
+            if (hasRootMotion) {
+              const deltaX = result.rootMotion.translation[0] ?? 0;
+              previewMotionOffset.y += result.rootMotion.translation[1] ?? 0;
+              const deltaZ = result.rootMotion.translation[2] ?? 0;
+              previewMotionOffset.x += deltaX;
+              previewMotionOffset.z += deltaZ;
+              translateView(deltaX, deltaZ);
+            }
+
             copyPose(result.pose, graphDisplayPose);
             forceBoneTranslationToBindPose(
               graphDisplayPose.translations,
               animatorRef.current.rig.bindTranslations,
               animatorRef.current.rig.rootBoneIndex
             );
+            if (hasRootMotion) {
+              addBoneTranslationOffset(
+                graphDisplayPose.translations,
+                animatorRef.current.rig.rootBoneIndex,
+                previewMotionOffset.x,
+                previewMotionOffset.y,
+                previewMotionOffset.z
+              );
+            }
             applyPoseBufferToSceneBones(graphDisplayPose, animatorRef.current.rig, previewObject);
-          } else {
-            applyPoseBufferToSceneBones(animatorRef.current.outputPose, animatorRef.current.rig, previewObject);
+            hadRootMotion = hasRootMotion;
           }
         }
       }
@@ -454,5 +554,19 @@ export function CharacterViewport({ store, character, importedClips, playback, e
     }
   }, [equipment.items, character]); // character dep ensures reload when scene is recreated
 
-  return <div ref={mountRef} className="absolute inset-0" />;
+  return (
+    <div className="absolute inset-0">
+      <div ref={mountRef} className="absolute inset-0" />
+      <button
+        type="button"
+        onClick={() => {
+          resetPreviewPositionRef.current += 1;
+        }}
+        className="pointer-events-auto absolute top-3 left-3 z-10 inline-flex h-9 items-center rounded-full bg-black/65 px-3 text-[12px] font-medium text-zinc-100 shadow-lg ring-1 ring-white/10 transition hover:bg-black/80"
+      >
+        <LocateFixed className="mr-2 size-4" />
+        Reset Position
+      </button>
+    </div>
+  );
 }

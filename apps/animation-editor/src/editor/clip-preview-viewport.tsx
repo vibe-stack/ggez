@@ -16,7 +16,7 @@ import type { Object3D } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { ImportedCharacterAsset, ImportedPreviewClip } from "./preview-assets";
-import { applyPoseBufferToSceneBones } from "./preview-assets";
+import { applyPoseBufferToSceneBones, preparePreviewObject } from "./preview-assets";
 
 function fitCameraToObject(camera: PerspectiveCamera, controls: OrbitControls, object: Object3D): void {
   const bounds = new Box3().setFromObject(object);
@@ -82,6 +82,7 @@ function ClipPreviewViewportInner(props: {
       previewObject = clone(props.character.scene);
 
       if (previewObject) {
+        preparePreviewObject(previewObject);
         scene.add(previewObject);
         fitCameraToObject(camera, controls, previewObject);
       }

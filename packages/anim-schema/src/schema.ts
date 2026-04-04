@@ -21,6 +21,7 @@ export const transitionOperatorSchema = z.enum([
 ]);
 export const interruptionSourceSchema = z.enum(["none", "current", "next", "both"]);
 export const transitionBlendCurveSchema = z.enum(["linear", "ease-in", "ease-out", "ease-in-out"]);
+export const strideWarpEvaluationModeSchema = z.enum(["graph", "manual"]);
 
 export const vec2Schema = z.object({
   x: z.number(),
@@ -47,7 +48,8 @@ export const parameterDefinitionSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   type: animationParameterTypeSchema,
-  defaultValue: z.union([z.number(), z.boolean()]).optional()
+  defaultValue: z.union([z.number(), z.boolean()]).optional(),
+  smoothingDuration: z.number().nonnegative().optional()
 });
 
 export const clipReferenceSchema = z.object({
@@ -145,6 +147,13 @@ export const orientationWarpLegSchema = z.object({
   weight: z.number().min(0).max(1).default(1)
 });
 
+export const strideWarpLegSchema = z.object({
+  upperBoneName: z.string().min(1),
+  lowerBoneName: z.string().min(1),
+  footBoneName: z.string().min(1),
+  weight: z.number().min(0).max(1).default(1)
+});
+
 export const orientationWarpNodeSchema = graphNodeBaseSchema.extend({
   kind: z.literal("orientationWarp"),
   sourceNodeId: z.string().min(1).optional(),
@@ -155,6 +164,25 @@ export const orientationWarpNodeSchema = graphNodeBaseSchema.extend({
   hipWeight: z.number().min(0).max(1).default(0.35),
   spineBoneNames: z.array(z.string().min(1)).default([]),
   legs: z.array(orientationWarpLegSchema).default([])
+});
+
+export const strideWarpNodeSchema = graphNodeBaseSchema.extend({
+  kind: z.literal("strideWarp"),
+  sourceNodeId: z.string().min(1).optional(),
+  evaluationMode: strideWarpEvaluationModeSchema.default("graph"),
+  locomotionSpeedParameterId: z.string().min(1).optional(),
+  strideDirection: vec2Schema.default({ x: 0, y: 1 }),
+  manualStrideScale: z.number().positive().default(1),
+  minLocomotionSpeedThreshold: z.number().nonnegative().default(0.01),
+  pelvisBoneName: z.string().min(1).optional(),
+  pelvisWeight: z.number().min(0).max(1).default(0.35),
+  clampResult: z.boolean().default(false),
+  minStrideScale: z.number().positive().default(0.5),
+  maxStrideScale: z.number().positive().default(2),
+  interpResult: z.boolean().default(false),
+  interpSpeedIncreasing: z.number().nonnegative().default(6),
+  interpSpeedDecreasing: z.number().nonnegative().default(6),
+  legs: z.array(strideWarpLegSchema).default([])
 });
 
 export const transitionConditionSchema = z.object({
@@ -211,6 +239,7 @@ export const graphNodeSchema = z.discriminatedUnion("kind", [
   blend2DNodeSchema,
   selectorNodeSchema,
   orientationWarpNodeSchema,
+  strideWarpNodeSchema,
   stateMachineNodeSchema,
   subgraphNodeSchema,
   outputNodeSchema
@@ -378,6 +407,32 @@ export const compiledOrientationWarpNodeSchema = z.object({
   legs: z.array(compiledOrientationWarpLegSchema)
 });
 
+export const compiledStrideWarpLegSchema = z.object({
+  upperBoneIndex: z.number().int().nonnegative(),
+  lowerBoneIndex: z.number().int().nonnegative(),
+  footBoneIndex: z.number().int().nonnegative(),
+  weight: z.number().min(0).max(1)
+});
+
+export const compiledStrideWarpNodeSchema = z.object({
+  type: z.literal("strideWarp"),
+  sourceNodeIndex: z.number().int().nonnegative(),
+  evaluationMode: strideWarpEvaluationModeSchema,
+  locomotionSpeedParameterIndex: z.number().int().nonnegative().optional(),
+  strideDirection: vec2Schema,
+  manualStrideScale: z.number().positive(),
+  minLocomotionSpeedThreshold: z.number().nonnegative(),
+  pelvisBoneIndex: z.number().int().nonnegative().optional(),
+  pelvisWeight: z.number().min(0).max(1),
+  clampResult: z.boolean(),
+  minStrideScale: z.number().positive(),
+  maxStrideScale: z.number().positive(),
+  interpResult: z.boolean(),
+  interpSpeedIncreasing: z.number().nonnegative(),
+  interpSpeedDecreasing: z.number().nonnegative(),
+  legs: z.array(compiledStrideWarpLegSchema)
+});
+
 export const compiledStateMachineNodeSchema = z.object({
   type: z.literal("stateMachine"),
   machineIndex: z.number().int().nonnegative(),
@@ -399,6 +454,7 @@ export const compiledGraphNodeSchema = z.discriminatedUnion("type", [
   compiledBlend2DNodeSchema,
   compiledSelectorNodeSchema,
   compiledOrientationWarpNodeSchema,
+  compiledStrideWarpNodeSchema,
   compiledStateMachineNodeSchema,
   compiledSubgraphNodeSchema
 ]);
@@ -433,7 +489,8 @@ export const compiledClipSlotSchema = z.object({
 export const compiledParameterSchema = z.object({
   name: z.string().min(1),
   type: animationParameterTypeSchema,
-  defaultValue: z.union([z.number(), z.boolean()]).optional()
+  defaultValue: z.union([z.number(), z.boolean()]).optional(),
+  smoothingDuration: z.number().nonnegative().optional()
 });
 
 export const compiledAnimatorGraphSchema = z.object({

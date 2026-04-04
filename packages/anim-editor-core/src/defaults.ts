@@ -59,6 +59,26 @@ export function createDefaultNode(kind: EditorGraphNode["kind"], name?: string):
         spineBoneNames: [],
         legs: []
       };
+    case "strideWarp":
+      return {
+        ...base,
+        kind,
+        sourceNodeId: undefined,
+        evaluationMode: "graph",
+        locomotionSpeedParameterId: "",
+        strideDirection: { x: 0, y: 1 },
+        manualStrideScale: 1,
+        minLocomotionSpeedThreshold: 0.01,
+        pelvisBoneName: undefined,
+        pelvisWeight: 0.35,
+        clampResult: false,
+        minStrideScale: 0.5,
+        maxStrideScale: 2,
+        interpResult: false,
+        interpSpeedIncreasing: 6,
+        interpSpeedDecreasing: 6,
+        legs: []
+      };
     case "stateMachine":
       const initialStateId = createStableId("state");
       return {

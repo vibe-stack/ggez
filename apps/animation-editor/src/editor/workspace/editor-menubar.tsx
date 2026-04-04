@@ -27,7 +27,7 @@ export function EditorMenubar(props: {
   onLoadProject: () => void;
   onImportCharacter: () => void;
   onImportAnimations: () => void;
-  onAddNode: (kind: "clip" | "blend1d" | "blend2d" | "selector" | "orientationWarp" | "stateMachine" | "subgraph") => void;
+  onAddNode: (kind: "clip" | "blend1d" | "blend2d" | "selector" | "orientationWarp" | "strideWarp" | "stateMachine" | "subgraph") => void;
   onToggleCopilot: () => void;
   copilotOpen: boolean;
 }) {
@@ -104,6 +104,7 @@ export function EditorMenubar(props: {
               <MenubarItem onClick={() => props.onAddNode("blend2d")}>Blend 2D</MenubarItem>
               <MenubarItem onClick={() => props.onAddNode("selector")}>Selector</MenubarItem>
               <MenubarItem onClick={() => props.onAddNode("orientationWarp")}>Orientation Warp</MenubarItem>
+              <MenubarItem onClick={() => props.onAddNode("strideWarp")}>Stride Warp</MenubarItem>
               <MenubarItem onClick={() => props.onAddNode("stateMachine")}>State Machine</MenubarItem>
               <MenubarItem onClick={() => props.onAddNode("subgraph")}>Subgraph</MenubarItem>
               <MenubarSeparator />

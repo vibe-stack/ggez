@@ -5,7 +5,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { useEditorStoreValue } from "../../use-editor-store-value";
 import { PropertyField, editorInputClassName, editorSelectClassName, sectionHintClassName } from "../shared";
-import { Blend1DChildrenEditor, Blend2DChildrenEditor, OrientationWarpLegsEditor, SelectorChildrenEditor } from "./blend-editors";
+import { Blend1DChildrenEditor, Blend2DChildrenEditor, OrientationWarpLegsEditor, SelectorChildrenEditor, StrideWarpLegsEditor } from "./blend-editors";
 import { NumericDragInput, updateTypedNode } from "./shared";
 import { StateMachineInspector } from "./state-machine-inspector";
 
@@ -293,6 +293,248 @@ export function NodeInspector(props: { store: AnimationEditorStore }) {
               </PropertyField>
               <PropertyField label="Leg IK">
                 <OrientationWarpLegsEditor store={props.store} graph={graph} node={node} />
+              </PropertyField>
+            </>
+          ) : null}
+
+          {node.kind === "strideWarp" ? (
+            <>
+              <div className={sectionHintClassName}>Connect a locomotion pose into this node, then scale foot spacing to match runtime movement speed. Graph mode derives scale from locomotion speed versus sampled root-motion speed; manual mode uses the authored scale and direction.</div>
+              <PropertyField label="Evaluation Mode">
+                <ButtonGroup className="grid w-full grid-cols-2">
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant={node.evaluationMode === "graph" ? "default" : "outline"}
+                    className={node.evaluationMode === "graph" ? "border-emerald-300/30 bg-emerald-300 text-emerald-950 hover:bg-emerald-200" : "border-white/10 bg-white/6 text-zinc-300 hover:bg-white/10"}
+                    onClick={() =>
+                      updateTypedNode(props.store, graph.id, node.id, "strideWarp", (current) => ({
+                        ...current,
+                        evaluationMode: "graph",
+                      }))
+                    }
+                  >
+                    Graph
+                  </Button>
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant={node.evaluationMode === "manual" ? "default" : "outline"}
+                    className={node.evaluationMode === "manual" ? "border-emerald-300/30 bg-emerald-300 text-emerald-950 hover:bg-emerald-200" : "border-white/10 bg-white/6 text-zinc-300 hover:bg-white/10"}
+                    onClick={() =>
+                      updateTypedNode(props.store, graph.id, node.id, "strideWarp", (current) => ({
+                        ...current,
+                        evaluationMode: "manual",
+                      }))
+                    }
+                  >
+                    Manual
+                  </Button>
+                </ButtonGroup>
+              </PropertyField>
+              {node.evaluationMode === "graph" ? (
+                <PropertyField label="Locomotion Speed">
+                  <select
+                    value={node.locomotionSpeedParameterId ?? ""}
+                    onChange={(event) =>
+                      updateTypedNode(props.store, graph.id, node.id, "strideWarp", (current) => ({
+                        ...current,
+                        locomotionSpeedParameterId: event.target.value,
+                      }))
+                    }
+                    className={editorSelectClassName}
+                  >
+                    {state.document.parameters.map((parameter) => (
+                      <option key={parameter.id} value={parameter.id}>
+                        {parameter.name}
+                      </option>
+                    ))}
+                  </select>
+                </PropertyField>
+              ) : (
+                <>
+                  <PropertyField label="Stride Scale">
+                    <NumericDragInput
+                      value={node.manualStrideScale}
+                      step={0.05}
+                      precision={2}
+                      min={0.05}
+                      onChange={(value) =>
+                        updateTypedNode(props.store, graph.id, node.id, "strideWarp", (current) => ({
+                          ...current,
+                          manualStrideScale: Math.max(0.05, value),
+                        }))
+                      }
+                    />
+                  </PropertyField>
+                  <div className="grid grid-cols-2 gap-2">
+                    <PropertyField label="Direction X">
+                      <NumericDragInput
+                        value={node.strideDirection.x}
+                        step={0.05}
+                        precision={2}
+                        onChange={(value) =>
+                          updateTypedNode(props.store, graph.id, node.id, "strideWarp", (current) => ({
+                            ...current,
+                            strideDirection: {
+                              ...current.strideDirection,
+                              x: value,
+                            },
+                          }))
+                        }
+                      />
+                    </PropertyField>
+                    <PropertyField label="Direction Z">
+                      <NumericDragInput
+                        value={node.strideDirection.y}
+                        step={0.05}
+                        precision={2}
+                        onChange={(value) =>
+                          updateTypedNode(props.store, graph.id, node.id, "strideWarp", (current) => ({
+                            ...current,
+                            strideDirection: {
+                              ...current.strideDirection,
+                              y: value,
+                            },
+                          }))
+                        }
+                      />
+                    </PropertyField>
+                  </div>
+                </>
+              )}
+              <PropertyField label="Min Speed Threshold">
+                <NumericDragInput
+                  value={node.minLocomotionSpeedThreshold}
+                  step={0.01}
+                  precision={2}
+                  min={0}
+                  onChange={(value) =>
+                    updateTypedNode(props.store, graph.id, node.id, "strideWarp", (current) => ({
+                      ...current,
+                      minLocomotionSpeedThreshold: Math.max(0, value),
+                    }))
+                  }
+                />
+              </PropertyField>
+              <PropertyField label="Pelvis Bone">
+                <Input
+                  value={node.pelvisBoneName ?? ""}
+                  onChange={(event) =>
+                    updateTypedNode(props.store, graph.id, node.id, "strideWarp", (current) => ({
+                      ...current,
+                      pelvisBoneName: event.target.value.trim() || undefined,
+                    }))
+                  }
+                  placeholder="Hips"
+                  className={editorInputClassName}
+                />
+              </PropertyField>
+              <PropertyField label="Pelvis Weight">
+                <NumericDragInput
+                  value={node.pelvisWeight}
+                  step={0.05}
+                  precision={2}
+                  min={0}
+                  max={1}
+                  onChange={(value) =>
+                    updateTypedNode(props.store, graph.id, node.id, "strideWarp", (current) => ({
+                      ...current,
+                      pelvisWeight: Math.max(0, Math.min(1, value)),
+                    }))
+                  }
+                />
+              </PropertyField>
+              <PropertyField label="Clamp Result">
+                <label className="flex h-8 items-center gap-2 rounded-xl bg-white/7 px-2.5 text-[12px] text-zinc-200">
+                  <Checkbox
+                    checked={node.clampResult}
+                    onCheckedChange={(checked) =>
+                      updateTypedNode(props.store, graph.id, node.id, "strideWarp", (current) => ({
+                        ...current,
+                        clampResult: Boolean(checked),
+                      }))
+                    }
+                  />
+                  <span>{node.clampResult ? "Clamp enabled" : "Clamp disabled"}</span>
+                </label>
+              </PropertyField>
+              <div className="grid grid-cols-2 gap-2">
+                <PropertyField label="Min Scale">
+                  <NumericDragInput
+                    value={node.minStrideScale}
+                    step={0.05}
+                    precision={2}
+                    min={0.05}
+                    onChange={(value) =>
+                      updateTypedNode(props.store, graph.id, node.id, "strideWarp", (current) => ({
+                        ...current,
+                        minStrideScale: Math.max(0.05, value),
+                      }))
+                    }
+                  />
+                </PropertyField>
+                <PropertyField label="Max Scale">
+                  <NumericDragInput
+                    value={node.maxStrideScale}
+                    step={0.05}
+                    precision={2}
+                    min={0.05}
+                    onChange={(value) =>
+                      updateTypedNode(props.store, graph.id, node.id, "strideWarp", (current) => ({
+                        ...current,
+                        maxStrideScale: Math.max(0.05, value),
+                      }))
+                    }
+                  />
+                </PropertyField>
+              </div>
+              <PropertyField label="Interp Result">
+                <label className="flex h-8 items-center gap-2 rounded-xl bg-white/7 px-2.5 text-[12px] text-zinc-200">
+                  <Checkbox
+                    checked={node.interpResult}
+                    onCheckedChange={(checked) =>
+                      updateTypedNode(props.store, graph.id, node.id, "strideWarp", (current) => ({
+                        ...current,
+                        interpResult: Boolean(checked),
+                      }))
+                    }
+                  />
+                  <span>{node.interpResult ? "Interpolation enabled" : "Interpolation disabled"}</span>
+                </label>
+              </PropertyField>
+              <div className="grid grid-cols-2 gap-2">
+                <PropertyField label="Interp Up">
+                  <NumericDragInput
+                    value={node.interpSpeedIncreasing}
+                    step={0.1}
+                    precision={2}
+                    min={0}
+                    onChange={(value) =>
+                      updateTypedNode(props.store, graph.id, node.id, "strideWarp", (current) => ({
+                        ...current,
+                        interpSpeedIncreasing: Math.max(0, value),
+                      }))
+                    }
+                  />
+                </PropertyField>
+                <PropertyField label="Interp Down">
+                  <NumericDragInput
+                    value={node.interpSpeedDecreasing}
+                    step={0.1}
+                    precision={2}
+                    min={0}
+                    onChange={(value) =>
+                      updateTypedNode(props.store, graph.id, node.id, "strideWarp", (current) => ({
+                        ...current,
+                        interpSpeedDecreasing: Math.max(0, value),
+                      }))
+                    }
+                  />
+                </PropertyField>
+              </div>
+              <PropertyField label="Foot Definitions">
+                <StrideWarpLegsEditor store={props.store} graph={graph} node={node} />
               </PropertyField>
             </>
           ) : null}

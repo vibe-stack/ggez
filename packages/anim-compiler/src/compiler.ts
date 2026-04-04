@@ -161,7 +161,7 @@ function collectReachableNodeIds(graph: AnimationEditorDocument["graphs"][number
       return;
     }
 
-    if (node.kind === "orientationWarp") {
+    if (node.kind === "orientationWarp" || node.kind === "strideWarp") {
       visit(node.sourceNodeId);
       return;
     }
@@ -467,6 +467,91 @@ export function compileAnimationEditorDocument(input: unknown): CompileResult {
           });
           return;
         }
+        case "strideWarp": {
+          const sourceNodeIndex = node.sourceNodeId ? nodeIdToCompiledIndex.get(node.sourceNodeId) : undefined;
+          if (sourceNodeIndex === undefined) {
+            diagnostics.push(error(`Stride Warp node "${node.name}" requires a connected source motion.`, `graphs.${graphIndex}.nodes.${nodeIndex}.sourceNodeId`));
+            return;
+          }
+
+          const locomotionSpeedParameterIndex = node.evaluationMode === "graph"
+            ? parameterIndexById.get(node.locomotionSpeedParameterId ?? "")
+            : undefined;
+
+          if (node.evaluationMode === "graph" && locomotionSpeedParameterIndex === undefined) {
+            diagnostics.push(error(`Stride Warp node "${node.name}" requires a locomotion speed parameter in graph mode.`, `graphs.${graphIndex}.nodes.${nodeIndex}.locomotionSpeedParameterId`));
+            return;
+          }
+
+          if (!rig) {
+            diagnostics.push(error(`Stride Warp node "${node.name}" requires rig data to resolve authored bones.`, `graphs.${graphIndex}.nodes.${nodeIndex}`));
+            return;
+          }
+
+          const resolveBoneIndex = (boneName: string, path: string): number | undefined => {
+            const boneIndex = findBoneIndexByName(rig, boneName);
+            if (boneIndex < 0) {
+              diagnostics.push(error(`Stride Warp node "${node.name}" references unknown bone "${boneName}".`, path));
+              return undefined;
+            }
+            return boneIndex;
+          };
+
+          const pelvisBoneIndex = node.pelvisBoneName
+            ? resolveBoneIndex(node.pelvisBoneName, `graphs.${graphIndex}.nodes.${nodeIndex}.pelvisBoneName`)
+            : undefined;
+          const legs = node.legs.flatMap((leg, legIndex) => {
+            const upperBoneIndex = resolveBoneIndex(
+              leg.upperBoneName,
+              `graphs.${graphIndex}.nodes.${nodeIndex}.legs.${legIndex}.upperBoneName`
+            );
+            const lowerBoneIndex = resolveBoneIndex(
+              leg.lowerBoneName,
+              `graphs.${graphIndex}.nodes.${nodeIndex}.legs.${legIndex}.lowerBoneName`
+            );
+            const footBoneIndex = resolveBoneIndex(
+              leg.footBoneName,
+              `graphs.${graphIndex}.nodes.${nodeIndex}.legs.${legIndex}.footBoneName`
+            );
+
+            if (
+              upperBoneIndex === undefined ||
+              lowerBoneIndex === undefined ||
+              footBoneIndex === undefined
+            ) {
+              return [];
+            }
+
+            return [
+              {
+                upperBoneIndex,
+                lowerBoneIndex,
+                footBoneIndex,
+                weight: leg.weight
+              }
+            ];
+          });
+
+          compiledNodes.push({
+            type: "strideWarp",
+            sourceNodeIndex,
+            evaluationMode: node.evaluationMode,
+            locomotionSpeedParameterIndex,
+            strideDirection: node.strideDirection,
+            manualStrideScale: node.manualStrideScale,
+            minLocomotionSpeedThreshold: node.minLocomotionSpeedThreshold,
+            pelvisBoneIndex,
+            pelvisWeight: node.pelvisWeight,
+            clampResult: node.clampResult,
+            minStrideScale: node.minStrideScale,
+            maxStrideScale: node.maxStrideScale,
+            interpResult: node.interpResult,
+            interpSpeedIncreasing: node.interpSpeedIncreasing,
+            interpSpeedDecreasing: node.interpSpeedDecreasing,
+            legs
+          });
+          return;
+        }
         case "subgraph": {
           const targetGraphIndex = graphIndexById.get(node.graphId);
           if (targetGraphIndex === undefined) {
@@ -620,7 +705,8 @@ export function compileAnimationEditorDocument(input: unknown): CompileResult {
       parameters: document.parameters.map((parameter) => ({
         name: parameter.name,
         type: parameter.type,
-        defaultValue: parameter.defaultValue
+        defaultValue: parameter.defaultValue,
+        smoothingDuration: parameter.smoothingDuration
       })),
       clipSlots: referencedClips.map((clip) => ({
         id: clip.id,

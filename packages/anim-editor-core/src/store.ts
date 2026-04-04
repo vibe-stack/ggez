@@ -129,7 +129,7 @@ function disconnectSourceFromTarget(graph: EditorGraph, sourceNodeId: string, ta
     });
   }
 
-  if (targetNode.kind === "orientationWarp" && targetNode.sourceNodeId === sourceNodeId) {
+  if ((targetNode.kind === "orientationWarp" || targetNode.kind === "strideWarp") && targetNode.sourceNodeId === sourceNodeId) {
     return replaceNode(graph, targetNode.id, {
       ...targetNode,
       sourceNodeId: undefined
@@ -168,7 +168,7 @@ function removeNodeReferences(graph: EditorGraph, removedNodeIds: Set<string>): 
         };
       }
 
-      if (node.kind === "orientationWarp") {
+      if (node.kind === "orientationWarp" || node.kind === "strideWarp") {
         return removedNodeIds.has(node.sourceNodeId ?? "") ? { ...node, sourceNodeId: undefined } : node;
       }
 
@@ -343,6 +343,8 @@ export function createAnimationEditorStore(initialDocument = createDefaultAnimat
               ? "Selector"
               : kind === "orientationWarp"
                 ? "Orientation Warp"
+                : kind === "strideWarp"
+                  ? "Stride Warp"
               : kind
       );
       const graph = state.document.graphs.find((entry) => entry.id === graphId);
@@ -442,7 +444,7 @@ export function createAnimationEditorStore(initialDocument = createDefaultAnimat
                 }
               ]
             });
-          } else if (targetNode.kind === "orientationWarp") {
+          } else if (targetNode.kind === "orientationWarp" || targetNode.kind === "strideWarp") {
             nextGraph = replaceNode(graph, targetNodeId, {
               ...targetNode,
               sourceNodeId
@@ -578,7 +580,8 @@ export function createAnimationEditorStore(initialDocument = createDefaultAnimat
               id: createStableId("param"),
               name: parameter.name ?? `param_${state.document.parameters.length}`,
               type: parameter.type ?? "float",
-              defaultValue: parameter.defaultValue ?? 0
+              defaultValue: parameter.defaultValue ?? 0,
+              ...(parameter.smoothingDuration !== undefined ? { smoothingDuration: parameter.smoothingDuration } : {})
             }
           ]
         };

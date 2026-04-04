@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PropertyField, editorInputClassName, sectionHintClassName } from "../shared";
 import { NumericDragInput, updateTypedNode } from "./shared";
-import type { Blend1DNode, Blend2DNode, OrientationWarpNode, SelectorNode } from "./types";
+import type { Blend1DNode, Blend2DNode, OrientationWarpNode, SelectorNode, StrideWarpNode } from "./types";
 
 export function Blend1DChildrenEditor(props: {
   store: AnimationEditorStore;
@@ -274,6 +274,122 @@ export function OrientationWarpLegsEditor(props: {
         }
       >
         Add Leg Chain
+      </Button>
+    </div>
+  );
+}
+
+export function StrideWarpLegsEditor(props: {
+  store: AnimationEditorStore;
+  graph: EditorGraph;
+  node: StrideWarpNode;
+}) {
+  return (
+    <div className="space-y-2">
+      {props.node.legs.length === 0 ? (
+        <div className={sectionHintClassName}>Add foot definitions here so the node can extend or compress locomotion stride against authored leg chains.</div>
+      ) : null}
+
+      {props.node.legs.map((leg, legIndex) => (
+        <div key={`${leg.upperBoneName}-${legIndex}`} className="space-y-2 border border-white/8 bg-black/20 p-2">
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
+            <PropertyField label="Upper Bone">
+              <Input
+                value={leg.upperBoneName}
+                onChange={(event) =>
+                  updateTypedNode(props.store, props.graph.id, props.node.id, "strideWarp", (current) => ({
+                    ...current,
+                    legs: current.legs.map((entry, index) => (index === legIndex ? { ...entry, upperBoneName: event.target.value } : entry)),
+                  }))
+                }
+                placeholder="LeftUpLeg"
+                className={editorInputClassName}
+              />
+            </PropertyField>
+            <PropertyField label="Lower Bone">
+              <Input
+                value={leg.lowerBoneName}
+                onChange={(event) =>
+                  updateTypedNode(props.store, props.graph.id, props.node.id, "strideWarp", (current) => ({
+                    ...current,
+                    legs: current.legs.map((entry, index) => (index === legIndex ? { ...entry, lowerBoneName: event.target.value } : entry)),
+                  }))
+                }
+                placeholder="LeftLeg"
+                className={editorInputClassName}
+              />
+            </PropertyField>
+          </div>
+          <div className="grid grid-cols-[minmax(0,1fr)_84px_auto] gap-2">
+            <PropertyField label="Foot Bone">
+              <Input
+                value={leg.footBoneName}
+                onChange={(event) =>
+                  updateTypedNode(props.store, props.graph.id, props.node.id, "strideWarp", (current) => ({
+                    ...current,
+                    legs: current.legs.map((entry, index) => (index === legIndex ? { ...entry, footBoneName: event.target.value } : entry)),
+                  }))
+                }
+                placeholder="LeftFoot"
+                className={editorInputClassName}
+              />
+            </PropertyField>
+            <PropertyField label="Weight">
+              <NumericDragInput
+                value={leg.weight}
+                step={0.05}
+                precision={2}
+                min={0}
+                max={1}
+                onChange={(value) =>
+                  updateTypedNode(props.store, props.graph.id, props.node.id, "strideWarp", (current) => ({
+                    ...current,
+                    legs: current.legs.map((entry, index) => (index === legIndex ? { ...entry, weight: Math.max(0, Math.min(1, value)) } : entry)),
+                  }))
+                }
+              />
+            </PropertyField>
+            <div className="flex items-end">
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                className="h-8 border-white/10 bg-white/6 text-zinc-300 hover:bg-white/10"
+                onClick={() =>
+                  updateTypedNode(props.store, props.graph.id, props.node.id, "strideWarp", (current) => ({
+                    ...current,
+                    legs: current.legs.filter((_, index) => index !== legIndex),
+                  }))
+                }
+              >
+                Remove
+              </Button>
+            </div>
+          </div>
+        </div>
+      ))}
+
+      <Button
+        type="button"
+        size="xs"
+        variant="outline"
+        className="border-white/10 bg-white/6 text-zinc-300 hover:bg-white/10"
+        onClick={() =>
+          updateTypedNode(props.store, props.graph.id, props.node.id, "strideWarp", (current) => ({
+            ...current,
+            legs: [
+              ...current.legs,
+              {
+                upperBoneName: "",
+                lowerBoneName: "",
+                footBoneName: "",
+                weight: 1,
+              },
+            ],
+          }))
+        }
+      >
+        Add Foot Definition
       </Button>
     </div>
   );

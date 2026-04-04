@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { createRigDefinition } from "@ggez/anim-core";
 import type { AnimationClipAsset } from "@ggez/anim-core";
 import type { CompiledAnimatorGraph } from "@ggez/anim-schema";
-import { createAnimatorInstance } from "./runtime";
+import { createAnimatorInstance } from "./runtime/index";
 
 const rig = createRigDefinition({
   boneNames: ["root"],
@@ -226,6 +226,24 @@ const orientationWarpClip: AnimationClipAsset = {
   tracks: []
 };
 
+const strideWarpClip: AnimationClipAsset = {
+  id: "stride-base",
+  name: "Stride Base",
+  duration: 1,
+  tracks: [
+    {
+      boneIndex: 5,
+      translationTimes: new Float32Array([0]),
+      translationValues: new Float32Array([0, -0.9, 0.7])
+    },
+    {
+      boneIndex: 8,
+      translationTimes: new Float32Array([0]),
+      translationValues: new Float32Array([0, -0.9, -0.1])
+    }
+  ]
+};
+
 function rotateVectorByQuaternion(
   x: number,
   y: number,
@@ -386,6 +404,62 @@ describe("@ggez/anim-runtime", () => {
 
     expect(result.pose.translations[0]).toBeCloseTo(1);
     expect(result.rootMotion.translation[0]).toBeCloseTo(1);
+  });
+
+  it("smooths float parameters before evaluating blend weights", () => {
+    const graph: CompiledAnimatorGraph = {
+      version: 1,
+      name: "Smoothed Blend Graph",
+      parameters: [{ name: "speed", type: "float", defaultValue: 0, smoothingDuration: 0.2 }],
+      clipSlots: [
+        { id: "idle", name: "Idle", duration: 1 },
+        { id: "pose-ten", name: "Pose Ten", duration: 1 }
+      ],
+      masks: [],
+      graphs: [
+        {
+          name: "Locomotion",
+          rootNodeIndex: 2,
+          nodes: [
+            { type: "clip", clipIndex: 0, speed: 1, loop: true, inPlace: false },
+            { type: "clip", clipIndex: 1, speed: 1, loop: true, inPlace: false },
+            {
+              type: "blend1d",
+              parameterIndex: 0,
+              children: [
+                { nodeIndex: 0, threshold: 0 },
+                { nodeIndex: 1, threshold: 1 }
+              ]
+            }
+          ]
+        }
+      ],
+      layers: [
+        {
+          name: "Base",
+          graphIndex: 0,
+          weight: 1,
+          blendMode: "override",
+          rootMotionMode: "none",
+          enabled: true
+        }
+      ],
+      entryGraphIndex: 0
+    };
+
+    const animator = createAnimatorInstance({
+      rig,
+      graph,
+      clips: [idleClip, poseTenClip]
+    });
+
+    animator.setFloat("speed", 1);
+
+    const firstX = animator.update(0.1).pose.translations[0];
+    const secondX = animator.update(0.1).pose.translations[0];
+
+    expect(firstX).toBeCloseTo(3.9347, 3);
+    expect(secondX).toBeCloseTo(6.3212, 3);
   });
 
   it("evaluates state machine transitions on bool conditions", () => {
@@ -841,6 +915,219 @@ describe("@ggez/anim-runtime", () => {
     expect(Math.abs(computeWorldForwardYaw(orientationWarpRig, result.pose, 2))).toBeLessThan(0.1);
     expect(Math.abs(computeWorldForwardYaw(orientationWarpRig, result.pose, 3))).toBeGreaterThan(1.2);
     expect(Math.abs(computeWorldForwardYaw(orientationWarpRig, result.pose, 6))).toBeGreaterThan(1.2);
+  });
+
+  it("rotates root motion translation with the orientation warp angle", () => {
+    const graph: CompiledAnimatorGraph = {
+      version: 1,
+      name: "Orientation Warp Root Motion",
+      parameters: [{ name: "headingOffset", type: "float", defaultValue: 0 }],
+      clipSlots: [{ id: "walk", name: "Walk", duration: 1 }],
+      masks: [],
+      graphs: [
+        {
+          name: "Main",
+          rootNodeIndex: 1,
+          nodes: [
+            { type: "clip", clipIndex: 0, speed: 1, loop: true, inPlace: false },
+            {
+              type: "orientationWarp",
+              sourceNodeIndex: 0,
+              parameterIndex: 0,
+              maxAngle: Math.PI / 2,
+              weight: 1,
+              hipBoneIndex: undefined,
+              hipWeight: 0,
+              spineBoneIndices: [],
+              legs: []
+            }
+          ]
+        }
+      ],
+      layers: [
+        {
+          name: "Base",
+          graphIndex: 0,
+          weight: 1,
+          blendMode: "override",
+          rootMotionMode: "full",
+          enabled: true
+        }
+      ],
+      entryGraphIndex: 0
+    };
+
+    const animator = createAnimatorInstance({
+      rig,
+      graph,
+      clips: [walkClip]
+    });
+
+    animator.setFloat("headingOffset", Math.PI / 2);
+    const result = animator.update(0.5);
+
+    expect(result.rootMotion.translation[0]).toBeCloseTo(0, 5);
+    expect(result.rootMotion.translation[2]).toBeCloseTo(-1, 5);
+  });
+
+  it("extends and compresses foot spacing in manual stride warp mode", () => {
+    const baseGraph: CompiledAnimatorGraph = {
+      version: 1,
+      name: "Stride Warp Base",
+      parameters: [],
+      clipSlots: [{ id: "stride-base", name: "Stride Base", duration: 1 }],
+      masks: [],
+      graphs: [
+        {
+          name: "Main",
+          rootNodeIndex: 0,
+          nodes: [{ type: "clip", clipIndex: 0, speed: 1, loop: true, inPlace: false }]
+        }
+      ],
+      layers: [
+        {
+          name: "Base",
+          graphIndex: 0,
+          weight: 1,
+          blendMode: "override",
+          rootMotionMode: "none",
+          enabled: true
+        }
+      ],
+      entryGraphIndex: 0
+    };
+
+    const warpedGraph: CompiledAnimatorGraph = {
+      version: 1,
+      name: "Stride Warp Manual",
+      parameters: [],
+      clipSlots: [{ id: "stride-base", name: "Stride Base", duration: 1 }],
+      masks: [],
+      graphs: [
+        {
+          name: "Main",
+          rootNodeIndex: 1,
+          nodes: [
+            { type: "clip", clipIndex: 0, speed: 1, loop: true, inPlace: false },
+            {
+              type: "strideWarp",
+              sourceNodeIndex: 0,
+              evaluationMode: "manual",
+              locomotionSpeedParameterIndex: undefined,
+              strideDirection: { x: 0, y: 1 },
+              manualStrideScale: 1.75,
+              minLocomotionSpeedThreshold: 0,
+              pelvisBoneIndex: 1,
+              pelvisWeight: 0.2,
+              clampResult: false,
+              minStrideScale: 0.5,
+              maxStrideScale: 2,
+              interpResult: false,
+              interpSpeedIncreasing: 6,
+              interpSpeedDecreasing: 6,
+              legs: [
+                { upperBoneIndex: 3, lowerBoneIndex: 4, footBoneIndex: 5, weight: 1 },
+                { upperBoneIndex: 6, lowerBoneIndex: 7, footBoneIndex: 8, weight: 1 }
+              ]
+            }
+          ]
+        }
+      ],
+      layers: [
+        {
+          name: "Base",
+          graphIndex: 0,
+          weight: 1,
+          blendMode: "override",
+          rootMotionMode: "none",
+          enabled: true
+        }
+      ],
+      entryGraphIndex: 0
+    };
+
+    const baseAnimator = createAnimatorInstance({
+      rig: orientationWarpRig,
+      graph: baseGraph,
+      clips: [strideWarpClip]
+    });
+    const warpedAnimator = createAnimatorInstance({
+      rig: orientationWarpRig,
+      graph: warpedGraph,
+      clips: [strideWarpClip]
+    });
+
+    const baseResult = baseAnimator.update(0.1);
+    const warpedResult = warpedAnimator.update(0.1);
+    const baseLeftFoot = computeWorldPosition(orientationWarpRig, baseResult.pose, 5);
+    const baseRightFoot = computeWorldPosition(orientationWarpRig, baseResult.pose, 8);
+    const warpedLeftFoot = computeWorldPosition(orientationWarpRig, warpedResult.pose, 5);
+    const warpedRightFoot = computeWorldPosition(orientationWarpRig, warpedResult.pose, 8);
+    const baseStrideSpan = Math.abs(baseLeftFoot[2] - baseRightFoot[2]);
+    const warpedStrideSpan = Math.abs(warpedLeftFoot[2] - warpedRightFoot[2]);
+
+    expect(warpedLeftFoot[2]).toBeGreaterThan(baseLeftFoot[2]);
+    expect(warpedStrideSpan).toBeGreaterThan(baseStrideSpan);
+  });
+
+  it("scales root motion translation in graph-driven stride warp mode", () => {
+    const graph: CompiledAnimatorGraph = {
+      version: 1,
+      name: "Stride Warp Root Motion",
+      parameters: [{ name: "locomotionSpeed", type: "float", defaultValue: 0 }],
+      clipSlots: [{ id: "walk", name: "Walk", duration: 1 }],
+      masks: [],
+      graphs: [
+        {
+          name: "Main",
+          rootNodeIndex: 1,
+          nodes: [
+            { type: "clip", clipIndex: 0, speed: 1, loop: true, inPlace: false },
+            {
+              type: "strideWarp",
+              sourceNodeIndex: 0,
+              evaluationMode: "graph",
+              locomotionSpeedParameterIndex: 0,
+              strideDirection: { x: 0, y: 1 },
+              manualStrideScale: 1,
+              minLocomotionSpeedThreshold: 0,
+              pelvisBoneIndex: undefined,
+              pelvisWeight: 0,
+              clampResult: false,
+              minStrideScale: 0.5,
+              maxStrideScale: 2,
+              interpResult: false,
+              interpSpeedIncreasing: 6,
+              interpSpeedDecreasing: 6,
+              legs: []
+            }
+          ]
+        }
+      ],
+      layers: [
+        {
+          name: "Base",
+          graphIndex: 0,
+          weight: 1,
+          blendMode: "override",
+          rootMotionMode: "full",
+          enabled: true
+        }
+      ],
+      entryGraphIndex: 0
+    };
+
+    const animator = createAnimatorInstance({
+      rig,
+      graph,
+      clips: [walkClip]
+    });
+
+    animator.setFloat("locomotionSpeed", 4);
+    const result = animator.update(0.5);
+
+    expect(result.rootMotion.translation[0]).toBeCloseTo(2, 5);
+    expect(result.rootMotion.translation[2]).toBeCloseTo(0, 5);
   });
 
   it("syncs node playback across layers with sync groups", () => {

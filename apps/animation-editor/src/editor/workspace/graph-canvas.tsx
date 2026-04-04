@@ -15,7 +15,7 @@ import {
   useNodesState,
 } from "@xyflow/react";
 import type { EditorGraphNode } from "@ggez/anim-schema";
-import { Boxes, Film, Layers3, RotateCcw, SlidersHorizontal, Workflow } from "lucide-react";
+import { Boxes, Film, Layers3, MoveHorizontal, RotateCcw, SlidersHorizontal, Workflow } from "lucide-react";
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -27,6 +27,7 @@ const NODE_ACTIONS = [
   { kind: "blend2d", label: "Blend 2D", icon: Boxes },
   { kind: "selector", label: "Selector", icon: SlidersHorizontal },
   { kind: "orientationWarp", label: "Orientation Warp", icon: RotateCcw },
+  { kind: "strideWarp", label: "Stride Warp", icon: MoveHorizontal },
   { kind: "stateMachine", label: "State Machine", icon: Workflow },
   { kind: "subgraph", label: "Subgraph", icon: Layers3 },
 ] as const;
@@ -101,6 +102,8 @@ function getNodeSummary(node: EditorGraphNode, graphNamesById?: Record<string, s
       return `${node.children.length} option${node.children.length === 1 ? "" : "s"}`;
     case "orientationWarp":
       return `${node.spineBoneNames.length} spine / ${node.legs.length} leg${node.legs.length === 1 ? "" : "s"}`;
+    case "strideWarp":
+      return `${node.legs.length} leg${node.legs.length === 1 ? "" : "s"} / ${node.evaluationMode}`;
     case "stateMachine":
       return `${node.states.length} state${node.states.length === 1 ? "" : "s"}`;
     case "subgraph": {
@@ -180,7 +183,7 @@ function buildCanvasEdges(
       });
     }
 
-    if (node.kind === "orientationWarp" && node.sourceNodeId) {
+    if ((node.kind === "orientationWarp" || node.kind === "strideWarp") && node.sourceNodeId) {
       edges.push({
         id: `${node.sourceNodeId}->${node.id}`,
         source: node.sourceNodeId,

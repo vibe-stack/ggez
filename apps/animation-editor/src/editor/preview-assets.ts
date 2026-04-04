@@ -2,12 +2,10 @@ import { createRigDefinition, type AnimationClipAsset, type PoseBuffer, type Rig
 import type { ClipReference, SerializableRig } from "@ggez/anim-schema";
 import { createClipAssetFromThreeClip } from "@ggez/anim-three";
 import { Bone, Matrix4, Quaternion, Skeleton, Vector3, type AnimationClip, type Object3D } from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
-import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
+import { createConfiguredGLTFLoader } from "./gltf-loader";
 
-const gltfLoader = new GLTFLoader();
-gltfLoader.setMeshoptDecoder(MeshoptDecoder);
+const gltfLoader = createConfiguredGLTFLoader();
 
 const fbxLoader = new FBXLoader();
 
@@ -225,6 +223,20 @@ export function findPrimarySkeleton(root: Object3D): Skeleton | null {
 
   const boneInverses = resolvedBones.map((bone) => boneInversesByBone.get(bone)?.clone() ?? bone.matrixWorld.clone().invert());
   return new Skeleton(resolvedBones, boneInverses);
+}
+
+export function preparePreviewObject(root: Object3D): void {
+  root.traverse((child) => {
+    const candidate = child as Object3D & {
+      frustumCulled?: boolean;
+      isMesh?: boolean;
+      isSkinnedMesh?: boolean;
+    };
+
+    if (candidate.isSkinnedMesh || candidate.isMesh) {
+      candidate.frustumCulled = false;
+    }
+  });
 }
 
 export function applyPoseBufferToSceneBones(pose: PoseBuffer, rig: RigDefinition, root: Object3D): void {
