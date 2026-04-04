@@ -54,6 +54,27 @@ function strArray(args: Args, key: string): string[] {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 }
 
+function vec2Arg(args: Args, key: string, fallback: { x: number; y: number }): { x: number; y: number } {
+  const value = args[key];
+  if (isRecord(value)) {
+    return {
+      x: typeof value.x === "number" && Number.isFinite(value.x) ? value.x : fallback.x,
+      y: typeof value.y === "number" && Number.isFinite(value.y) ? value.y : fallback.y
+    };
+  }
+
+  const x = num(args, `${key}X`);
+  const y = num(args, `${key}Y`);
+  if (x !== undefined || y !== undefined) {
+    return {
+      x: x ?? fallback.x,
+      y: y ?? fallback.y
+    };
+  }
+
+  return fallback;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -108,6 +129,25 @@ function summarizeNode(node: EditorGraphNode) {
         hipBoneName: node.hipBoneName,
         hipWeight: node.hipWeight,
         spineBoneNames: node.spineBoneNames,
+        legs: node.legs
+      };
+    case "strideWarp":
+      return {
+        ...base,
+        sourceNodeId: node.sourceNodeId,
+        evaluationMode: node.evaluationMode,
+        locomotionSpeedParameterId: node.locomotionSpeedParameterId,
+        strideDirection: node.strideDirection,
+        manualStrideScale: node.manualStrideScale,
+        minLocomotionSpeedThreshold: node.minLocomotionSpeedThreshold,
+        pelvisBoneName: node.pelvisBoneName,
+        pelvisWeight: node.pelvisWeight,
+        clampResult: node.clampResult,
+        minStrideScale: node.minStrideScale,
+        maxStrideScale: node.maxStrideScale,
+        interpResult: node.interpResult,
+        interpSpeedIncreasing: node.interpSpeedIncreasing,
+        interpSpeedDecreasing: node.interpSpeedDecreasing,
         legs: node.legs
       };
     case "stateMachine":
@@ -222,7 +262,33 @@ function applyNodePatch(node: EditorGraphNode, args: Args): EditorGraphNode {
         hipBoneName: "hipBoneName" in args ? str(args, "hipBoneName") || undefined : nextNode.hipBoneName,
         hipWeight: num(args, "hipWeight") ?? nextNode.hipWeight,
         spineBoneNames: "spineBoneNames" in args ? strArray(args, "spineBoneNames") : nextNode.spineBoneNames,
-        legs: "legs" in args ? parseOrientationWarpLegs(args.legs) : nextNode.legs
+        legs: "legs" in args ? parseLegDefinitions(args.legs) : nextNode.legs
+      };
+    case "strideWarp":
+      return {
+        ...nextNode,
+        sourceNodeId: "sourceNodeId" in args ? str(args, "sourceNodeId") || undefined : nextNode.sourceNodeId,
+        evaluationMode:
+          "evaluationMode" in args && (str(args, "evaluationMode") === "graph" || str(args, "evaluationMode") === "manual")
+            ? (str(args, "evaluationMode") as typeof nextNode.evaluationMode)
+            : nextNode.evaluationMode,
+        locomotionSpeedParameterId:
+          "locomotionSpeedParameterId" in args ? str(args, "locomotionSpeedParameterId") || undefined : nextNode.locomotionSpeedParameterId,
+        strideDirection:
+          "strideDirection" in args || "strideDirectionX" in args || "strideDirectionY" in args
+            ? vec2Arg(args, "strideDirection", nextNode.strideDirection)
+            : nextNode.strideDirection,
+        manualStrideScale: num(args, "manualStrideScale") ?? nextNode.manualStrideScale,
+        minLocomotionSpeedThreshold: num(args, "minLocomotionSpeedThreshold") ?? nextNode.minLocomotionSpeedThreshold,
+        pelvisBoneName: "pelvisBoneName" in args ? str(args, "pelvisBoneName") || undefined : nextNode.pelvisBoneName,
+        pelvisWeight: num(args, "pelvisWeight") ?? nextNode.pelvisWeight,
+        clampResult: bool(args, "clampResult") ?? nextNode.clampResult,
+        minStrideScale: num(args, "minStrideScale") ?? nextNode.minStrideScale,
+        maxStrideScale: num(args, "maxStrideScale") ?? nextNode.maxStrideScale,
+        interpResult: bool(args, "interpResult") ?? nextNode.interpResult,
+        interpSpeedIncreasing: num(args, "interpSpeedIncreasing") ?? nextNode.interpSpeedIncreasing,
+        interpSpeedDecreasing: num(args, "interpSpeedDecreasing") ?? nextNode.interpSpeedDecreasing,
+        legs: "legs" in args ? parseLegDefinitions(args.legs) : nextNode.legs
       };
     case "subgraph":
       return {
@@ -290,7 +356,12 @@ function parseSelectorChildren(children: unknown): Extract<EditorGraphNode, { ki
   });
 }
 
-function parseOrientationWarpLegs(legs: unknown): Extract<EditorGraphNode, { kind: "orientationWarp" }>["legs"] {
+function parseLegDefinitions(legs: unknown): Array<{
+  upperBoneName: string;
+  lowerBoneName: string;
+  footBoneName: string;
+  weight: number;
+}> {
   if (!Array.isArray(legs)) {
     throw new Error("legs must be an array.");
   }

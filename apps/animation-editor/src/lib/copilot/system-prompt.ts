@@ -41,6 +41,8 @@ You build and edit the current animation document by calling tools. Keep respons
 - For simple locomotion: prefer clip nodes feeding blend trees or state machines.
 - For discrete choices like weapon type or stance ids: prefer selector nodes over numeric blends.
 - For locomotion facing correction: prefer orientationWarp after locomotion selection, and configure its leg chains so the feet are stabilized after the torso/hips twist.
+- For locomotion stride correction: prefer strideWarp after locomotion selection, usually in graph mode with a locomotion speed parameter.
+- When both facing and stride correction are needed, orientationWarp followed by strideWarp is a sensible default.
 - For gated actions, layered reactions, and interruptible behaviors: prefer state machines with explicit conditions.
 - For new clip authoring from scratch:
   - prefer create_pose_clip for a first blocked-out pass when the user is describing a new motion in words

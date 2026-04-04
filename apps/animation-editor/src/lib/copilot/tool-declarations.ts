@@ -277,7 +277,7 @@ export const COPILOT_TOOL_DECLARATIONS: CopilotToolDeclaration[] = [
       type: "object",
       properties: {
         graphId: { type: "string" },
-        kind: { type: "string", enum: ["clip", "blend1d", "blend2d", "selector", "orientationWarp", "stateMachine", "subgraph"] },
+        kind: { type: "string", enum: ["clip", "blend1d", "blend2d", "selector", "orientationWarp", "strideWarp", "stateMachine", "subgraph"] },
         name: { type: "string" },
         x: { type: "number" },
         y: { type: "number" },
@@ -297,6 +297,25 @@ export const COPILOT_TOOL_DECLARATIONS: CopilotToolDeclaration[] = [
         hipBoneName: { type: "string" },
         hipWeight: { type: "number" },
         spineBoneNames: { type: "array", items: { type: "string" } },
+        evaluationMode: { type: "string", enum: ["graph", "manual"] },
+        locomotionSpeedParameterId: { type: "string" },
+        strideDirection: {
+          type: "object",
+          properties: {
+            x: { type: "number" },
+            y: { type: "number" }
+          }
+        },
+        manualStrideScale: { type: "number" },
+        minLocomotionSpeedThreshold: { type: "number" },
+        pelvisBoneName: { type: "string" },
+        pelvisWeight: { type: "number" },
+        clampResult: { type: "boolean" },
+        minStrideScale: { type: "number" },
+        maxStrideScale: { type: "number" },
+        interpResult: { type: "boolean" },
+        interpSpeedIncreasing: { type: "number" },
+        interpSpeedDecreasing: { type: "number" },
         legs: {
           type: "array",
           items: {
@@ -344,6 +363,25 @@ export const COPILOT_TOOL_DECLARATIONS: CopilotToolDeclaration[] = [
         hipBoneName: { type: "string" },
         hipWeight: { type: "number" },
         spineBoneNames: { type: "array", items: { type: "string" } },
+        evaluationMode: { type: "string", enum: ["graph", "manual"] },
+        locomotionSpeedParameterId: { type: "string" },
+        strideDirection: {
+          type: "object",
+          properties: {
+            x: { type: "number" },
+            y: { type: "number" }
+          }
+        },
+        manualStrideScale: { type: "number" },
+        minLocomotionSpeedThreshold: { type: "number" },
+        pelvisBoneName: { type: "string" },
+        pelvisWeight: { type: "number" },
+        clampResult: { type: "boolean" },
+        minStrideScale: { type: "number" },
+        maxStrideScale: { type: "number" },
+        interpResult: { type: "boolean" },
+        interpSpeedIncreasing: { type: "number" },
+        interpSpeedDecreasing: { type: "number" },
         legs: {
           type: "array",
           items: {
