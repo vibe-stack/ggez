@@ -3,6 +3,86 @@ import type { AnimationClipAsset, AnimationTrack, PoseBuffer, RigDefinition } fr
 import { extractRootMotionDelta, type RootMotionMode } from "./root-motion";
 import { copyPose, copyRigBindPose } from "./pose-buffer";
 
+function getBoneDepth(rig: RigDefinition, boneIndex: number): number {
+  let depth = 0;
+  let current = boneIndex;
+
+  while (current >= 0) {
+    current = rig.parentIndices[current] ?? -1;
+    if (current >= 0) {
+      depth += 1;
+    }
+  }
+
+  return depth;
+}
+
+function scoreRootMotionBoneName(name: string): number {
+  const normalized = name.toLowerCase();
+
+  if (normalized.includes("hips")) {
+    return 400;
+  }
+  if (normalized.includes("pelvis")) {
+    return 320;
+  }
+  if (normalized === "root") {
+    return 240;
+  }
+  if (normalized.includes("root")) {
+    return 180;
+  }
+  if (normalized.includes("armature")) {
+    return 60;
+  }
+  return 0;
+}
+
+function estimateTranslationTravel(values: Float32Array | undefined): number {
+  if (!values || values.length < 6) {
+    return 0;
+  }
+
+  let maxDistance = 0;
+  const startX = values[0] ?? 0;
+  const startY = values[1] ?? 0;
+  const startZ = values[2] ?? 0;
+
+  for (let index = 3; index < values.length; index += 3) {
+    const dx = (values[index] ?? 0) - startX;
+    const dy = (values[index + 1] ?? 0) - startY;
+    const dz = (values[index + 2] ?? 0) - startZ;
+    maxDistance = Math.max(maxDistance, Math.hypot(dx, dy, dz));
+  }
+
+  return maxDistance;
+}
+
+function inferMotionRootBoneIndex(clip: AnimationClipAsset, rig: RigDefinition): number {
+  const candidates = clip.tracks
+    .filter((track) => track.translationTimes && track.translationValues && track.translationValues.length >= 3)
+    .map((track) => ({
+      boneIndex: track.boneIndex,
+      nameScore: scoreRootMotionBoneName(rig.boneNames[track.boneIndex] ?? ""),
+      travel: estimateTranslationTravel(track.translationValues),
+      depth: getBoneDepth(rig, track.boneIndex)
+    }))
+    .sort((left, right) => {
+      if (left.nameScore !== right.nameScore) {
+        return right.nameScore - left.nameScore;
+      }
+      if (left.travel !== right.travel) {
+        return right.travel - left.travel;
+      }
+      if (left.depth !== right.depth) {
+        return left.depth - right.depth;
+      }
+      return left.boneIndex - right.boneIndex;
+    });
+
+  return candidates[0]?.boneIndex ?? rig.rootBoneIndex;
+}
+
 function findKeyframeIndex(times: Float32Array, time: number): number {
   if (times.length <= 1) {
     return 0;
@@ -186,7 +266,7 @@ export function sampleClipRootMotionDelta(
     );
   }
 
-  const rootBoneIndex = clip.rootBoneIndex ?? rig.rootBoneIndex;
+  const rootBoneIndex = clip.rootBoneIndex ?? inferMotionRootBoneIndex(clip, rig);
   const tempA = new Float32Array(4);
   const tempB = new Float32Array(4);
   const accumulated = extractRootMotionDelta(

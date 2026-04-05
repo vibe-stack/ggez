@@ -529,10 +529,10 @@ describe("@ggez/anim-runtime", () => {
     expect(animator.outputPose.translations[0]).toBeGreaterThan(0);
   });
 
-  it("syncs blend-tree child clips by normalized phase instead of raw seconds", () => {
+  it("keeps blend-tree playback in native child time by default", () => {
     const graph: CompiledAnimatorGraph = {
       version: 1,
-      name: "Synced Blend Graph",
+      name: "Native-Time Blend Graph",
       parameters: [{ name: "speed", type: "float", defaultValue: 0.5 }],
       clipSlots: [
         { id: "walk", name: "Walk", duration: 1 },
@@ -579,7 +579,115 @@ describe("@ggez/anim-runtime", () => {
     animator.setFloat("speed", 0.5);
     const result = animator.update(0.75);
 
+    expect(result.pose.translations[0]).toBeCloseTo(1);
+  });
+
+  it("can phase-sync blend-tree children explicitly with sync groups", () => {
+    const graph: CompiledAnimatorGraph = {
+      version: 1,
+      name: "Synced Blend Graph",
+      parameters: [{ name: "speed", type: "float", defaultValue: 0.5 }],
+      clipSlots: [
+        { id: "walk", name: "Walk", duration: 1 },
+        { id: "run-fast", name: "Run Fast", duration: 0.5 }
+      ],
+      masks: [],
+      graphs: [
+        {
+          name: "Locomotion",
+          rootNodeIndex: 2,
+          nodes: [
+            { type: "clip", clipIndex: 0, speed: 1, loop: true, inPlace: false, syncGroup: "locomotion" },
+            { type: "clip", clipIndex: 1, speed: 1, loop: true, inPlace: false, syncGroup: "locomotion" },
+            {
+              type: "blend1d",
+              parameterIndex: 0,
+              children: [
+                { nodeIndex: 0, threshold: 0 },
+                { nodeIndex: 1, threshold: 1 }
+              ]
+            }
+          ]
+        }
+      ],
+      layers: [
+        {
+          name: "Base",
+          graphIndex: 0,
+          weight: 1,
+          blendMode: "override",
+          rootMotionMode: "none",
+          enabled: true
+        }
+      ],
+      entryGraphIndex: 0
+    };
+
+    const animator = createAnimatorInstance({
+      rig,
+      graph,
+      clips: [walkClip, fastRunClip]
+    });
+
+    animator.setFloat("speed", 0.5);
+    const result = animator.update(0.75);
+
     expect(result.pose.translations[0]).toBeCloseTo(1.125);
+  });
+
+  it("does not double-apply sync groups when a blend tree and its child clips share the same group", () => {
+    const graph: CompiledAnimatorGraph = {
+      version: 1,
+      name: "Nested Sync Group Blend",
+      parameters: [{ name: "speed", type: "float", defaultValue: 0.5 }],
+      clipSlots: [
+        { id: "walk", name: "Walk", duration: 1 },
+        { id: "run-fast", name: "Run Fast", duration: 0.5 }
+      ],
+      masks: [],
+      graphs: [
+        {
+          name: "Locomotion",
+          rootNodeIndex: 2,
+          nodes: [
+            { type: "clip", clipIndex: 0, speed: 1, loop: true, inPlace: false, syncGroup: "locomotion" },
+            { type: "clip", clipIndex: 1, speed: 1, loop: true, inPlace: false, syncGroup: "locomotion" },
+            {
+              type: "blend1d",
+              parameterIndex: 0,
+              syncGroup: "locomotion",
+              children: [
+                { nodeIndex: 0, threshold: 0 },
+                { nodeIndex: 1, threshold: 1 }
+              ]
+            }
+          ]
+        }
+      ],
+      layers: [
+        {
+          name: "Base",
+          graphIndex: 0,
+          weight: 1,
+          blendMode: "override",
+          rootMotionMode: "full",
+          enabled: true
+        }
+      ],
+      entryGraphIndex: 0
+    };
+
+    const animator = createAnimatorInstance({
+      rig,
+      graph,
+      clips: [walkClip, fastRunClip]
+    });
+
+    animator.setFloat("speed", 0.5);
+    const result = animator.update(0.75);
+
+    expect(result.pose.translations[0]).toBeCloseTo(1);
+    expect(result.rootMotion.translation[0]).toBeCloseTo(1.5);
   });
 
   it("keeps exact blend2d child matches at their native playback speed", () => {
@@ -702,6 +810,73 @@ describe("@ggez/anim-runtime", () => {
     const result = animator.update(0.1);
 
     expect(result.pose.translations[0]).toBeCloseTo(6);
+  });
+
+  it("does not slow nested locomotion blends when parent branches have different durations", () => {
+    const graph: CompiledAnimatorGraph = {
+      version: 1,
+      name: "Nested Locomotion Blend",
+      parameters: [
+        { name: "moveY", type: "float", defaultValue: 0 },
+        { name: "locomotionSpeed", type: "float", defaultValue: 0 }
+      ],
+      clipSlots: [
+        { id: "idle-long", name: "Idle Long", duration: 2 },
+        { id: "walk", name: "Walk", duration: 1 },
+        { id: "run-fast", name: "Run Fast", duration: 0.5 }
+      ],
+      masks: [],
+      graphs: [
+        {
+          name: "Locomotion",
+          rootNodeIndex: 4,
+          nodes: [
+            { type: "clip", clipIndex: 0, speed: 1, loop: true, inPlace: false },
+            { type: "clip", clipIndex: 1, speed: 1, loop: true, inPlace: false },
+            { type: "clip", clipIndex: 2, speed: 1, loop: true, inPlace: false },
+            {
+              type: "blend1d",
+              parameterIndex: 0,
+              children: [
+                { nodeIndex: 0, threshold: 0 },
+                { nodeIndex: 1, threshold: 1 }
+              ]
+            },
+            {
+              type: "blend1d",
+              parameterIndex: 1,
+              children: [
+                { nodeIndex: 3, threshold: 0 },
+                { nodeIndex: 2, threshold: 1 }
+              ]
+            }
+          ]
+        }
+      ],
+      layers: [
+        {
+          name: "Base",
+          graphIndex: 0,
+          weight: 1,
+          blendMode: "override",
+          rootMotionMode: "none",
+          enabled: true
+        }
+      ],
+      entryGraphIndex: 0
+    };
+
+    const animator = createAnimatorInstance({
+      rig,
+      graph,
+      clips: [longIdleClip, walkClip, fastRunClip]
+    });
+
+    animator.setFloat("moveY", 1);
+    animator.setFloat("locomotionSpeed", 0.8);
+    const result = animator.update(0.75);
+
+    expect(result.pose.translations[0]).toBeCloseTo(0.7);
   });
 
   it("selects discrete child motions by integer parameter", () => {
@@ -1518,6 +1693,46 @@ describe("@ggez/anim-runtime", () => {
     expect(result.pose.translations[4]).toBeCloseTo(1);
     expect(result.pose.translations[5]).toBeCloseTo(0);
     expect(result.rootMotion.translation[0]).toBeCloseTo(0);
+    expect(result.rootMotion.translation[1]).toBeCloseTo(0);
+    expect(result.rootMotion.translation[2]).toBeCloseTo(0);
+  });
+
+  it("extracts legacy clip root motion from the inferred motion bone", () => {
+    const graph: CompiledAnimatorGraph = {
+      version: 1,
+      name: "Legacy Mixamo Root Motion",
+      parameters: [],
+      clipSlots: [{ id: "legacy-mixamo-walk", name: "Legacy Mixamo Walk", duration: 1 }],
+      masks: [],
+      graphs: [
+        {
+          name: "Main",
+          rootNodeIndex: 0,
+          nodes: [{ type: "clip", clipIndex: 0, speed: 1, loop: true, inPlace: false }]
+        }
+      ],
+      layers: [
+        {
+          name: "Base",
+          graphIndex: 0,
+          weight: 1,
+          blendMode: "override",
+          rootMotionMode: "full",
+          enabled: true
+        }
+      ],
+      entryGraphIndex: 0
+    };
+
+    const animator = createAnimatorInstance({
+      rig: twoBoneRig,
+      graph,
+      clips: [legacyMixamoClip]
+    });
+
+    const result = animator.update(0.5);
+
+    expect(result.rootMotion.translation[0]).toBeCloseTo(1);
     expect(result.rootMotion.translation[1]).toBeCloseTo(0);
     expect(result.rootMotion.translation[2]).toBeCloseTo(0);
   });

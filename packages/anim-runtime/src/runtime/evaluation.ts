@@ -1,12 +1,28 @@
 import { blendPoses, copyPose, createPoseBufferFromRig, estimateClipDuration, sampleClipPose, sampleClipPoseOnBase, sampleClipRootMotionDelta } from "@ggez/anim-core";
 import type { PoseBuffer, RootMotionDelta } from "@ggez/anim-core";
 import type { CompiledCondition, CompiledGraphNode, CompiledMotionGraph } from "@ggez/anim-schema";
-import { applyBlendCurve, blendRootMotion, computeBlend2DChildren, evaluateCondition, findBlend1DChildren, findSelectorChild, forceRootMotionChainToBindPose, getEffectiveRootBoneIndex, getNodeDuration, getStateDuration, getSyncedTransitionTime, remapBlendChildTime, resolveSyncGroupTimes } from "./helpers";
+import { applyBlendCurve, blendRootMotion, computeBlend2DChildren, evaluateCondition, findBlend1DChildren, findSelectorChild, forceRootMotionChainToBindPose, getEffectiveRootBoneIndex, getNodeDuration, getStateDuration, getSyncedTransitionTime, resolveSyncGroupTimes } from "./helpers";
 import { applyOrientationWarp, applyOrientationWarpToRootMotion } from "./orientation-warp";
 import { applySecondaryDynamics } from "./secondary-dynamics";
 import { copyRootMotion, ensureScratchMotion, ensureScratchPose, releaseScratchMotion, releaseScratchPose, resetRootMotion } from "./scratch";
 import { applyStrideWarp, applyStrideWarpToRootMotion, resolveStrideWarp } from "./stride-warp";
 import type { EvaluationContext, StateMachineRuntimeState } from "./types";
+
+function enterSyncGroupScope(context: EvaluationContext, syncGroup: string | undefined): () => void {
+  if (!syncGroup) {
+    return () => {};
+  }
+
+  context.activeSyncGroups.set(syncGroup, (context.activeSyncGroups.get(syncGroup) ?? 0) + 1);
+  return () => {
+    const nextDepth = (context.activeSyncGroups.get(syncGroup) ?? 1) - 1;
+    if (nextDepth <= 0) {
+      context.activeSyncGroups.delete(syncGroup);
+      return;
+    }
+    context.activeSyncGroups.set(syncGroup, nextDepth);
+  };
+}
 
 export function evaluateNode(
   context: EvaluationContext,
@@ -31,22 +47,27 @@ export function evaluateNode(
         time,
         previousTime
       );
-      const clip = context.clips[node.clipIndex]!;
-      if (fallbackPose) {
-        sampleClipPoseOnBase(clip, syncedTime.time * node.speed, fallbackPose, outPose, node.loop);
-      } else {
-        sampleClipPose(clip, context.rig, syncedTime.time * node.speed, outPose, node.loop);
-      }
-      const rootBoneIndex = getEffectiveRootBoneIndex(clip, context.rig);
-      if (node.inPlace) {
-        forceRootMotionChainToBindPose(context, rootBoneIndex, outPose);
-      }
-      copyRootMotion(
-        sampleClipRootMotionDelta(clip, context.rig, syncedTime.previousTime * node.speed, syncedTime.time * node.speed, "full"),
-        outRootMotion
-      );
-      if (node.inPlace) {
-        resetRootMotion(outRootMotion);
+      const exitSyncGroupScope = enterSyncGroupScope(context, node.syncGroup);
+      try {
+        const clip = context.clips[node.clipIndex]!;
+        if (fallbackPose) {
+          sampleClipPoseOnBase(clip, syncedTime.time * node.speed, fallbackPose, outPose, node.loop);
+        } else {
+          sampleClipPose(clip, context.rig, syncedTime.time * node.speed, outPose, node.loop);
+        }
+        const rootBoneIndex = getEffectiveRootBoneIndex(clip, context.rig);
+        if (node.inPlace) {
+          forceRootMotionChainToBindPose(context, rootBoneIndex, outPose);
+        }
+        copyRootMotion(
+          sampleClipRootMotionDelta(clip, context.rig, syncedTime.previousTime * node.speed, syncedTime.time * node.speed, "full"),
+          outRootMotion
+        );
+        if (node.inPlace) {
+          resetRootMotion(outRootMotion);
+        }
+      } finally {
+        exitSyncGroupScope();
       }
       break;
     }
@@ -59,7 +80,12 @@ export function evaluateNode(
         time,
         previousTime
       );
-      evaluateNode(context, subgraph, node.graphIndex, subgraph.rootNodeIndex, syncedTime.time, syncedTime.previousTime, syncedTime.deltaTime, outPose, outRootMotion, fallbackPose);
+      const exitSyncGroupScope = enterSyncGroupScope(context, node.syncGroup);
+      try {
+        evaluateNode(context, subgraph, node.graphIndex, subgraph.rootNodeIndex, syncedTime.time, syncedTime.previousTime, syncedTime.deltaTime, outPose, outRootMotion, fallbackPose);
+      } finally {
+        exitSyncGroupScope();
+      }
       break;
     }
     case "blend1d": {
@@ -72,19 +98,20 @@ export function evaluateNode(
       );
       const value = Number(context.parameters.getValue(node.parameterIndex) ?? 0);
       const pair = findBlend1DChildren(node.children, value);
-      const childATime = pair.a.nodeIndex === pair.b.nodeIndex
-        ? syncedTime
-        : remapBlendChildTime(context, graphIndex, nodeIndex, pair.a.nodeIndex, syncedTime.time, syncedTime.previousTime);
-      evaluateNode(context, compiledGraph, graphIndex, pair.a.nodeIndex, childATime.time, childATime.previousTime, childATime.deltaTime, outPose, outRootMotion, fallbackPose);
-      if (pair.a.nodeIndex !== pair.b.nodeIndex) {
-        const tempPose = ensureScratchPose(context);
-        const tempMotion = ensureScratchMotion(context);
-        const childBTime = remapBlendChildTime(context, graphIndex, nodeIndex, pair.b.nodeIndex, syncedTime.time, syncedTime.previousTime);
-        evaluateNode(context, compiledGraph, graphIndex, pair.b.nodeIndex, childBTime.time, childBTime.previousTime, childBTime.deltaTime, tempPose, tempMotion, fallbackPose);
-        blendPoses(outPose, tempPose, pair.t, outPose);
-        blendRootMotion(outRootMotion, tempMotion, pair.t, outRootMotion);
-        releaseScratchMotion(context);
-        releaseScratchPose(context);
+      const exitSyncGroupScope = enterSyncGroupScope(context, node.syncGroup);
+      try {
+        evaluateNode(context, compiledGraph, graphIndex, pair.a.nodeIndex, syncedTime.time, syncedTime.previousTime, syncedTime.deltaTime, outPose, outRootMotion, fallbackPose);
+        if (pair.a.nodeIndex !== pair.b.nodeIndex) {
+          const tempPose = ensureScratchPose(context);
+          const tempMotion = ensureScratchMotion(context);
+          evaluateNode(context, compiledGraph, graphIndex, pair.b.nodeIndex, syncedTime.time, syncedTime.previousTime, syncedTime.deltaTime, tempPose, tempMotion, fallbackPose);
+          blendPoses(outPose, tempPose, pair.t, outPose);
+          blendRootMotion(outRootMotion, tempMotion, pair.t, outRootMotion);
+          releaseScratchMotion(context);
+          releaseScratchPose(context);
+        }
+      } finally {
+        exitSyncGroupScope();
       }
       break;
     }
@@ -100,46 +127,50 @@ export function evaluateNode(
       const y = Number(context.parameters.getValue(node.yParameterIndex) ?? 0);
       const weights = computeBlend2DChildren(node.children, x, y);
 
-      if (weights.length === 0) {
-        if (fallbackPose) {
-          copyPose(fallbackPose, outPose);
-        } else {
-          copyPose(createPoseBufferFromRig(context.rig), outPose);
+      const exitSyncGroupScope = enterSyncGroupScope(context, node.syncGroup);
+      try {
+        if (weights.length === 0) {
+          if (fallbackPose) {
+            copyPose(fallbackPose, outPose);
+          } else {
+            copyPose(createPoseBufferFromRig(context.rig), outPose);
+          }
+          resetRootMotion(outRootMotion);
+          break;
         }
+
+        if (weights.length === 1) {
+          const exact = weights[0]!;
+          const childTime = syncedTime;
+          evaluateNode(context, compiledGraph, graphIndex, exact.child.nodeIndex, childTime.time, childTime.previousTime, childTime.deltaTime, outPose, outRootMotion, fallbackPose);
+          break;
+        }
+
+        const weightSum = weights.reduce((sum, entry) => sum + entry.weight, 0) || 1;
         resetRootMotion(outRootMotion);
-        break;
+        let accumulatedWeight = 0;
+
+        weights.forEach((entry, index) => {
+          const normalizedWeight = entry.weight / weightSum;
+          if (index === 0) {
+            evaluateNode(context, compiledGraph, graphIndex, entry.child.nodeIndex, syncedTime.time, syncedTime.previousTime, syncedTime.deltaTime, outPose, outRootMotion, fallbackPose);
+            accumulatedWeight = normalizedWeight;
+            return;
+          }
+
+          const tempPose = ensureScratchPose(context);
+          const tempMotion = ensureScratchMotion(context);
+          evaluateNode(context, compiledGraph, graphIndex, entry.child.nodeIndex, syncedTime.time, syncedTime.previousTime, syncedTime.deltaTime, tempPose, tempMotion, fallbackPose);
+          const blendWeight = normalizedWeight / (accumulatedWeight + normalizedWeight);
+          blendPoses(outPose, tempPose, blendWeight, outPose);
+          blendRootMotion(outRootMotion, tempMotion, blendWeight, outRootMotion);
+          accumulatedWeight += normalizedWeight;
+          releaseScratchMotion(context);
+          releaseScratchPose(context);
+        });
+      } finally {
+        exitSyncGroupScope();
       }
-
-      if (weights.length === 1) {
-        const exact = weights[0]!;
-        const childTime = syncedTime;
-        evaluateNode(context, compiledGraph, graphIndex, exact.child.nodeIndex, childTime.time, childTime.previousTime, childTime.deltaTime, outPose, outRootMotion, fallbackPose);
-        break;
-      }
-
-      const weightSum = weights.reduce((sum, entry) => sum + entry.weight, 0) || 1;
-      resetRootMotion(outRootMotion);
-      let accumulatedWeight = 0;
-
-      weights.forEach((entry, index) => {
-        const normalizedWeight = entry.weight / weightSum;
-        const childTime = remapBlendChildTime(context, graphIndex, nodeIndex, entry.child.nodeIndex, syncedTime.time, syncedTime.previousTime);
-        if (index === 0) {
-          evaluateNode(context, compiledGraph, graphIndex, entry.child.nodeIndex, childTime.time, childTime.previousTime, childTime.deltaTime, outPose, outRootMotion, fallbackPose);
-          accumulatedWeight = normalizedWeight;
-          return;
-        }
-
-        const tempPose = ensureScratchPose(context);
-        const tempMotion = ensureScratchMotion(context);
-        evaluateNode(context, compiledGraph, graphIndex, entry.child.nodeIndex, childTime.time, childTime.previousTime, childTime.deltaTime, tempPose, tempMotion, fallbackPose);
-        const blendWeight = normalizedWeight / (accumulatedWeight + normalizedWeight);
-        blendPoses(outPose, tempPose, blendWeight, outPose);
-        blendRootMotion(outRootMotion, tempMotion, blendWeight, outRootMotion);
-        accumulatedWeight += normalizedWeight;
-        releaseScratchMotion(context);
-        releaseScratchPose(context);
-      });
       break;
     }
     case "selector": {
@@ -151,17 +182,22 @@ export function evaluateNode(
         previousTime
       );
       const child = findSelectorChild(node.children, Number(context.parameters.getValue(node.parameterIndex) ?? 0));
-      if (!child) {
-        if (fallbackPose) {
-          copyPose(fallbackPose, outPose);
-        } else {
-          copyPose(createPoseBufferFromRig(context.rig), outPose);
+      const exitSyncGroupScope = enterSyncGroupScope(context, node.syncGroup);
+      try {
+        if (!child) {
+          if (fallbackPose) {
+            copyPose(fallbackPose, outPose);
+          } else {
+            copyPose(createPoseBufferFromRig(context.rig), outPose);
+          }
+          resetRootMotion(outRootMotion);
+          break;
         }
-        resetRootMotion(outRootMotion);
-        break;
-      }
 
-      evaluateNode(context, compiledGraph, graphIndex, child.nodeIndex, syncedTime.time, syncedTime.previousTime, syncedTime.deltaTime, outPose, outRootMotion, fallbackPose);
+        evaluateNode(context, compiledGraph, graphIndex, child.nodeIndex, syncedTime.time, syncedTime.previousTime, syncedTime.deltaTime, outPose, outRootMotion, fallbackPose);
+      } finally {
+        exitSyncGroupScope();
+      }
       break;
     }
     case "orientationWarp": {
@@ -437,18 +473,23 @@ function evaluateStateMachine(
         machineState.stateTime + currentState.cycleOffset,
         previousStateTime + currentState.cycleOffset
       );
-      evaluateNode(
-        context,
-        compiledGraph,
-        graphIndex,
-        currentState.motionNodeIndex,
-        syncedTime.time,
-        syncedTime.previousTime,
-        syncedTime.deltaTime,
-        outPose,
-        outRootMotion,
-        fallbackPose
-      );
+      const exitSyncGroupScope = enterSyncGroupScope(context, currentState.syncGroup);
+      try {
+        evaluateNode(
+          context,
+          compiledGraph,
+          graphIndex,
+          currentState.motionNodeIndex,
+          syncedTime.time,
+          syncedTime.previousTime,
+          syncedTime.deltaTime,
+          outPose,
+          outRootMotion,
+          fallbackPose
+        );
+      } finally {
+        exitSyncGroupScope();
+      }
     }
     return;
   }
@@ -472,18 +513,23 @@ function evaluateStateMachine(
       machineState.stateTime + currentState.cycleOffset,
       previousStateTime + currentState.cycleOffset
     );
-    evaluateNode(
-      context,
-      compiledGraph,
-      graphIndex,
-      currentState.motionNodeIndex,
-      syncedTime.time,
-      syncedTime.previousTime,
-      syncedTime.deltaTime,
-      outPose,
-      outRootMotion,
-      fallbackPose
-    );
+    const exitSyncGroupScope = enterSyncGroupScope(context, currentState.syncGroup);
+    try {
+      evaluateNode(
+        context,
+        compiledGraph,
+        graphIndex,
+        currentState.motionNodeIndex,
+        syncedTime.time,
+        syncedTime.previousTime,
+        syncedTime.deltaTime,
+        outPose,
+        outRootMotion,
+        fallbackPose
+      );
+    } finally {
+      exitSyncGroupScope();
+    }
   }
 
   const nextPose = ensureScratchPose(context);
@@ -503,18 +549,23 @@ function evaluateStateMachine(
       transition.nextStateTime + nextState.cycleOffset,
       previousNextStateTime + nextState.cycleOffset
     );
-    evaluateNode(
-      context,
-      compiledGraph,
-      graphIndex,
-      nextState.motionNodeIndex,
-      syncedTime.time,
-      syncedTime.previousTime,
-      syncedTime.deltaTime,
-      nextPose,
-      nextMotion,
-      fallbackPose
-    );
+    const exitSyncGroupScope = enterSyncGroupScope(context, nextState.syncGroup);
+    try {
+      evaluateNode(
+        context,
+        compiledGraph,
+        graphIndex,
+        nextState.motionNodeIndex,
+        syncedTime.time,
+        syncedTime.previousTime,
+        syncedTime.deltaTime,
+        nextPose,
+        nextMotion,
+        fallbackPose
+      );
+    } finally {
+      exitSyncGroupScope();
+    }
   }
 
   const progress = applyBlendCurve(transition.blendCurve, transition.elapsed / Math.max(0.0001, transition.duration));

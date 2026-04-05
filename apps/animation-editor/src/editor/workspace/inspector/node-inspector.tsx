@@ -299,7 +299,7 @@ export function NodeInspector(props: { store: AnimationEditorStore }) {
 
           {node.kind === "strideWarp" ? (
             <>
-              <div className={sectionHintClassName}>Connect a locomotion pose into this node, then scale foot spacing to match runtime movement speed. Graph mode derives scale from locomotion speed versus sampled root-motion speed; manual mode uses the authored scale and direction.</div>
+              <div className={sectionHintClassName}>Connect a locomotion pose into this node, then scale foot spacing to match runtime movement speed. Graph mode expects a float parameter in real movement-speed units and derives scale from that value versus sampled root-motion speed. Do not point it at a normalized blend parameter like a 0..1 walk-run control unless you intentionally want root motion scaled down. Manual mode uses the authored scale and direction.</div>
               <PropertyField label="Evaluation Mode">
                 <ButtonGroup className="grid w-full grid-cols-2">
                   <Button
@@ -344,7 +344,7 @@ export function NodeInspector(props: { store: AnimationEditorStore }) {
                     }
                     className={editorSelectClassName}
                   >
-                    {state.document.parameters.map((parameter) => (
+                    {state.document.parameters.filter((parameter) => parameter.type === "float").map((parameter) => (
                       <option key={parameter.id} value={parameter.id}>
                         {parameter.name}
                       </option>

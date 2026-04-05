@@ -301,6 +301,14 @@ export function resolveSyncGroupTimes(
     };
   }
 
+  if ((context.activeSyncGroups.get(syncGroup) ?? 0) > 0) {
+    return {
+      time,
+      previousTime,
+      deltaTime: time - previousTime
+    };
+  }
+
   const existing = context.syncGroups.get(syncGroup);
   if (!existing) {
     context.syncGroups.set(syncGroup, {

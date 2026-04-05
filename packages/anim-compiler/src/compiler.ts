@@ -31,6 +31,26 @@ function warning(message: string, path?: string): CompileDiagnostic {
   return { severity: "warning", message, path };
 }
 
+function parameterDrivesMotionSelection(document: AnimationEditorDocument, parameterId: string, excludeNodeId?: string): boolean {
+  return document.graphs.some((graph) =>
+    graph.nodes.some((node) => {
+      if (node.id === excludeNodeId) {
+        return false;
+      }
+
+      if (node.kind === "blend1d" || node.kind === "selector") {
+        return node.parameterId === parameterId;
+      }
+
+      if (node.kind === "blend2d") {
+        return node.xParameterId === parameterId || node.yParameterId === parameterId;
+      }
+
+      return false;
+    })
+  );
+}
+
 function toRig(document: AnimationEditorDocument): RigDefinition | undefined {
   if (!document.rig) {
     return undefined;
@@ -578,6 +598,23 @@ export function compileAnimationEditorDocument(input: unknown): CompileResult {
           if (node.evaluationMode === "graph" && locomotionSpeedParameterIndex === undefined) {
             diagnostics.push(error(`Stride Warp node "${node.name}" requires a locomotion speed parameter in graph mode.`, `graphs.${graphIndex}.nodes.${nodeIndex}.locomotionSpeedParameterId`));
             return;
+          }
+
+          if (node.evaluationMode === "graph" && node.locomotionSpeedParameterId) {
+            const locomotionSpeedParameter = document.parameters.find((parameter) => parameter.id === node.locomotionSpeedParameterId);
+            if (locomotionSpeedParameter?.type !== "float") {
+              diagnostics.push(error(`Stride Warp node "${node.name}" requires a float locomotion speed parameter in graph mode.`, `graphs.${graphIndex}.nodes.${nodeIndex}.locomotionSpeedParameterId`));
+              return;
+            }
+
+            if (parameterDrivesMotionSelection(document, node.locomotionSpeedParameterId, node.id)) {
+              diagnostics.push(
+                warning(
+                  `Stride Warp node "${node.name}" uses parameter "${locomotionSpeedParameter.name}" for graph-driven speed scaling, but that parameter also drives a blend tree or selector. Graph mode expects real runtime movement speed, not a normalized blend/control value, and can severely shrink root motion if the units do not match.`,
+                  `graphs.${graphIndex}.nodes.${nodeIndex}.locomotionSpeedParameterId`
+                )
+              );
+            }
           }
 
           if (!rig) {

@@ -14,6 +14,7 @@ export function createAnimatorInstance(input: {
   graph: CompiledAnimatorGraph;
   clips: AnimationClipAsset[];
 }): AnimatorInstance {
+  const dynamicsProfiles = input.graph.dynamicsProfiles ?? [];
   const parameters = createAnimatorParameterStore(input.graph);
   const clips = createClipsBySlot(input.graph, input.clips);
   const masks = createMasks(input.graph);
@@ -33,7 +34,7 @@ export function createAnimatorInstance(input: {
     stateTime: 0,
     transition: null
   }));
-  const secondaryDynamicsStates: SecondaryDynamicsChainRuntimeState[][] = input.graph.dynamicsProfiles.map((profile) =>
+  const secondaryDynamicsStates: SecondaryDynamicsChainRuntimeState[][] = dynamicsProfiles.map((profile) =>
     profile.chains.map((chain) => ({
       initialized: false,
       currentPositions: new Float32Array(chain.boneIndices.length * 3),
@@ -56,6 +57,7 @@ export function createAnimatorInstance(input: {
     durationCache: new Map(),
     strideWarpScales: new Map(),
     syncGroups: new Map(),
+    activeSyncGroups: new Map(),
     secondaryDynamicsStates,
     updateId: 0,
     poseScratch: Array.from({ length: 32 }, () => createPoseBufferFromRig(input.rig)),
@@ -69,6 +71,7 @@ export function createAnimatorInstance(input: {
     context.poseScratchIndex = 0;
     context.motionScratchIndex = 0;
     context.syncGroups.clear();
+    context.activeSyncGroups.clear();
     parameters.advance(Math.max(0, deltaTime));
     resetRootMotion(rootMotionDelta);
 

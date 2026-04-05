@@ -50,6 +50,7 @@ export interface EvaluationContext {
   readonly durationCache: Map<string, number>;
   readonly strideWarpScales: Map<string, number>;
   readonly syncGroups: Map<string, SyncGroupRuntimeState>;
+  readonly activeSyncGroups: Map<string, number>;
   readonly secondaryDynamicsStates: SecondaryDynamicsChainRuntimeState[][];
   updateId: number;
   poseScratchIndex: number;
