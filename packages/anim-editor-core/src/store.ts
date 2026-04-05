@@ -7,6 +7,7 @@ import type {
   EditorGraphNode,
   EditorLayer,
   ParameterDefinition,
+  SecondaryDynamicsProfile,
   SerializableRig
 } from "@ggez/anim-schema";
 import { createStableId, Emitter, type Unsubscribe } from "@ggez/anim-utils";
@@ -19,6 +20,7 @@ export type EditorTopic =
   | "parameters"
   | "layers"
   | "masks"
+  | "dynamics"
   | "compile"
   | "clipboard"
   | `graph:${string}`
@@ -71,6 +73,9 @@ export interface AnimationEditorStore {
   updateLayer(layerId: string, patch: Partial<EditorLayer>): void;
   addMask(mask?: Partial<BoneMaskDefinition>): void;
   updateMask(maskId: string, patch: Partial<BoneMaskDefinition>): void;
+  addDynamicsProfile(profile?: Partial<SecondaryDynamicsProfile>): string;
+  updateDynamicsProfile(profileId: string, updater: (profile: SecondaryDynamicsProfile) => SecondaryDynamicsProfile): void;
+  deleteDynamicsProfile(profileId: string): void;
   addClip(clip?: Partial<ClipReference>): void;
   updateClip(clipId: string, patch: Partial<ClipReference>): void;
   deleteClip(clipId: string): void;
@@ -129,7 +134,7 @@ function disconnectSourceFromTarget(graph: EditorGraph, sourceNodeId: string, ta
     });
   }
 
-  if ((targetNode.kind === "orientationWarp" || targetNode.kind === "strideWarp") && targetNode.sourceNodeId === sourceNodeId) {
+  if ((targetNode.kind === "orientationWarp" || targetNode.kind === "strideWarp" || targetNode.kind === "secondaryDynamics") && targetNode.sourceNodeId === sourceNodeId) {
     return replaceNode(graph, targetNode.id, {
       ...targetNode,
       sourceNodeId: undefined
@@ -168,7 +173,7 @@ function removeNodeReferences(graph: EditorGraph, removedNodeIds: Set<string>): 
         };
       }
 
-      if (node.kind === "orientationWarp" || node.kind === "strideWarp") {
+      if (node.kind === "orientationWarp" || node.kind === "strideWarp" || node.kind === "secondaryDynamics") {
         return removedNodeIds.has(node.sourceNodeId ?? "") ? { ...node, sourceNodeId: undefined } : node;
       }
 
@@ -271,7 +276,7 @@ export function createAnimationEditorStore(initialDocument = createDefaultAnimat
       historyFuture.length = 0;
     },
     setDocument(document) {
-      commit(["document", "selection", "graphs", "parameters", "layers", "masks", "compile", "clipboard"], () => {
+      commit(["document", "selection", "graphs", "parameters", "layers", "masks", "dynamics", "compile", "clipboard"], () => {
         state.document = structuredClone(document);
         state.selection = {
           graphId: document.entryGraphId,
@@ -345,6 +350,8 @@ export function createAnimationEditorStore(initialDocument = createDefaultAnimat
                 ? "Orientation Warp"
                 : kind === "strideWarp"
                   ? "Stride Warp"
+                    : kind === "secondaryDynamics"
+                      ? "Secondary Dynamics"
               : kind
       );
       const graph = state.document.graphs.find((entry) => entry.id === graphId);
@@ -444,7 +451,7 @@ export function createAnimationEditorStore(initialDocument = createDefaultAnimat
                 }
               ]
             });
-          } else if (targetNode.kind === "orientationWarp" || targetNode.kind === "strideWarp") {
+          } else if (targetNode.kind === "orientationWarp" || targetNode.kind === "strideWarp" || targetNode.kind === "secondaryDynamics") {
             nextGraph = replaceNode(graph, targetNodeId, {
               ...targetNode,
               sourceNodeId
@@ -655,6 +662,51 @@ export function createAnimationEditorStore(initialDocument = createDefaultAnimat
         state.document = {
           ...state.document,
           masks: state.document.masks.map((mask) => (mask.id === maskId ? { ...mask, ...patch } : mask))
+        };
+      });
+    },
+    addDynamicsProfile(profile = {}) {
+      const profileId = profile.id ?? createStableId("dyn-profile");
+      commit(["document", "dynamics"], () => {
+        state.document = {
+          ...state.document,
+          dynamicsProfiles: [
+            ...state.document.dynamicsProfiles,
+            {
+              id: profileId,
+              name: profile.name ?? `Dynamics ${state.document.dynamicsProfiles.length + 1}`,
+              iterations: profile.iterations ?? 4,
+              chains: profile.chains ?? [],
+              sphereColliders: profile.sphereColliders ?? []
+            }
+          ]
+        };
+      });
+      return profileId;
+    },
+    updateDynamicsProfile(profileId, updater) {
+      commit(["document", "dynamics"], () => {
+        state.document = {
+          ...state.document,
+          dynamicsProfiles: state.document.dynamicsProfiles.map((profile) =>
+            profile.id === profileId ? updater(profile) : profile
+          )
+        };
+      });
+    },
+    deleteDynamicsProfile(profileId) {
+      commit(["document", "dynamics", "graphs"], () => {
+        state.document = {
+          ...state.document,
+          dynamicsProfiles: state.document.dynamicsProfiles.filter((profile) => profile.id !== profileId),
+          graphs: state.document.graphs.map((graph) => ({
+            ...graph,
+            nodes: graph.nodes.map((node) =>
+              node.kind === "secondaryDynamics" && node.profileId === profileId
+                ? { ...node, profileId: "" }
+                : node
+            )
+          }))
         };
       });
     },

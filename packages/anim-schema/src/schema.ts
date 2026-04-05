@@ -34,6 +34,36 @@ export const vec3Schema = z.object({
   z: z.number()
 });
 
+export const secondaryDynamicsChainSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  rootBoneName: z.string().min(1),
+  tipBoneName: z.string().min(1),
+  damping: z.number().min(0).max(0.999).default(0.82),
+  stiffness: z.number().min(0).max(1).default(0.2),
+  gravityScale: z.number().min(0).max(4).default(0.35),
+  inertia: vec3Schema.default({ x: 0.35, y: 0.15, z: 0.5 }),
+  limitAngleRadians: z.number().min(0.05).max(Math.PI).default(Math.PI / 3),
+  enabled: z.boolean().default(true)
+});
+
+export const secondaryDynamicsSphereColliderSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  boneName: z.string().min(1),
+  offset: vec3Schema.default({ x: 0, y: 0, z: 0 }),
+  radius: z.number().positive().default(0.12),
+  enabled: z.boolean().default(true)
+});
+
+export const secondaryDynamicsProfileSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  iterations: z.number().int().min(1).max(12).default(4),
+  chains: z.array(secondaryDynamicsChainSchema).default([]),
+  sphereColliders: z.array(secondaryDynamicsSphereColliderSchema).default([])
+});
+
 export const quatSchema = z.object({
   x: z.number(),
   y: z.number(),
@@ -185,6 +215,17 @@ export const strideWarpNodeSchema = graphNodeBaseSchema.extend({
   legs: z.array(strideWarpLegSchema).default([])
 });
 
+export const secondaryDynamicsNodeSchema = graphNodeBaseSchema.extend({
+  kind: z.literal("secondaryDynamics"),
+  sourceNodeId: z.string().min(1).optional(),
+  profileId: z.string().min(1),
+  weight: z.number().min(0).max(1).default(1),
+  dampingScale: z.number().min(0).max(4).default(1),
+  stiffnessScale: z.number().min(0).max(4).default(1),
+  gravityScale: z.number().min(0).max(4).default(1),
+  iterations: z.number().int().min(1).max(12).default(4)
+});
+
 export const transitionConditionSchema = z.object({
   parameterId: z.string().min(1),
   operator: transitionOperatorSchema,
@@ -240,6 +281,7 @@ export const graphNodeSchema = z.discriminatedUnion("kind", [
   selectorNodeSchema,
   orientationWarpNodeSchema,
   strideWarpNodeSchema,
+  secondaryDynamicsNodeSchema,
   stateMachineNodeSchema,
   subgraphNodeSchema,
   outputNodeSchema
@@ -299,6 +341,7 @@ export const animationEditorDocumentSchema = z.object({
   parameters: z.array(parameterDefinitionSchema).default([]),
   clips: z.array(clipReferenceSchema).default([]),
   masks: z.array(boneMaskDefinitionSchema).default([]),
+  dynamicsProfiles: z.array(secondaryDynamicsProfileSchema).default([]),
   graphs: z.array(editorGraphSchema).min(1),
   layers: z.array(editorLayerSchema).min(1),
   metadata: z
@@ -433,6 +476,44 @@ export const compiledStrideWarpNodeSchema = z.object({
   legs: z.array(compiledStrideWarpLegSchema)
 });
 
+export const compiledSecondaryDynamicsChainSchema = z.object({
+  name: z.string().min(1),
+  boneIndices: z.array(z.number().int().nonnegative()).min(2),
+  restLengths: z.array(z.number().positive()).min(1),
+  damping: z.number().min(0).max(0.999),
+  stiffness: z.number().min(0).max(1),
+  gravityScale: z.number().min(0),
+  inertia: vec3Schema,
+  limitAngleRadians: z.number().min(0.05).max(Math.PI),
+  enabled: z.boolean()
+});
+
+export const compiledSecondaryDynamicsSphereColliderSchema = z.object({
+  name: z.string().min(1),
+  boneIndex: z.number().int().nonnegative(),
+  offset: vec3Schema,
+  radius: z.number().positive(),
+  enabled: z.boolean()
+});
+
+export const compiledSecondaryDynamicsProfileSchema = z.object({
+  name: z.string().min(1),
+  iterations: z.number().int().min(1).max(12),
+  chains: z.array(compiledSecondaryDynamicsChainSchema),
+  sphereColliders: z.array(compiledSecondaryDynamicsSphereColliderSchema)
+});
+
+export const compiledSecondaryDynamicsNodeSchema = z.object({
+  type: z.literal("secondaryDynamics"),
+  sourceNodeIndex: z.number().int().nonnegative(),
+  profileIndex: z.number().int().nonnegative(),
+  weight: z.number().min(0).max(1),
+  dampingScale: z.number().min(0),
+  stiffnessScale: z.number().min(0),
+  gravityScale: z.number().min(0),
+  iterations: z.number().int().min(1).max(12)
+});
+
 export const compiledStateMachineNodeSchema = z.object({
   type: z.literal("stateMachine"),
   machineIndex: z.number().int().nonnegative(),
@@ -455,6 +536,7 @@ export const compiledGraphNodeSchema = z.discriminatedUnion("type", [
   compiledSelectorNodeSchema,
   compiledOrientationWarpNodeSchema,
   compiledStrideWarpNodeSchema,
+  compiledSecondaryDynamicsNodeSchema,
   compiledStateMachineNodeSchema,
   compiledSubgraphNodeSchema
 ]);
@@ -500,6 +582,7 @@ export const compiledAnimatorGraphSchema = z.object({
   parameters: z.array(compiledParameterSchema),
   clipSlots: z.array(compiledClipSlotSchema),
   masks: z.array(compiledBoneMaskSchema),
+  dynamicsProfiles: z.array(compiledSecondaryDynamicsProfileSchema),
   graphs: z.array(compiledMotionGraphSchema).min(1),
   layers: z.array(compiledLayerSchema).min(1),
   entryGraphIndex: z.number().int().nonnegative()
@@ -568,6 +651,9 @@ export type TransitionBlendCurve = z.infer<typeof transitionBlendCurveSchema>;
 export type ParameterDefinition = z.infer<typeof parameterDefinitionSchema>;
 export type ClipReference = z.infer<typeof clipReferenceSchema>;
 export type BoneMaskDefinition = z.infer<typeof boneMaskDefinitionSchema>;
+export type SecondaryDynamicsChain = z.infer<typeof secondaryDynamicsChainSchema>;
+export type SecondaryDynamicsSphereCollider = z.infer<typeof secondaryDynamicsSphereColliderSchema>;
+export type SecondaryDynamicsProfile = z.infer<typeof secondaryDynamicsProfileSchema>;
 export type GraphEdge = z.infer<typeof graphEdgeSchema>;
 export type EditorGraphNode = z.infer<typeof graphNodeSchema>;
 export type EditorGraph = z.infer<typeof editorGraphSchema>;
@@ -578,6 +664,10 @@ export type AnimationEditorDocument = z.infer<typeof animationEditorDocumentSche
 export type CompiledCondition = z.infer<typeof compiledConditionSchema>;
 export type CompiledTransition = z.infer<typeof compiledTransitionSchema>;
 export type CompiledState = z.infer<typeof compiledStateSchema>;
+export type CompiledSecondaryDynamicsChain = z.infer<typeof compiledSecondaryDynamicsChainSchema>;
+export type CompiledSecondaryDynamicsSphereCollider = z.infer<typeof compiledSecondaryDynamicsSphereColliderSchema>;
+export type CompiledSecondaryDynamicsProfile = z.infer<typeof compiledSecondaryDynamicsProfileSchema>;
+export type CompiledSecondaryDynamicsNode = z.infer<typeof compiledSecondaryDynamicsNodeSchema>;
 export type CompiledGraphNode = z.infer<typeof compiledGraphNodeSchema>;
 export type CompiledMotionGraph = z.infer<typeof compiledMotionGraphSchema>;
 export type CompiledBoneMask = z.infer<typeof compiledBoneMaskSchema>;

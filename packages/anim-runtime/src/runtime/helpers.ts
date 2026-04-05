@@ -240,6 +240,9 @@ export function getNodeDuration(context: EvaluationContext, graphIndex: number, 
     case "strideWarp":
       duration = getNodeDuration(context, graphIndex, node.sourceNodeIndex, visited);
       break;
+    case "secondaryDynamics":
+      duration = getNodeDuration(context, graphIndex, node.sourceNodeIndex, visited);
+      break;
     case "subgraph":
       duration = getNodeDuration(context, node.graphIndex, context.graph.graphs[node.graphIndex]!.rootNodeIndex, visited);
       break;

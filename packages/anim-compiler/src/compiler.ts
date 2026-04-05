@@ -7,7 +7,8 @@ import {
   type CompiledAnimatorGraph,
   type CompiledCondition,
   type CompiledGraphNode,
-  type CompiledMotionGraph
+  type CompiledMotionGraph,
+  type CompiledSecondaryDynamicsProfile
 } from "@ggez/anim-schema";
 
 export interface CompileDiagnostic {
@@ -161,7 +162,7 @@ function collectReachableNodeIds(graph: AnimationEditorDocument["graphs"][number
       return;
     }
 
-    if (node.kind === "orientationWarp" || node.kind === "strideWarp") {
+    if (node.kind === "orientationWarp" || node.kind === "strideWarp" || node.kind === "secondaryDynamics") {
       visit(node.sourceNodeId);
       return;
     }
@@ -182,6 +183,101 @@ function collectReachableNodeIds(graph: AnimationEditorDocument["graphs"][number
   visit(outputSourceNodeId);
 
   return reachable;
+}
+
+function collectBoneChainIndices(rig: RigDefinition, rootBoneName: string, tipBoneName: string): number[] | undefined {
+  const rootBoneIndex = findBoneIndexByName(rig, rootBoneName);
+  const tipBoneIndex = findBoneIndexByName(rig, tipBoneName);
+
+  if (rootBoneIndex < 0 || tipBoneIndex < 0) {
+    return undefined;
+  }
+
+  const reverse: number[] = [];
+  let current = tipBoneIndex;
+  while (current >= 0) {
+    reverse.push(current);
+    if (current === rootBoneIndex) {
+      return reverse.reverse();
+    }
+    current = rig.parentIndices[current] ?? -1;
+  }
+
+  return undefined;
+}
+
+function computeBindSegmentLengths(rig: RigDefinition, boneIndices: number[]): number[] {
+  return boneIndices.slice(0, -1).map((boneIndex, segmentIndex) => {
+    const childBoneIndex = boneIndices[segmentIndex + 1]!;
+    const parentOffset = boneIndex * 3;
+    const childOffset = childBoneIndex * 3;
+    const dx = rig.bindTranslations[childOffset]! - rig.bindTranslations[parentOffset]!;
+    const dy = rig.bindTranslations[childOffset + 1]! - rig.bindTranslations[parentOffset + 1]!;
+    const dz = rig.bindTranslations[childOffset + 2]! - rig.bindTranslations[parentOffset + 2]!;
+    return Math.max(Math.hypot(dx, dy, dz), 1e-4);
+  });
+}
+
+function compileSecondaryDynamicsProfiles(
+  document: AnimationEditorDocument,
+  rig: RigDefinition | undefined,
+  diagnostics: CompileDiagnostic[]
+): CompiledSecondaryDynamicsProfile[] {
+  if (!rig) {
+    if (document.dynamicsProfiles.length > 0) {
+      diagnostics.push(error("Secondary dynamics profiles require rig data.", "dynamicsProfiles"));
+    }
+    return [];
+  }
+
+  return document.dynamicsProfiles.map((profile, profileIndex) => ({
+    name: profile.name,
+    iterations: profile.iterations,
+    chains: profile.chains.flatMap((chain, chainIndex) => {
+      const boneIndices = collectBoneChainIndices(rig, chain.rootBoneName, chain.tipBoneName);
+      if (!boneIndices) {
+        diagnostics.push(
+          error(
+            `Dynamics chain "${chain.name}" must reference a valid descendant path from "${chain.rootBoneName}" to "${chain.tipBoneName}".`,
+            `dynamicsProfiles.${profileIndex}.chains.${chainIndex}`
+          )
+        );
+        return [];
+      }
+
+      return [{
+        name: chain.name,
+        boneIndices,
+        restLengths: computeBindSegmentLengths(rig, boneIndices),
+        damping: chain.damping,
+        stiffness: chain.stiffness,
+        gravityScale: chain.gravityScale,
+        inertia: chain.inertia,
+        limitAngleRadians: chain.limitAngleRadians,
+        enabled: chain.enabled
+      }];
+    }),
+    sphereColliders: profile.sphereColliders.flatMap((collider, colliderIndex) => {
+      const boneIndex = findBoneIndexByName(rig, collider.boneName);
+      if (boneIndex < 0) {
+        diagnostics.push(
+          error(
+            `Dynamics sphere collider "${collider.name}" references unknown bone "${collider.boneName}".`,
+            `dynamicsProfiles.${profileIndex}.sphereColliders.${colliderIndex}.boneName`
+          )
+        );
+        return [];
+      }
+
+      return [{
+        name: collider.name,
+        boneIndex,
+        offset: collider.offset,
+        radius: collider.radius,
+        enabled: collider.enabled
+      }];
+    })
+  }));
 }
 
 function collectReferencedClipIds(
@@ -225,6 +321,7 @@ export function compileAnimationEditorDocument(input: unknown): CompileResult {
   const clipIndexById = new Map(referencedClips.map((clip, index) => [clip.id, index]));
   const rig = toRig(document);
   const masks = compileMasks(document, rig, diagnostics);
+  const compiledDynamicsProfiles = compileSecondaryDynamicsProfiles(document, rig, diagnostics);
   detectSubgraphCycles(document, diagnostics);
 
   let machineIndexCounter = 0;
@@ -552,6 +649,31 @@ export function compileAnimationEditorDocument(input: unknown): CompileResult {
           });
           return;
         }
+        case "secondaryDynamics": {
+          const sourceNodeIndex = node.sourceNodeId ? nodeIdToCompiledIndex.get(node.sourceNodeId) : undefined;
+          if (sourceNodeIndex === undefined) {
+            diagnostics.push(error(`Secondary Dynamics node "${node.name}" requires a connected source motion.`, `graphs.${graphIndex}.nodes.${nodeIndex}.sourceNodeId`));
+            return;
+          }
+
+          const profileIndex = document.dynamicsProfiles.findIndex((profile) => profile.id === node.profileId);
+          if (profileIndex < 0) {
+            diagnostics.push(error(`Secondary Dynamics node "${node.name}" references missing profile "${node.profileId}".`, `graphs.${graphIndex}.nodes.${nodeIndex}.profileId`));
+            return;
+          }
+
+          compiledNodes.push({
+            type: "secondaryDynamics",
+            sourceNodeIndex,
+            profileIndex,
+            weight: node.weight,
+            dampingScale: node.dampingScale,
+            stiffnessScale: node.stiffnessScale,
+            gravityScale: node.gravityScale,
+            iterations: node.iterations
+          });
+          return;
+        }
         case "subgraph": {
           const targetGraphIndex = graphIndexById.get(node.graphId);
           if (targetGraphIndex === undefined) {
@@ -714,6 +836,7 @@ export function compileAnimationEditorDocument(input: unknown): CompileResult {
         duration: clip.duration
       })),
       masks,
+      dynamicsProfiles: compiledDynamicsProfiles,
       graphs: compiledGraphs,
       layers: document.layers.map((layer) => ({
         name: layer.name,

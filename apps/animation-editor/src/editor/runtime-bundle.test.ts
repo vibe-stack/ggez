@@ -20,6 +20,7 @@ function createDocument(): AnimationEditorDocument {
       { id: "idle", name: "Idle", duration: 1, source: "hero.glb" }
     ],
     masks: [],
+    dynamicsProfiles: [],
     graphs: [
       {
         id: "graph-main",

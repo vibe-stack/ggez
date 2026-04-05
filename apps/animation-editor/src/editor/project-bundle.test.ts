@@ -19,6 +19,7 @@ function createDocument(): AnimationEditorDocument {
     parameters: [],
     clips: [],
     masks: [],
+    dynamicsProfiles: [],
     graphs: [
       {
         id: "graph-main",

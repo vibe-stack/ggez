@@ -5,7 +5,7 @@ import { createAnimatorParameterStore } from "../parameters";
 import { addScaledRootMotion } from "./helpers";
 import { evaluateNode } from "./evaluation";
 import { createClipsBySlot, createMasks, ensureScratchMotion, ensureScratchPose, releaseScratchMotion, releaseScratchPose, resetRootMotion } from "./scratch";
-import type { AnimatorInstance, AnimatorUpdateResult, EvaluationContext, LayerRuntimeState, StateMachineRuntimeState } from "./types";
+import type { AnimatorInstance, AnimatorUpdateResult, EvaluationContext, LayerRuntimeState, SecondaryDynamicsChainRuntimeState, StateMachineRuntimeState } from "./types";
 
 export type { AnimatorInstance, AnimatorUpdateResult } from "./types";
 
@@ -33,6 +33,14 @@ export function createAnimatorInstance(input: {
     stateTime: 0,
     transition: null
   }));
+  const secondaryDynamicsStates: SecondaryDynamicsChainRuntimeState[][] = input.graph.dynamicsProfiles.map((profile) =>
+    profile.chains.map((chain) => ({
+      initialized: false,
+      currentPositions: new Float32Array(chain.boneIndices.length * 3),
+      previousPositions: new Float32Array(chain.boneIndices.length * 3),
+      previousRootPosition: new Float32Array(3)
+    }))
+  );
   const outputPose = createPoseBufferFromRig(input.rig);
   const rootMotionDelta = createRootMotionDelta();
 
@@ -47,6 +55,7 @@ export function createAnimatorInstance(input: {
     durationCache: new Map(),
     strideWarpScales: new Map(),
     syncGroups: new Map(),
+    secondaryDynamicsStates,
     updateId: 0,
     poseScratch: Array.from({ length: 32 }, () => createPoseBufferFromRig(input.rig)),
     motionScratch: Array.from({ length: 32 }, () => createRootMotionDelta()),

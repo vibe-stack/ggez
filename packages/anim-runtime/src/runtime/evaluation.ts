@@ -3,6 +3,7 @@ import type { PoseBuffer, RootMotionDelta } from "@ggez/anim-core";
 import type { CompiledCondition, CompiledGraphNode, CompiledMotionGraph } from "@ggez/anim-schema";
 import { applyBlendCurve, blendRootMotion, computeBlend2DChildren, evaluateCondition, findBlend1DChildren, findSelectorChild, forceRootMotionChainToBindPose, getEffectiveRootBoneIndex, getNodeDuration, getStateDuration, getSyncedTransitionTime, remapBlendChildTime, resolveSyncGroupTimes } from "./helpers";
 import { applyOrientationWarp, applyOrientationWarpToRootMotion } from "./orientation-warp";
+import { applySecondaryDynamics } from "./secondary-dynamics";
 import { copyRootMotion, ensureScratchMotion, ensureScratchPose, releaseScratchMotion, releaseScratchPose, resetRootMotion } from "./scratch";
 import { applyStrideWarp, applyStrideWarpToRootMotion, resolveStrideWarp } from "./stride-warp";
 import type { EvaluationContext, StateMachineRuntimeState } from "./types";
@@ -206,6 +207,27 @@ export function evaluateNode(
       const resolvedWarp = resolveStrideWarp(context, graphIndex, nodeIndex, node, sourceMotion, deltaTime);
       applyStrideWarp(context, node, sourcePose, outPose, resolvedWarp);
       applyStrideWarpToRootMotion(outRootMotion, resolvedWarp);
+      releaseScratchMotion(context);
+      releaseScratchPose(context);
+      break;
+    }
+    case "secondaryDynamics": {
+      const sourcePose = ensureScratchPose(context);
+      const sourceMotion = ensureScratchMotion(context);
+      evaluateNode(
+        context,
+        compiledGraph,
+        graphIndex,
+        node.sourceNodeIndex,
+        time,
+        previousTime,
+        deltaTime,
+        sourcePose,
+        sourceMotion,
+        fallbackPose
+      );
+      copyRootMotion(sourceMotion, outRootMotion);
+      applySecondaryDynamics(context, node, sourcePose, outPose, deltaTime);
       releaseScratchMotion(context);
       releaseScratchPose(context);
       break;

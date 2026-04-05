@@ -539,6 +539,108 @@ export function NodeInspector(props: { store: AnimationEditorStore }) {
             </>
           ) : null}
 
+          {node.kind === "secondaryDynamics" ? (
+            <>
+              <div className={sectionHintClassName}>Apply cheap secondary motion to authored chains and collision spheres from the Character view.</div>
+              <PropertyField label="Dynamics Profile">
+                <select
+                  value={node.profileId}
+                  onChange={(event) =>
+                    updateTypedNode(props.store, graph.id, node.id, "secondaryDynamics", (current) => ({
+                      ...current,
+                      profileId: event.target.value,
+                    }))
+                  }
+                  className={editorSelectClassName}
+                >
+                  <option value="">Select profile</option>
+                  {state.document.dynamicsProfiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.name}
+                    </option>
+                  ))}
+                </select>
+              </PropertyField>
+              <PropertyField label="Weight">
+                <NumericDragInput
+                  value={node.weight}
+                  step={0.05}
+                  precision={2}
+                  min={0}
+                  max={1}
+                  onChange={(value) =>
+                    updateTypedNode(props.store, graph.id, node.id, "secondaryDynamics", (current) => ({
+                      ...current,
+                      weight: Math.max(0, Math.min(1, value)),
+                    }))
+                  }
+                />
+              </PropertyField>
+              <div className="grid grid-cols-3 gap-2">
+                <PropertyField label="Damping">
+                  <NumericDragInput
+                    value={node.dampingScale}
+                    step={0.05}
+                    precision={2}
+                    min={0}
+                    max={4}
+                    onChange={(value) =>
+                      updateTypedNode(props.store, graph.id, node.id, "secondaryDynamics", (current) => ({
+                        ...current,
+                        dampingScale: Math.max(0, Math.min(4, value)),
+                      }))
+                    }
+                  />
+                </PropertyField>
+                <PropertyField label="Stiffness">
+                  <NumericDragInput
+                    value={node.stiffnessScale}
+                    step={0.05}
+                    precision={2}
+                    min={0}
+                    max={4}
+                    onChange={(value) =>
+                      updateTypedNode(props.store, graph.id, node.id, "secondaryDynamics", (current) => ({
+                        ...current,
+                        stiffnessScale: Math.max(0, Math.min(4, value)),
+                      }))
+                    }
+                  />
+                </PropertyField>
+                <PropertyField label="Gravity">
+                  <NumericDragInput
+                    value={node.gravityScale}
+                    step={0.05}
+                    precision={2}
+                    min={0}
+                    max={4}
+                    onChange={(value) =>
+                      updateTypedNode(props.store, graph.id, node.id, "secondaryDynamics", (current) => ({
+                        ...current,
+                        gravityScale: Math.max(0, Math.min(4, value)),
+                      }))
+                    }
+                  />
+                </PropertyField>
+              </div>
+              <PropertyField label="Iterations">
+                <NumericDragInput
+                  value={node.iterations}
+                  step={1}
+                  precision={0}
+                  min={1}
+                  max={12}
+                  onChange={(value) =>
+                    updateTypedNode(props.store, graph.id, node.id, "secondaryDynamics", (current) => ({
+                      ...current,
+                      iterations: Math.max(1, Math.min(12, Math.round(value))),
+                    }))
+                  }
+                />
+              </PropertyField>
+            </>
+          ) : null}
+
           {node.kind === "subgraph" ? (
             <>
               <PropertyField label="Graph">

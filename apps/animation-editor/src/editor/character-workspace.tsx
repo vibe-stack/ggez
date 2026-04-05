@@ -3,10 +3,12 @@ import { Move, RotateCcw, Maximize2 } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CharacterBonePanel } from "./character-bone-panel";
+import { CharacterDynamicsPanel } from "./character-dynamics-panel";
 import { CharacterEquipmentPanel } from "./character-equipment-panel";
 import { CharacterPlaybackPanel } from "./character-playback-panel";
 import { CharacterViewport } from "./character-viewport";
 import { useCharacterPlayback } from "./hooks/use-character-playback";
+import { useEditorStoreValue } from "./use-editor-store-value";
 import type { UseEquipmentStateReturn } from "./hooks/use-equipment-state";
 import type { ImportedCharacterAsset, ImportedPreviewClip } from "./preview-assets";
 import { clampFloatingPanelPosition, type FloatingPanelPosition } from "./workspace/floating-panel-utils";
@@ -17,6 +19,8 @@ const PLAYBACK_PANEL_FALLBACK_W = 288;
 const PLAYBACK_PANEL_FALLBACK_H = 480;
 const EQUIPMENT_PANEL_FALLBACK_W = 288;
 const EQUIPMENT_PANEL_FALLBACK_H = 420;
+const DYNAMICS_PANEL_FALLBACK_W = 360;
+const DYNAMICS_PANEL_FALLBACK_H = 620;
 
 type CharacterWorkspaceProps = {
   store: AnimationEditorStore;
@@ -30,21 +34,39 @@ export function CharacterWorkspace({ store, character, importedClips, equipment 
   const bonePanelRef = useRef<HTMLDivElement | null>(null);
   const playbackPanelRef = useRef<HTMLDivElement | null>(null);
   const equipmentPanelRef = useRef<HTMLDivElement | null>(null);
+  const dynamicsPanelRef = useRef<HTMLDivElement | null>(null);
 
   const [bonePosition, setBonePosition] = useState<FloatingPanelPosition | null>(null);
   const [playbackPosition, setPlaybackPosition] = useState<FloatingPanelPosition | null>(null);
   const [equipmentPosition, setEquipmentPosition] = useState<FloatingPanelPosition | null>(null);
+  const [dynamicsPosition, setDynamicsPosition] = useState<FloatingPanelPosition | null>(null);
+  const [selectedDynamicsProfileId, setSelectedDynamicsProfileId] = useState("");
 
   const boneDragRef = useRef<{ pointerX: number; pointerY: number; position: FloatingPanelPosition } | null>(null);
   const playbackDragRef = useRef<{ pointerX: number; pointerY: number; position: FloatingPanelPosition } | null>(null);
   const equipmentDragRef = useRef<{ pointerX: number; pointerY: number; position: FloatingPanelPosition } | null>(null);
+  const dynamicsDragRef = useRef<{ pointerX: number; pointerY: number; position: FloatingPanelPosition } | null>(null);
 
   const playback = useCharacterPlayback(store, importedClips);
+  const dynamicsProfiles = useEditorStoreValue(store, () => store.getState().document.dynamicsProfiles, ["document", "dynamics"]);
 
   const characterBoneNames = useMemo(
     () => character?.documentRig.boneNames ?? [],
     [character]
   );
+
+  useEffect(() => {
+    if (dynamicsProfiles.length === 0) {
+      if (selectedDynamicsProfileId) {
+        setSelectedDynamicsProfileId("");
+      }
+      return;
+    }
+
+    if (!selectedDynamicsProfileId || !dynamicsProfiles.some((profile) => profile.id === selectedDynamicsProfileId)) {
+      setSelectedDynamicsProfileId(dynamicsProfiles[0]!.id);
+    }
+  }, [dynamicsProfiles, selectedDynamicsProfileId]);
 
   // Clamp all panels on workspace resize
   useEffect(() => {
@@ -65,6 +87,11 @@ export function CharacterWorkspace({ store, character, importedClips, equipment 
       setEquipmentPosition((pos) =>
         pos
           ? clampFloatingPanelPosition(pos, { width: equipmentPanelRef.current?.offsetWidth ?? EQUIPMENT_PANEL_FALLBACK_W, height: equipmentPanelRef.current?.offsetHeight ?? EQUIPMENT_PANEL_FALLBACK_H }, bounds)
+          : pos
+      );
+      setDynamicsPosition((pos) =>
+        pos
+          ? clampFloatingPanelPosition(pos, { width: dynamicsPanelRef.current?.offsetWidth ?? DYNAMICS_PANEL_FALLBACK_W, height: dynamicsPanelRef.current?.offsetHeight ?? DYNAMICS_PANEL_FALLBACK_H }, bounds)
           : pos
       );
     });
@@ -110,12 +137,24 @@ export function CharacterWorkspace({ store, character, importedClips, equipment 
           )
         );
       }
+
+      const dd = dynamicsDragRef.current;
+      if (dd) {
+        setDynamicsPosition(
+          clampFloatingPanelPosition(
+            { x: dd.position.x + (event.clientX - dd.pointerX), y: dd.position.y + (event.clientY - dd.pointerY) },
+            { width: dynamicsPanelRef.current?.offsetWidth ?? DYNAMICS_PANEL_FALLBACK_W, height: dynamicsPanelRef.current?.offsetHeight ?? DYNAMICS_PANEL_FALLBACK_H },
+            bounds
+          )
+        );
+      }
     }
 
     function handlePointerUp() {
       boneDragRef.current = null;
       playbackDragRef.current = null;
       equipmentDragRef.current = null;
+      dynamicsDragRef.current = null;
     }
 
     window.addEventListener("pointermove", handlePointerMove);
@@ -155,6 +194,15 @@ export function CharacterWorkspace({ store, character, importedClips, equipment 
     if (!equipmentPosition) setEquipmentPosition({ x: fallbackX, y: fallbackY });
   }
 
+  function beginDynamicsDrag(event: ReactPointerEvent) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const fallbackY = bonePosition ? bonePosition.y + BONE_PANEL_FALLBACK_H + 16 : 16;
+    dynamicsDragRef.current = { pointerX: event.clientX, pointerY: event.clientY, position: dynamicsPosition ?? { x: 16, y: fallbackY } };
+    if (!dynamicsPosition) setDynamicsPosition({ x: 16, y: fallbackY });
+  }
+
   const hasSelectedEquipment = equipment.selectedItemId !== null;
 
   return (
@@ -166,6 +214,7 @@ export function CharacterWorkspace({ store, character, importedClips, equipment 
         importedClips={importedClips}
         playback={playback}
         equipment={equipment}
+        selectedDynamicsProfileId={selectedDynamicsProfileId}
       />
 
       {/* Gizmo mode toolbar — appears when an equipment item is selected */}
@@ -211,6 +260,20 @@ export function CharacterWorkspace({ store, character, importedClips, equipment 
         style={bonePosition ? { left: `${bonePosition.x}px`, top: `${bonePosition.y}px` } : { left: "1rem", top: "1rem" }}
       >
         <CharacterBonePanel character={character} onHeaderPointerDown={beginBoneDrag} />
+      </div>
+
+      <div
+        ref={dynamicsPanelRef}
+        className="pointer-events-auto absolute z-20 h-[min(76vh,720px)] w-90"
+        style={dynamicsPosition ? { left: `${dynamicsPosition.x}px`, top: `${dynamicsPosition.y}px` } : { left: "1rem", top: `${BONE_PANEL_FALLBACK_H + 32}px` }}
+      >
+        <CharacterDynamicsPanel
+          store={store}
+          characterBoneNames={characterBoneNames}
+          selectedProfileId={selectedDynamicsProfileId}
+          onSelectProfileId={setSelectedDynamicsProfileId}
+          onHeaderPointerDown={beginDynamicsDrag}
+        />
       </div>
 
       {/* Playback panel — right side by default */}

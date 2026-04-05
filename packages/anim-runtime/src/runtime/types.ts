@@ -31,6 +31,13 @@ export interface SyncGroupRuntimeState {
   normalizedTime: number;
 }
 
+export interface SecondaryDynamicsChainRuntimeState {
+  initialized: boolean;
+  readonly currentPositions: Float32Array;
+  readonly previousPositions: Float32Array;
+  readonly previousRootPosition: Float32Array;
+}
+
 export interface EvaluationContext {
   readonly graph: CompiledAnimatorGraph;
   readonly rig: RigDefinition;
@@ -42,6 +49,7 @@ export interface EvaluationContext {
   readonly durationCache: Map<string, number>;
   readonly strideWarpScales: Map<string, number>;
   readonly syncGroups: Map<string, SyncGroupRuntimeState>;
+  readonly secondaryDynamicsStates: SecondaryDynamicsChainRuntimeState[][];
   updateId: number;
   poseScratchIndex: number;
   motionScratchIndex: number;

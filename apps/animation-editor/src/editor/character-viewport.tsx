@@ -6,7 +6,7 @@ import type { AnimatorInstance } from "@ggez/anim-runtime";
 import type { AnimationEditorDocument } from "@ggez/anim-schema";
 import { LocateFixed } from "lucide-react";
 import {
-  AmbientLight,
+  ACESFilmicToneMapping,
   Bone,
   Box3,
   Clock,
@@ -14,10 +14,14 @@ import {
   DirectionalLight,
   GridHelper,
   Matrix4,
+  Mesh,
+  MeshBasicMaterial,
+  PMREMGenerator,
   PerspectiveCamera,
   Quaternion,
   SRGBColorSpace,
   Scene,
+  SphereGeometry,
   Vector3,
   WebGLRenderer,
 } from "three";
@@ -25,6 +29,7 @@ import type { Object3D } from "three";
 import { useEffect, useMemo, useRef } from "react";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
+import { HDRLoader } from "three/examples/jsm/loaders/HDRLoader.js";
 import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import type { ImportedCharacterAsset, ImportedPreviewClip } from "./preview-assets";
@@ -101,15 +106,64 @@ function updateInfiniteGrid(fineGrid: GridHelper, coarseGrid: GridHelper, anchor
   coarseGrid.position.set(Math.round(anchorX / coarseStep) * coarseStep, 0.002, Math.round(anchorZ / coarseStep) * coarseStep);
 }
 
+function createStudioEnvironment(renderer: WebGLRenderer, scene: Scene): {
+  dispose(): void;
+} {
+  const pmremGenerator = new PMREMGenerator(renderer);
+  pmremGenerator.compileEquirectangularShader();
+
+  let disposed = false;
+  let pmremDisposed = false;
+  let environmentTarget: ReturnType<PMREMGenerator["fromEquirectangular"]> | null = null;
+
+  function disposePmrem() {
+    if (!pmremDisposed) {
+      pmremGenerator.dispose();
+      pmremDisposed = true;
+    }
+  }
+
+  new HDRLoader().load(
+    "/hdr/studio.hdr",
+    (texture) => {
+      if (disposed) {
+        texture.dispose();
+        disposePmrem();
+        return;
+      }
+
+      environmentTarget = pmremGenerator.fromEquirectangular(texture);
+      texture.dispose();
+      scene.environment = environmentTarget.texture;
+      scene.environmentIntensity = 0.7;
+      disposePmrem();
+    },
+    undefined,
+    () => {
+      disposePmrem();
+    }
+  );
+
+  return {
+    dispose() {
+      disposed = true;
+      scene.environment = null;
+      environmentTarget?.dispose();
+      disposePmrem();
+    },
+  };
+}
+
 type CharacterViewportProps = {
   store: AnimationEditorStore;
   character: ImportedCharacterAsset | null;
   importedClips: ImportedPreviewClip[];
   playback: CharacterPlaybackState;
   equipment: UseEquipmentStateReturn;
+  selectedDynamicsProfileId?: string;
 };
 
-export function CharacterViewport({ store, character, importedClips, playback, equipment }: CharacterViewportProps) {
+export function CharacterViewport({ store, character, importedClips, playback, equipment, selectedDynamicsProfileId }: CharacterViewportProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const animatorRef = useRef<AnimatorInstance | null>(null);
   const resetPreviewPositionRef = useRef(0);
@@ -124,6 +178,7 @@ export function CharacterViewport({ store, character, importedClips, playback, e
   // Equipment scene objects
   const equipmentMeshesRef = useRef(new Map<string, Object3D>());
   const characterBonesRef = useRef(new Map<string, Bone>());
+  const dynamicsColliderMeshesRef = useRef(new Map<string, Mesh>());
   const isDraggingRef = useRef(false);
 
   // Single shared GLTFLoader instance (created on first render, stable)
@@ -194,6 +249,10 @@ export function CharacterViewport({ store, character, importedClips, playback, e
   // without requiring a full Three.js scene restart when parameters change.
   const documentParametersRef = useRef(document.parameters);
   documentParametersRef.current = document.parameters;
+  const dynamicsProfilesRef = useRef(document.dynamicsProfiles);
+  dynamicsProfilesRef.current = document.dynamicsProfiles;
+  const selectedDynamicsProfileIdRef = useRef(selectedDynamicsProfileId ?? "");
+  selectedDynamicsProfileIdRef.current = selectedDynamicsProfileId ?? "";
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -208,6 +267,8 @@ export function CharacterViewport({ store, character, importedClips, playback, e
     rendererRef.current = renderer;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.outputColorSpace = SRGBColorSpace;
+    renderer.toneMapping = ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.92;
     renderer.domElement.style.display = "block";
     renderer.domElement.style.width = "100%";
     renderer.domElement.style.height = "100%";
@@ -256,17 +317,19 @@ export function CharacterViewport({ store, character, importedClips, playback, e
       }
     });
 
-    const ambient = new AmbientLight("#ffffff", 3.2);
-    const ambientFill = new AmbientLight("#dbeafe", 1.32);
-    const keyLight = new DirectionalLight("#ffffff", 5.5);
-    keyLight.position.set(6, 12, 8);
-    const fillLight = new DirectionalLight("#7dd3fc", 2.7);
-    fillLight.position.set(-4, 6, -6);
+    const studioEnvironment = createStudioEnvironment(renderer, scene);
+
+    const keyLight = new DirectionalLight("#ffd7a3", 2.8);
+    keyLight.position.set(3.4, 8.5, 7.2);
+    const fillLight = new DirectionalLight("#c6ecff", 1.35);
+    fillLight.position.set(-5.5, 4.8, 5.8);
+    const rimLight = new DirectionalLight("#ffbf73", 1);
+    rimLight.position.set(-2.5, 6.5, -7.5);
     const fineGrid = new GridHelper(240, 120, "#14532d", "#052e16");
     const coarseGrid = new GridHelper(240, 24, "#1f7a4d", "#14532d");
     configureGridOpacity(fineGrid, 0.34);
     configureGridOpacity(coarseGrid, 0.18);
-    scene.add(ambient, ambientFill, keyLight, fillLight, fineGrid, coarseGrid);
+    scene.add(keyLight, fillLight, rimLight, fineGrid, coarseGrid);
 
     let previewObject: Object3D | null = null;
     let directClipTime = 0;
@@ -435,6 +498,9 @@ export function CharacterViewport({ store, character, importedClips, playback, e
       const eqItems = equipmentItemsRef.current;
       const eqSockets = equipmentSocketsRef.current;
       const selectedId = selectedItemIdRef.current;
+      const activeDynamicsProfile = dynamicsProfilesRef.current.find((profile) => profile.id === selectedDynamicsProfileIdRef.current)
+        ?? dynamicsProfilesRef.current[0]
+        ?? null;
 
       for (const item of eqItems) {
         const mesh = equipmentMeshesRef.current.get(item.id);
@@ -467,6 +533,31 @@ export function CharacterViewport({ store, character, importedClips, playback, e
         );
         const worldMatrix = new Matrix4().multiplyMatrices(bone.matrixWorld, localMatrix);
         worldMatrix.decompose(mesh.position, mesh.quaternion, mesh.scale);
+      }
+
+      for (const collider of activeDynamicsProfile?.sphereColliders ?? []) {
+        const mesh = dynamicsColliderMeshesRef.current.get(collider.id);
+        const bone = characterBonesRef.current.get(collider.boneName);
+        if (!mesh || !bone || !collider.enabled) {
+          if (mesh) {
+            mesh.visible = false;
+          }
+          continue;
+        }
+
+        const bonePosition = new Vector3();
+        const boneRotation = new Quaternion();
+        bone.getWorldPosition(bonePosition);
+        bone.getWorldQuaternion(boneRotation);
+        const offset = new Vector3(collider.offset.x, collider.offset.y, collider.offset.z).applyQuaternion(boneRotation);
+        mesh.visible = true;
+        mesh.position.copy(bonePosition.add(offset));
+      }
+
+      for (const [colliderId, mesh] of dynamicsColliderMeshesRef.current) {
+        if (!activeDynamicsProfile?.sphereColliders.some((collider) => collider.id === colliderId && collider.enabled)) {
+          mesh.visible = false;
+        }
       }
 
       // ── TransformControls: attach/detach and keep mode in sync ───────────
@@ -504,7 +595,18 @@ export function CharacterViewport({ store, character, importedClips, playback, e
       }
       characterBonesRef.current.clear();
       equipmentMeshesRef.current.clear();
+      dynamicsColliderMeshesRef.current.forEach((mesh) => {
+        mesh.geometry.dispose();
+        if (Array.isArray(mesh.material)) {
+          mesh.material.forEach((material) => material.dispose());
+        } else {
+          mesh.material.dispose();
+        }
+      });
+      dynamicsColliderMeshesRef.current.clear();
       controls.dispose();
+      scene.environment = null;
+      studioEnvironment.dispose();
       renderer.dispose();
       mount.innerHTML = "";
     };
@@ -512,6 +614,58 @@ export function CharacterViewport({ store, character, importedClips, playback, e
     // character changes → restarts the scene with new model
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [character, clipMap]);
+
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) {
+      return;
+    }
+
+    const activeProfile = document.dynamicsProfiles.find((profile) => profile.id === (selectedDynamicsProfileId ?? ""))
+      ?? document.dynamicsProfiles[0]
+      ?? null;
+    const activeColliders = new Map((activeProfile?.sphereColliders ?? []).filter((collider) => collider.enabled).map((collider) => [collider.id, collider]));
+
+    for (const [colliderId, mesh] of dynamicsColliderMeshesRef.current) {
+      if (!activeColliders.has(colliderId)) {
+        scene.remove(mesh);
+        mesh.geometry.dispose();
+        if (Array.isArray(mesh.material)) {
+          mesh.material.forEach((material) => material.dispose());
+        } else {
+          mesh.material.dispose();
+        }
+        dynamicsColliderMeshesRef.current.delete(colliderId);
+      }
+    }
+
+    activeColliders.forEach((collider, colliderId) => {
+      const existing = dynamicsColliderMeshesRef.current.get(colliderId);
+      if (existing) {
+        const currentGeometry = existing.geometry as SphereGeometry;
+        const currentRadius = currentGeometry.parameters.radius as number;
+        if (Math.abs(currentRadius - collider.radius) > 1e-6) {
+          existing.geometry.dispose();
+          existing.geometry = new SphereGeometry(collider.radius, 18, 14);
+        }
+        return;
+      }
+
+      const mesh = new Mesh(
+        new SphereGeometry(collider.radius, 18, 14),
+        new MeshBasicMaterial({
+          color: "#f59e0b",
+          transparent: true,
+          opacity: 0.48,
+          wireframe: true,
+          depthWrite: false
+        })
+      );
+      mesh.renderOrder = 6;
+      scene.add(mesh);
+      dynamicsColliderMeshesRef.current.set(colliderId, mesh);
+    });
+  }, [character, document.dynamicsProfiles, selectedDynamicsProfileId]);
 
   // Equipment loading effect — syncs GLB meshes into the live scene.
   // Depends on `character` so it re-runs (and reloads all meshes) when the scene restarts.

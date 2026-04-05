@@ -79,6 +79,18 @@ export function createDefaultNode(kind: EditorGraphNode["kind"], name?: string):
         interpSpeedDecreasing: 6,
         legs: []
       };
+    case "secondaryDynamics":
+      return {
+        ...base,
+        kind,
+        sourceNodeId: undefined,
+        profileId: "",
+        weight: 1,
+        dampingScale: 1,
+        stiffnessScale: 1,
+        gravityScale: 1,
+        iterations: 4
+      };
     case "stateMachine":
       const initialStateId = createStableId("state");
       return {
@@ -133,6 +145,7 @@ export function createDefaultAnimationEditorDocument(): AnimationEditorDocument 
     ],
     clips: [],
     masks: [],
+    dynamicsProfiles: [],
     graphs: [
       {
         id: graphId,
