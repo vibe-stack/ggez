@@ -636,6 +636,7 @@ export const animationBundleSchema = z.object({
   name: z.string().min(1),
   artifact: z.string().min(1),
   characterAsset: z.string().min(1).optional(),
+  clipData: z.string().min(1).optional(),
   clips: z.array(animationBundleClipSchema).default([]),
   clipAssets: z.record(z.string().min(1)).default({}),
   equipment: animationBundleEquipmentSchema.optional()

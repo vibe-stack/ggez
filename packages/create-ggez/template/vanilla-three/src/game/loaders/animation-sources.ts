@@ -1,5 +1,5 @@
 import type { AnimationClipAsset, RigDefinition } from "@ggez/anim-core";
-import { loadClipsFromArtifact, loadRigFromArtifact, parseAnimationArtifactJson } from "@ggez/anim-exporter";
+import { loadClipsFromArtifact, loadRigFromArtifact, parseAnimationArtifactJson, parseClipDataBinary } from "@ggez/anim-exporter";
 import { parseAnimationBundle, type AnimationArtifact, type AnimationBundle } from "@ggez/anim-schema";
 import { createClipAssetFromThreeClip, createRigFromSkeleton } from "@ggez/anim-three";
 import type { AnimationClip, Object3D, Skeleton } from "three";
@@ -194,7 +194,33 @@ function createRuntimeAnimationBundle(input: {
   const rig = loadRigFromArtifact(input.artifact);
   const artifactClipsById = new Map(loadClipsFromArtifact(input.artifact).map((clip) => [clip.id, clip]));
   const animationSourceCache = new Map<string, Promise<LoadedAnimationSource>>();
+  let pendingEmbeddedClipAssets: Promise<Record<string, AnimationClipAsset>> | undefined;
   let pendingCharacterAsset: Promise<LoadedRuntimeAnimationCharacter | undefined> | undefined;
+
+  const loadEmbeddedClipAssets = () => {
+    if (!input.manifest.clipData) {
+      return Promise.resolve({} as Record<string, AnimationClipAsset>);
+    }
+
+    if (!pendingEmbeddedClipAssets) {
+      pendingEmbeddedClipAssets = (async () => {
+        const clipDataUrl = resolveRuntimeAssetPath(input.manifest.clipData!, input.resolveAssetUrl);
+        const response = await fetch(clipDataUrl);
+
+        if (!response.ok) {
+          throw new Error(`Failed to load runtime clip data from ${clipDataUrl}`);
+        }
+
+        const clips = parseClipDataBinary(new Uint8Array(await response.arrayBuffer()));
+        return Object.fromEntries(clips.map((clip) => [clip.id, clip]));
+      })().catch((error) => {
+        pendingEmbeddedClipAssets = undefined;
+        throw error;
+      });
+    }
+
+    return pendingEmbeddedClipAssets;
+  };
 
   const loadAnimationSourceCached = (assetUrl: string) => {
     let pending = animationSourceCache.get(assetUrl);
@@ -265,12 +291,18 @@ function createRuntimeAnimationBundle(input: {
       return pendingCharacterAsset;
     },
     async loadClipAssetsById(skeleton: Skeleton) {
+      const embeddedClipsById = artifactClipsById.size > 0 ? {} as Record<string, AnimationClipAsset> : await loadEmbeddedClipAssets();
       const entries = await Promise.all(
         input.manifest.clips.map(async (clipEntry) => {
           const artifactClip = artifactClipsById.get(clipEntry.id);
 
           if (artifactClip) {
             return [clipEntry.id, artifactClip] as const;
+          }
+
+          const embeddedClip = embeddedClipsById[clipEntry.id];
+          if (embeddedClip) {
+            return [clipEntry.id, embeddedClip] as const;
           }
 
           if (!clipEntry.asset) {
@@ -315,7 +347,10 @@ function createRuntimeAnimationBundle(input: {
       });
     },
     async preloadAssets() {
-      await Promise.all(Array.from(externalAssetUrls, (assetUrl) => loadAnimationSourceCached(assetUrl)));
+      await Promise.all([
+        ...Array.from(externalAssetUrls, (assetUrl) => loadAnimationSourceCached(assetUrl)),
+        loadEmbeddedClipAssets()
+      ]);
     }
   };
 }

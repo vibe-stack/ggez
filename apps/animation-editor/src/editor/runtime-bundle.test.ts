@@ -1,6 +1,6 @@
 import { strFromU8, unzipSync } from "fflate";
 import type { AnimationEditorDocument } from "@ggez/anim-schema";
-import { parseAnimationArtifactJson } from "@ggez/anim-exporter";
+import { parseAnimationArtifactJson, parseClipDataBinary } from "@ggez/anim-exporter";
 import type { ImportedPreviewClip } from "./preview-assets";
 import { createRuntimeBundleSyncResult, createRuntimeBundleZip } from "./runtime-bundle";
 
@@ -311,6 +311,7 @@ describe("runtime bundle export", () => {
     const manifestFile = result.files.find((file) => file.path === "animation.bundle.json");
     const equipmentFile = result.files.find((file) => file.path === "assets/equipment-sword-sword.glb");
     const manifest = JSON.parse(new TextDecoder().decode(Uint8Array.from(manifestFile?.bytes ?? []))) as {
+      clipData?: string;
       equipment?: {
         sockets: Array<{ boneName: string }>;
         items: Array<{ asset?: string; socketId: string | null; transform: { position: [number, number, number] } }>;
@@ -321,6 +322,7 @@ describe("runtime bundle export", () => {
     expect(manifest.equipment?.items[0]?.socketId).toEqual("hand");
     expect(manifest.equipment?.items[0]?.asset).toEqual("./assets/equipment-sword-sword.glb");
     expect(manifest.equipment?.items[0]?.transform.position).toEqual([1, 2, 3]);
+    expect(manifest.clipData).toEqual("./assets/graph.animation.clips.bin");
     expect(equipmentFile?.mimeType).toEqual("model/gltf-binary");
     expect(equipmentFile?.bytes).toEqual(Array.from(equipmentBytes));
   });
@@ -363,6 +365,32 @@ describe("runtime bundle export", () => {
     expect(indexText).toContain('artifactLoader: () => import("./graph.animation.json?raw")');
   });
 
+  it("keeps graph artifacts slim and moves embedded clip samples into binary clip data", async () => {
+    const result = await createRuntimeBundleSyncResult({
+      characterFile: null,
+      folderName: "player-locomotion",
+      importedClips: [createImportedClip()],
+      sourceDocument: createDocument(),
+      title: "Player Locomotion"
+    });
+
+    const artifactFile = result.files.find((file) => file.path === "graph.animation.json");
+    const clipDataFile = result.files.find((file) => file.path === "assets/graph.animation.clips.bin");
+    const artifact = parseAnimationArtifactJson(new TextDecoder().decode(Uint8Array.from(artifactFile?.bytes ?? [])));
+    const clips = parseClipDataBinary(Uint8Array.from(clipDataFile?.bytes ?? []));
+
+    expect(artifact.clips).toEqual([]);
+    expect(clips).toEqual([
+      {
+        id: "idle",
+        name: "Idle",
+        duration: 1,
+        rootBoneIndex: undefined,
+        tracks: []
+      }
+    ]);
+  });
+
   it("preserves advanced runtime nodes and compiled dynamics data in exported graph artifacts", async () => {
     const result = await createRuntimeBundleSyncResult({
       characterFile: null,
@@ -373,7 +401,9 @@ describe("runtime bundle export", () => {
     });
 
     const artifactFile = result.files.find((file) => file.path === "graph.animation.json");
+    const clipDataFile = result.files.find((file) => file.path === "assets/graph.animation.clips.bin");
     const artifact = parseAnimationArtifactJson(new TextDecoder().decode(Uint8Array.from(artifactFile?.bytes ?? [])));
+    const clips = parseClipDataBinary(Uint8Array.from(clipDataFile?.bytes ?? []));
     const compiledNodes = artifact.graph.graphs[0]?.nodes ?? [];
 
     expect(artifact.rig?.boneNames).toEqual([
@@ -466,6 +496,14 @@ describe("runtime bundle export", () => {
       stiffnessScale: 1,
       gravityScale: 1,
       iterations: 4
+    });
+    expect(artifact.clips).toEqual([]);
+    expect(clips[0]).toEqual({
+      id: "idle",
+      name: "Idle",
+      duration: 1,
+      rootBoneIndex: undefined,
+      tracks: []
     });
   });
 });

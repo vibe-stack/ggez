@@ -1,4 +1,4 @@
-import { createAnimationArtifact, createAnimationBundle, serializeAnimationArtifact, serializeAnimationBundle } from "@ggez/anim-exporter";
+import { createAnimationArtifact, createAnimationBundle, serializeAnimationArtifact, serializeAnimationBundle, serializeClipDataBinary } from "@ggez/anim-exporter";
 import { compileAnimationEditorDocumentOrThrow } from "@ggez/anim-compiler";
 import { strToU8, zipSync } from "fflate";
 import type { EquipmentBundle } from "./character-equipment";
@@ -114,13 +114,14 @@ async function buildZipFiles(input: {
   });
 
   const artifact = createAnimationArtifact({
-    graph: compiledGraph,
-    clips: bundleClips.map((bundleClip) => clipsById.get(bundleClip.id)!.asset)
+    graph: compiledGraph
   });
+  const clipDataPath = "./assets/graph.animation.clips.bin";
   const manifest = createAnimationBundle({
     name: input.title,
     artifactPath: "./graph.animation.json",
     characterAssetPath: input.characterFile ? `./${reserveAssetPath(input.characterFile, getFileStem(input.characterFile.name))}` : undefined,
+    clipDataPath,
     clips: bundleClips,
     equipment: input.equipmentBundle
       ? {
@@ -148,6 +149,7 @@ async function buildZipFiles(input: {
     title: input.title
   }, null, 2)));
   files.set("graph.animation.json", strToU8(serializeAnimationArtifact(artifact)));
+  files.set(clipDataPath.replace(/^\.\//, ""), serializeClipDataBinary(bundleClips.map((bundleClip) => clipsById.get(bundleClip.id)!.asset)));
   files.set("index.ts", strToU8(createRuntimeBundleIndexModule({
     folderName: input.folderName,
     title: input.title

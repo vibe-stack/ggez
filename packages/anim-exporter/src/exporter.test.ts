@@ -5,8 +5,10 @@ import {
   createAnimationBundle,
   parseAnimationArtifactJson,
   parseAnimationBundleJson,
+  parseClipDataBinary,
   serializeAnimationArtifact,
-  serializeAnimationBundle
+  serializeAnimationBundle,
+  serializeClipDataBinary
 } from "./exporter";
 
 describe("@ggez/anim-exporter", () => {
@@ -83,6 +85,7 @@ describe("@ggez/anim-exporter", () => {
   it("preserves optional equipment metadata in serialized bundles", () => {
     const bundle = createAnimationBundle({
       name: "Equipment Bundle",
+      clipDataPath: "./assets/graph.animation.clips.bin",
       equipment: {
         sockets: [{ id: "hand", name: "Hand", boneName: "Hand.R" }],
         items: [
@@ -104,6 +107,7 @@ describe("@ggez/anim-exporter", () => {
 
     const parsed = parseAnimationBundleJson(serializeAnimationBundle(bundle));
 
+    expect(parsed.clipData).toEqual("./assets/graph.animation.clips.bin");
     expect(parsed.equipment).toEqual({
       sockets: [{ id: "hand", name: "Hand", boneName: "Hand.R" }],
       items: [
@@ -274,5 +278,29 @@ describe("@ggez/anim-exporter", () => {
     expect(parsed.graph.rig?.boneNames).toEqual(graph.rig?.boneNames);
     expect(parsed.graph.dynamicsProfiles).toEqual(graph.dynamicsProfiles);
     expect(parsed.graph.graphs[0]?.nodes).toEqual(graph.graphs[0]?.nodes);
+  });
+
+  it("round-trips clip samples through the binary clip data format", () => {
+    const clips = [
+      {
+        id: "walk",
+        name: "Walk",
+        duration: 1,
+        rootBoneIndex: 1,
+        tracks: [
+          {
+            boneIndex: 1,
+            translationTimes: new Float32Array([0, 1]),
+            translationValues: new Float32Array([0, 1, 0, 2, 1, 0]),
+            rotationTimes: new Float32Array([0]),
+            rotationValues: new Float32Array([0, 0, 0, 1])
+          }
+        ]
+      }
+    ];
+
+    const parsed = parseClipDataBinary(serializeClipDataBinary(clips));
+
+    expect(parsed).toEqual(clips);
   });
 });
