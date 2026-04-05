@@ -36,6 +36,7 @@ export interface SecondaryDynamicsChainRuntimeState {
   readonly currentPositions: Float32Array;
   readonly previousPositions: Float32Array;
   readonly previousRootPosition: Float32Array;
+  readonly previousRootRotation: Float32Array;
 }
 
 export interface EvaluationContext {

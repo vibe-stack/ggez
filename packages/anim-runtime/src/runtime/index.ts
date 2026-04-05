@@ -38,7 +38,8 @@ export function createAnimatorInstance(input: {
       initialized: false,
       currentPositions: new Float32Array(chain.boneIndices.length * 3),
       previousPositions: new Float32Array(chain.boneIndices.length * 3),
-      previousRootPosition: new Float32Array(3)
+      previousRootPosition: new Float32Array(3),
+      previousRootRotation: new Float32Array([0, 0, 0, 1])
     }))
   );
   const outputPose = createPoseBufferFromRig(input.rig);

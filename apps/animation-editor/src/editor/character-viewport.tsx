@@ -161,9 +161,10 @@ type CharacterViewportProps = {
   playback: CharacterPlaybackState;
   equipment: UseEquipmentStateReturn;
   selectedDynamicsProfileId?: string;
+  showDynamicsColliders?: boolean;
 };
 
-export function CharacterViewport({ store, character, importedClips, playback, equipment, selectedDynamicsProfileId }: CharacterViewportProps) {
+export function CharacterViewport({ store, character, importedClips, playback, equipment, selectedDynamicsProfileId, showDynamicsColliders = true }: CharacterViewportProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const animatorRef = useRef<AnimatorInstance | null>(null);
   const resetPreviewPositionRef = useRef(0);
@@ -253,6 +254,8 @@ export function CharacterViewport({ store, character, importedClips, playback, e
   dynamicsProfilesRef.current = document.dynamicsProfiles;
   const selectedDynamicsProfileIdRef = useRef(selectedDynamicsProfileId ?? "");
   selectedDynamicsProfileIdRef.current = selectedDynamicsProfileId ?? "";
+  const showDynamicsCollidersRef = useRef(showDynamicsColliders);
+  showDynamicsCollidersRef.current = showDynamicsColliders;
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -538,7 +541,7 @@ export function CharacterViewport({ store, character, importedClips, playback, e
       for (const collider of activeDynamicsProfile?.sphereColliders ?? []) {
         const mesh = dynamicsColliderMeshesRef.current.get(collider.id);
         const bone = characterBonesRef.current.get(collider.boneName);
-        if (!mesh || !bone || !collider.enabled) {
+        if (!mesh || !bone || !collider.enabled || !showDynamicsCollidersRef.current) {
           if (mesh) {
             mesh.visible = false;
           }
@@ -555,7 +558,7 @@ export function CharacterViewport({ store, character, importedClips, playback, e
       }
 
       for (const [colliderId, mesh] of dynamicsColliderMeshesRef.current) {
-        if (!activeDynamicsProfile?.sphereColliders.some((collider) => collider.id === colliderId && collider.enabled)) {
+        if (!showDynamicsCollidersRef.current || !activeDynamicsProfile?.sphereColliders.some((collider) => collider.id === colliderId && collider.enabled)) {
           mesh.visible = false;
         }
       }
@@ -665,7 +668,7 @@ export function CharacterViewport({ store, character, importedClips, playback, e
       scene.add(mesh);
       dynamicsColliderMeshesRef.current.set(colliderId, mesh);
     });
-  }, [character, document.dynamicsProfiles, selectedDynamicsProfileId]);
+  }, [character, document.dynamicsProfiles, selectedDynamicsProfileId, showDynamicsColliders]);
 
   // Equipment loading effect — syncs GLB meshes into the live scene.
   // Depends on `character` so it re-runs (and reloads all meshes) when the scene restarts.

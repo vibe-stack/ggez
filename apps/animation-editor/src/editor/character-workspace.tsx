@@ -41,6 +41,7 @@ export function CharacterWorkspace({ store, character, importedClips, equipment 
   const [equipmentPosition, setEquipmentPosition] = useState<FloatingPanelPosition | null>(null);
   const [dynamicsPosition, setDynamicsPosition] = useState<FloatingPanelPosition | null>(null);
   const [selectedDynamicsProfileId, setSelectedDynamicsProfileId] = useState("");
+  const [showDynamicsColliders, setShowDynamicsColliders] = useState(true);
 
   const boneDragRef = useRef<{ pointerX: number; pointerY: number; position: FloatingPanelPosition } | null>(null);
   const playbackDragRef = useRef<{ pointerX: number; pointerY: number; position: FloatingPanelPosition } | null>(null);
@@ -215,6 +216,7 @@ export function CharacterWorkspace({ store, character, importedClips, equipment 
         playback={playback}
         equipment={equipment}
         selectedDynamicsProfileId={selectedDynamicsProfileId}
+        showDynamicsColliders={showDynamicsColliders}
       />
 
       {/* Gizmo mode toolbar — appears when an equipment item is selected */}
@@ -272,6 +274,8 @@ export function CharacterWorkspace({ store, character, importedClips, equipment 
           characterBoneNames={characterBoneNames}
           selectedProfileId={selectedDynamicsProfileId}
           onSelectProfileId={setSelectedDynamicsProfileId}
+          showColliders={showDynamicsColliders}
+          onToggleShowColliders={() => setShowDynamicsColliders((current) => !current)}
           onHeaderPointerDown={beginDynamicsDrag}
         />
       </div>

@@ -15,6 +15,8 @@ type CharacterDynamicsPanelProps = {
   characterBoneNames: string[];
   selectedProfileId: string;
   onSelectProfileId: (profileId: string) => void;
+  showColliders: boolean;
+  onToggleShowColliders: () => void;
   onHeaderPointerDown: (event: ReactPointerEvent) => void;
 };
 
@@ -88,7 +90,17 @@ export function CharacterDynamicsPanel(props: CharacterDynamicsPanelProps) {
         onPointerDown={props.onHeaderPointerDown}
       >
         <span>Dynamics</span>
-        <GripHorizontal className="size-4 text-zinc-600" />
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={props.onToggleShowColliders}
+            className="rounded-full bg-white/6 px-2.5 py-1 text-[11px] text-zinc-300 transition hover:bg-white/10 hover:text-zinc-100"
+          >
+            {props.showColliders ? "Hide Colliders" : "Show Colliders"}
+          </button>
+          <GripHorizontal className="size-4 text-zinc-600" />
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
