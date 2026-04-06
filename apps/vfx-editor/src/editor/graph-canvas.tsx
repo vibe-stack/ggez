@@ -12,9 +12,37 @@ import {
   useEdgesState,
   useNodesState
 } from "@xyflow/react";
-import type { EffectGraph, EffectGraphNode } from "@ggez/vfx-schema";
+import type { EffectGraph, EffectGraphNode, EmitterDocument, ModuleInstance } from "@ggez/vfx-schema";
 import { Boxes, Cable, Gauge, Layers3, Orbit, Sparkles, Workflow } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
+import { EmitterNode, type EmitterNodeData, type EmitterStageData, type StageName } from "./emitter-node";
+
+// Stable nodeTypes reference - must live outside the component.
+const nodeTypes = { "emitter-node": EmitterNode };
+
+const STAGE_ACCENTS: Record<StageName, string> = {
+  spawn: "bg-sky-400",
+  initialize: "bg-emerald-400",
+  update: "bg-violet-400",
+  death: "bg-rose-400"
+};
+
+const STAGE_LABELS: Record<StageName, string> = {
+  spawn: "Spawn",
+  initialize: "Initialize",
+  update: "Update",
+  death: "Death"
+};
+
+const STAGE_KEYS: Array<{
+  stage: StageName;
+  docKey: keyof Pick<EmitterDocument, "spawnStage" | "initializeStage" | "updateStage" | "deathStage">;
+}> = [
+  { stage: "spawn", docKey: "spawnStage" },
+  { stage: "initialize", docKey: "initializeStage" },
+  { stage: "update", docKey: "updateStage" },
+  { stage: "death", docKey: "deathStage" }
+];
 
 type FlowNodeData = {
   kind: EffectGraphNode["kind"];
@@ -36,30 +64,30 @@ const NODE_ICONS: Record<EffectGraphNode["kind"], typeof Sparkles> = {
 
 function getNodeSubtitle(node: EffectGraphNode) {
   switch (node.kind) {
-    case "emitter":
-      return node.emitterId;
-    case "parameter":
-      return node.parameterId ?? "unassigned parameter";
-    case "event":
-      return node.eventId ?? "unassigned event";
-    case "dataInterface":
-      return node.bindingId ?? "unassigned interface";
-    case "subgraph":
-      return node.subgraphId ?? "unassigned subgraph";
-    case "scalability":
-      return "lod / budgets / fallbacks";
-    case "output":
-      return "compiled effect output";
-    case "comment":
-    default:
-      return "note";
+    case "emitter": return node.emitterId;
+    case "parameter": return node.parameterId ?? "unassigned parameter";
+    case "event": return node.eventId ?? "unassigned event";
+    case "dataInterface": return node.bindingId ?? "unassigned interface";
+    case "subgraph": return node.subgraphId ?? "unassigned subgraph";
+    case "scalability": return "lod / budgets / fallbacks";
+    case "output": return "compiled effect output";
+    default: return "note";
   }
 }
 
-function toNode(node: EffectGraphNode, selected: boolean): Node<FlowNodeData> {
+function computeEmitterFingerprint(doc: EmitterDocument): string {
+  const allModules = [
+    ...doc.spawnStage.modules,
+    ...doc.initializeStage.modules,
+    ...doc.updateStage.modules,
+    ...doc.deathStage.modules
+  ];
+  return allModules.map((m) => `${m.id}:${m.enabled}`).join(",");
+}
+
+function toGenericNode(node: EffectGraphNode, selected: boolean): Node<FlowNodeData> {
   const Icon = NODE_ICONS[node.kind];
   const subtitle = getNodeSubtitle(node);
-
   return {
     id: node.id,
     position: node.position,
@@ -91,96 +119,131 @@ function toNode(node: EffectGraphNode, selected: boolean): Node<FlowNodeData> {
   };
 }
 
-function toEdge(edge: EffectGraph["edges"][number], selected: boolean): Edge {
+function toEmitterNode(
+  node: EffectGraphNode & { kind: "emitter" },
+  selected: boolean,
+  emitterDoc: EmitterDocument,
+  fingerprint: string,
+  selectedModuleId: string | null,
+  stagePresets: Record<StageName, ModuleInstance["kind"][]>,
+  onAddModule: (stage: StageName, kind: ModuleInstance["kind"]) => void,
+  onRemoveModule: (stage: StageName, moduleId: string) => void,
+  onSelectModule: (stage: StageName, moduleId: string) => void
+): Node<EmitterNodeData> {
+  const stages: EmitterStageData[] = STAGE_KEYS.map(({ stage, docKey }) => ({
+    name: stage,
+    label: STAGE_LABELS[stage],
+    accent: STAGE_ACCENTS[stage],
+    modules: emitterDoc[docKey].modules.map((m) => ({
+      id: m.id,
+      label: m.label,
+      kind: m.kind,
+      enabled: m.enabled
+    })),
+    presets: stagePresets[stage]
+  }));
+
   return {
-    id: edge.id,
-    source: edge.sourceNodeId,
-    target: edge.targetNodeId,
-    label: edge.label,
-    type: "smoothstep",
+    id: node.id,
+    position: node.position,
+    sourcePosition: Position.Right,
+    targetPosition: Position.Left,
     selected,
-    markerEnd: {
-      type: MarkerType.ArrowClosed,
-      color: "#6ee7b7",
-      width: 18,
-      height: 18
-    }
+    data: {
+      kind: "emitter",
+      name: node.name,
+      subtitle: node.emitterId,
+      label: null,
+      emitterName: node.name,
+      emitterFingerprint: fingerprint,
+      stages,
+      selectedModuleId,
+      onAddModule,
+      onRemoveModule,
+      onSelectModule
+    },
+    className: selected ? "selected" : undefined,
+    draggable: true,
+    selectable: true,
+    type: "emitter-node",
+    style: { padding: 0 },
+    width: 272
   };
 }
 
 function areStringArraysEqual(left: string[], right: string[]) {
-  if (left.length !== right.length) {
-    return false;
-  }
-
-  return left.every((value, index) => value === right[index]);
+  if (left.length !== right.length) return false;
+  return left.every((v, i) => v === right[i]);
 }
 
-function areCanvasNodesEqual(left: Node<FlowNodeData>[], right: Node<FlowNodeData>[]) {
-  if (left.length !== right.length) {
-    return false;
-  }
-
+function areCanvasNodesEqual(left: Node[], right: Node[]) {
+  if (left.length !== right.length) return false;
   return left.every((node, index) => {
-    const candidate = right[index];
-    return (
-      candidate &&
-      node.id === candidate.id &&
-      node.selected === candidate.selected &&
-      node.position.x === candidate.position.x &&
-      node.position.y === candidate.position.y &&
-      node.data.kind === candidate.data.kind &&
-      node.data.name === candidate.data.name &&
-      node.data.subtitle === candidate.data.subtitle
-    );
+    const c = right[index];
+    if (!c) return false;
+    if (node.id !== c.id || node.selected !== c.selected || node.type !== c.type) return false;
+    if (node.position.x !== c.position.x || node.position.y !== c.position.y) return false;
+    if (node.type === "emitter-node") {
+      const ld = node.data as EmitterNodeData;
+      const rd = c.data as EmitterNodeData;
+      return ld.emitterFingerprint === rd.emitterFingerprint && ld.selectedModuleId === rd.selectedModuleId;
+    }
+    const ld = node.data as FlowNodeData;
+    const rd = c.data as FlowNodeData;
+    return ld.kind === rd.kind && ld.name === rd.name && ld.subtitle === rd.subtitle;
   });
 }
 
 function areCanvasEdgesEqual(left: Edge[], right: Edge[]) {
-  if (left.length !== right.length) {
-    return false;
-  }
-
-  return left.every((edge, index) => {
-    const candidate = right[index];
-    return (
-      candidate &&
-      edge.id === candidate.id &&
-      edge.source === candidate.source &&
-      edge.target === candidate.target &&
-      edge.selected === candidate.selected &&
-      edge.label === candidate.label
-    );
+  if (left.length !== right.length) return false;
+  return left.every((edge, i) => {
+    const c = right[i];
+    return c && edge.id === c.id && edge.source === c.source && edge.target === c.target && edge.selected === c.selected && edge.label === c.label;
   });
 }
 
-type NodeCacheEntry = { graphNode: EffectGraphNode; selected: boolean; flowNode: Node<FlowNodeData> };
+type NodeCacheEntry = {
+  graphNode: EffectGraphNode;
+  selected: boolean;
+  emitterFingerprint: string;
+  selectedModuleId: string | null;
+  flowNode: Node;
+};
 
 export function GraphCanvas(props: {
   graph: EffectGraph;
   selectedNodeIds: string[];
   selectedEdgeIds: string[];
+  emitterDocuments: Map<string, EmitterDocument>;
+  selectedModuleId: string | null;
+  stagePresets: Record<StageName, ModuleInstance["kind"][]>;
   onEdgeSelectionChange(edgeIds: string[]): void;
   onSelectionChange(nodeIds: string[]): void;
   onConnect(connection: Connection): void;
   onNodeDragStop(nodeId: string, position: { x: number; y: number }): void;
   onDeleteNodes(): void;
   onDeleteEdges(edgeIds: string[]): void;
+  onAddStageModule(emitterId: string, stage: StageName, kind: ModuleInstance["kind"]): void;
+  onRemoveStageModule(emitterId: string, stage: StageName, moduleId: string): void;
+  onSelectModule(emitterId: string, stage: StageName, moduleId: string): void;
 }) {
-  // Always-up-to-date ref so stable callbacks never capture stale props.
   const propsRef = useRef(props);
   propsRef.current = props;
 
   const lastSelectedNodeIdsRef = useRef(props.selectedNodeIds);
   const selectedEdgeIdsRef = useRef(props.selectedEdgeIds);
-  const reactFlowRef = useRef<ReactFlowInstance<Node<FlowNodeData>, Edge> | null>(null);
-
-  // Stable node-object cache: reuse the same Node<FlowNodeData> reference when
-  // the underlying EffectGraphNode identity and selected state haven't changed.
-  // React Flow's adoptUserNodes uses reference equality (checkEquality: true) to
-  // preserve measured dimensions; new references cause re-measurement storms that
-  // overflow React's nested-update counter.
+  const reactFlowRef = useRef<ReactFlowInstance<Node, Edge> | null>(null);
   const nodeCacheRef = useRef<Map<string, NodeCacheEntry>>(new Map());
+
+  const stableOnAddModule = useCallback((emitterId: string, stage: StageName, kind: ModuleInstance["kind"]) => {
+    propsRef.current.onAddStageModule(emitterId, stage, kind);
+  }, []);
+  const stableOnRemoveModule = useCallback((emitterId: string, stage: StageName, moduleId: string) => {
+    propsRef.current.onRemoveStageModule(emitterId, stage, moduleId);
+  }, []);
+  const stableOnSelectModule = useCallback((emitterId: string, stage: StageName, moduleId: string) => {
+    propsRef.current.onSelectModule(emitterId, stage, moduleId);
+  }, []);
 
   const computedNodes = useMemo(() => {
     const prevCache = nodeCacheRef.current;
@@ -188,22 +251,66 @@ export function GraphCanvas(props: {
 
     const result = props.graph.nodes.map((graphNode) => {
       const selected = props.selectedNodeIds.includes(graphNode.id);
-      const cached = prevCache.get(graphNode.id);
 
-      let flowNode: Node<FlowNodeData>;
+      if (graphNode.kind === "emitter") {
+        const emitterDoc = props.emitterDocuments.get(graphNode.emitterId);
+        const fingerprint = emitterDoc ? computeEmitterFingerprint(emitterDoc) : "";
+        const selectedModuleId = props.selectedModuleId;
+        const cached = prevCache.get(graphNode.id);
+
+        let flowNode: Node;
+        if (
+          cached &&
+          cached.graphNode === graphNode &&
+          cached.selected === selected &&
+          cached.emitterFingerprint === fingerprint &&
+          cached.selectedModuleId === selectedModuleId
+        ) {
+          flowNode = cached.flowNode;
+        } else if (emitterDoc) {
+          const emitterId = graphNode.emitterId;
+          flowNode = toEmitterNode(
+            graphNode,
+            selected,
+            emitterDoc,
+            fingerprint,
+            selectedModuleId,
+            props.stagePresets,
+            (stage, kind) => stableOnAddModule(emitterId, stage, kind),
+            (stage, moduleId) => stableOnRemoveModule(emitterId, stage, moduleId),
+            (stage, moduleId) => stableOnSelectModule(emitterId, stage, moduleId)
+          );
+        } else {
+          flowNode = toGenericNode(graphNode, selected);
+        }
+
+        nextCache.set(graphNode.id, { graphNode, selected, emitterFingerprint: fingerprint, selectedModuleId, flowNode });
+        return flowNode;
+      }
+
+      const cached = prevCache.get(graphNode.id);
+      let flowNode: Node;
       if (cached && cached.graphNode === graphNode && cached.selected === selected) {
         flowNode = cached.flowNode;
       } else {
-        flowNode = toNode(graphNode, selected);
+        flowNode = toGenericNode(graphNode, selected);
       }
-
-      nextCache.set(graphNode.id, { graphNode, selected, flowNode });
+      nextCache.set(graphNode.id, { graphNode, selected, emitterFingerprint: "", selectedModuleId: null, flowNode });
       return flowNode;
     });
 
     nodeCacheRef.current = nextCache;
     return result;
-  }, [props.graph.nodes, props.selectedNodeIds]);
+  }, [
+    props.graph.nodes,
+    props.selectedNodeIds,
+    props.emitterDocuments,
+    props.selectedModuleId,
+    props.stagePresets,
+    stableOnAddModule,
+    stableOnRemoveModule,
+    stableOnSelectModule
+  ]);
 
   const computedEdges = useMemo(
     () => props.graph.edges.map((edge) => toEdge(edge, props.selectedEdgeIds.includes(edge.id))),
@@ -221,18 +328,11 @@ export function GraphCanvas(props: {
     setEdges((current) => (areCanvasEdgesEqual(current, computedEdges) ? current : computedEdges));
   }, [computedEdges, setEdges]);
 
-  useEffect(() => {
-    lastSelectedNodeIdsRef.current = props.selectedNodeIds;
-  }, [props.selectedNodeIds]);
+  useEffect(() => { lastSelectedNodeIdsRef.current = props.selectedNodeIds; }, [props.selectedNodeIds]);
+  useEffect(() => { selectedEdgeIdsRef.current = props.selectedEdgeIds; }, [props.selectedEdgeIds]);
 
   useEffect(() => {
-    selectedEdgeIdsRef.current = props.selectedEdgeIds;
-  }, [props.selectedEdgeIds]);
-
-  useEffect(() => {
-    if (!reactFlowRef.current) {
-      return;
-    }
+    if (!reactFlowRef.current) return;
     reactFlowRef.current.fitView({ padding: 0.16, duration: 180 });
   }, [props.graph.nodes.length, props.graph.edges.length]);
 
@@ -244,17 +344,10 @@ export function GraphCanvas(props: {
         target instanceof HTMLTextAreaElement ||
         target instanceof HTMLSelectElement ||
         Boolean(target?.isContentEditable);
-
-      if (isTypingTarget || (event.key !== "Backspace" && event.key !== "Delete")) {
-        return;
-      }
+      if (isTypingTarget || (event.key !== "Backspace" && event.key !== "Delete")) return;
 
       const { selectedNodeIds, onDeleteEdges, onEdgeSelectionChange, onDeleteNodes } = propsRef.current;
-
-      if (selectedEdgeIdsRef.current.length === 0 && selectedNodeIds.length === 0) {
-        return;
-      }
-
+      if (selectedEdgeIdsRef.current.length === 0 && selectedNodeIds.length === 0) return;
       event.preventDefault();
 
       if (selectedEdgeIdsRef.current.length > 0) {
@@ -264,26 +357,20 @@ export function GraphCanvas(props: {
         onEdgeSelectionChange([]);
         return;
       }
-
       onDeleteNodes();
     }
-
     window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, []); // stable: reads latest props via propsRef
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
-  const handleSelectionChange = useCallback((selection: { nodes: Node<FlowNodeData>[]; edges: Edge[] }) => {
+  const handleSelectionChange = useCallback((selection: { nodes: Node[]; edges: Edge[] }) => {
     const { onSelectionChange, onEdgeSelectionChange } = propsRef.current;
-    const nextNodeIds = (selection.nodes ?? []).map((node) => node.id);
-    const nextEdgeIds = (selection.edges ?? []).map((edge) => edge.id);
-
+    const nextNodeIds = (selection.nodes ?? []).map((n) => n.id);
+    const nextEdgeIds = (selection.edges ?? []).map((e) => e.id);
     if (!areStringArraysEqual(lastSelectedNodeIdsRef.current, nextNodeIds)) {
       lastSelectedNodeIdsRef.current = nextNodeIds;
       onSelectionChange(nextNodeIds);
     }
-
     if (!areStringArraysEqual(selectedEdgeIdsRef.current, nextEdgeIds)) {
       selectedEdgeIdsRef.current = nextEdgeIds;
       onEdgeSelectionChange(nextEdgeIds);
@@ -291,17 +378,10 @@ export function GraphCanvas(props: {
   }, []);
 
   const handleConnect = useCallback((connection: Connection) => {
-    if (!connection.source || !connection.target) {
-      return;
-    }
-
+    if (!connection.source || !connection.target) return;
     const optimisticEdgeId = `${connection.source}:${connection.target}`;
-
     setEdges((current) => {
-      if (current.some((edge) => edge.source === connection.source && edge.target === connection.target)) {
-        return current;
-      }
-
+      if (current.some((e) => e.source === connection.source && e.target === connection.target)) return current;
       return [
         ...current,
         {
@@ -309,33 +389,21 @@ export function GraphCanvas(props: {
           source: connection.source,
           target: connection.target,
           type: "smoothstep",
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            color: "#6ee7b7",
-            width: 18,
-            height: 18
-          }
+          markerEnd: { type: MarkerType.ArrowClosed, color: "#6ee7b7", width: 18, height: 18 }
         }
       ];
     });
-
     propsRef.current.onConnect(connection);
   }, [setEdges]);
 
-  const handleNodeDragStop = useCallback((_event: React.MouseEvent, node: Node<FlowNodeData>) => {
+  const handleNodeDragStop = useCallback((_event: React.MouseEvent, node: Node) => {
     propsRef.current.onNodeDragStop(node.id, node.position);
   }, []);
 
   const handlePaneClick = useCallback(() => {
     const { selectedNodeIds, onSelectionChange, onEdgeSelectionChange } = propsRef.current;
-    if (selectedNodeIds.length > 0) {
-      lastSelectedNodeIdsRef.current = [];
-      onSelectionChange([]);
-    }
-    if (selectedEdgeIdsRef.current.length > 0) {
-      selectedEdgeIdsRef.current = [];
-      onEdgeSelectionChange([]);
-    }
+    if (selectedNodeIds.length > 0) { lastSelectedNodeIdsRef.current = []; onSelectionChange([]); }
+    if (selectedEdgeIdsRef.current.length > 0) { selectedEdgeIdsRef.current = []; onEdgeSelectionChange([]); }
   }, []);
 
   return (
@@ -343,6 +411,7 @@ export function GraphCanvas(props: {
       <ReactFlow
         nodes={nodes}
         edges={edges}
+        nodeTypes={nodeTypes}
         colorMode="dark"
         deleteKeyCode={null}
         onInit={(instance) => {
@@ -357,14 +426,21 @@ export function GraphCanvas(props: {
         onSelectionChange={handleSelectionChange}
       >
         <Background gap={36} size={1} color="rgba(255,255,255,0.045)" />
-        <MiniMap
-          pannable
-          zoomable
-          nodeColor={() => "#f58b47"}
-          maskColor="rgba(9,10,12,0.84)"
-        />
+        <MiniMap pannable zoomable nodeColor={() => "#f58b47"} maskColor="rgba(9,10,12,0.84)" />
         <Controls showInteractive={false} />
       </ReactFlow>
     </div>
   );
+}
+
+function toEdge(edge: EffectGraph["edges"][number], selected: boolean): Edge {
+  return {
+    id: edge.id,
+    source: edge.sourceNodeId,
+    target: edge.targetNodeId,
+    label: edge.label,
+    type: "smoothstep",
+    selected,
+    markerEnd: { type: MarkerType.ArrowClosed, color: "#6ee7b7", width: 18, height: 18 }
+  };
 }
