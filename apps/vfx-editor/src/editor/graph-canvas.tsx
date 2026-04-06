@@ -4,18 +4,22 @@ import {
   MiniMap,
   type Connection,
   type Edge,
-  type EdgeMouseHandler,
   MarkerType,
   type Node,
   Position,
   ReactFlow,
-  type ReactFlowInstance
+  type ReactFlowInstance,
+  useEdgesState,
+  useNodesState
 } from "@xyflow/react";
 import type { EffectGraph, EffectGraphNode } from "@ggez/vfx-schema";
 import { Boxes, Cable, Gauge, Layers3, Orbit, Sparkles, Workflow } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
 
 type FlowNodeData = {
+  kind: EffectGraphNode["kind"];
+  name: string;
+  subtitle: string;
   label: ReactNode;
 };
 
@@ -54,6 +58,7 @@ function getNodeSubtitle(node: EffectGraphNode) {
 
 function toNode(node: EffectGraphNode, selected: boolean): Node<FlowNodeData> {
   const Icon = NODE_ICONS[node.kind];
+  const subtitle = getNodeSubtitle(node);
 
   return {
     id: node.id,
@@ -62,6 +67,9 @@ function toNode(node: EffectGraphNode, selected: boolean): Node<FlowNodeData> {
     targetPosition: Position.Left,
     selected,
     data: {
+      kind: node.kind,
+      name: node.name,
+      subtitle,
       label: (
         <div className="flex h-full flex-col gap-1 px-4 py-3">
           <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] text-emerald-300/55">
@@ -69,7 +77,7 @@ function toNode(node: EffectGraphNode, selected: boolean): Node<FlowNodeData> {
             <span>{node.kind}</span>
           </div>
           <div className="text-sm font-medium text-emerald-50">{node.name}</div>
-          <div className="text-[11px] text-zinc-400">{getNodeSubtitle(node)}</div>
+          <div className="text-[11px] text-zinc-400">{subtitle}</div>
         </div>
       )
     },
@@ -108,6 +116,44 @@ function areStringArraysEqual(left: string[], right: string[]) {
   return left.every((value, index) => value === right[index]);
 }
 
+function areCanvasNodesEqual(left: Node<FlowNodeData>[], right: Node<FlowNodeData>[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((node, index) => {
+    const candidate = right[index];
+    return (
+      candidate &&
+      node.id === candidate.id &&
+      node.selected === candidate.selected &&
+      node.position.x === candidate.position.x &&
+      node.position.y === candidate.position.y &&
+      node.data.kind === candidate.data.kind &&
+      node.data.name === candidate.data.name &&
+      node.data.subtitle === candidate.data.subtitle
+    );
+  });
+}
+
+function areCanvasEdgesEqual(left: Edge[], right: Edge[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((edge, index) => {
+    const candidate = right[index];
+    return (
+      candidate &&
+      edge.id === candidate.id &&
+      edge.source === candidate.source &&
+      edge.target === candidate.target &&
+      edge.selected === candidate.selected &&
+      edge.label === candidate.label
+    );
+  });
+}
+
 type NodeCacheEntry = { graphNode: EffectGraphNode; selected: boolean; flowNode: Node<FlowNodeData> };
 
 export function GraphCanvas(props: {
@@ -125,7 +171,8 @@ export function GraphCanvas(props: {
   const propsRef = useRef(props);
   propsRef.current = props;
 
-  const selectedEdgeIdsRef = useRef<string[]>([]);
+  const lastSelectedNodeIdsRef = useRef(props.selectedNodeIds);
+  const selectedEdgeIdsRef = useRef(props.selectedEdgeIds);
   const reactFlowRef = useRef<ReactFlowInstance<Node<FlowNodeData>, Edge> | null>(null);
 
   // Stable node-object cache: reuse the same Node<FlowNodeData> reference when
@@ -163,6 +210,21 @@ export function GraphCanvas(props: {
     [props.graph.edges, props.selectedEdgeIds]
   );
 
+  const [nodes, setNodes, onNodesChange] = useNodesState(computedNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(computedEdges);
+
+  useEffect(() => {
+    setNodes((current) => (areCanvasNodesEqual(current, computedNodes) ? current : computedNodes));
+  }, [computedNodes, setNodes]);
+
+  useEffect(() => {
+    setEdges((current) => (areCanvasEdgesEqual(current, computedEdges) ? current : computedEdges));
+  }, [computedEdges, setEdges]);
+
+  useEffect(() => {
+    lastSelectedNodeIdsRef.current = props.selectedNodeIds;
+  }, [props.selectedNodeIds]);
+
   useEffect(() => {
     selectedEdgeIdsRef.current = props.selectedEdgeIds;
   }, [props.selectedEdgeIds]);
@@ -196,7 +258,9 @@ export function GraphCanvas(props: {
       event.preventDefault();
 
       if (selectedEdgeIdsRef.current.length > 0) {
-        onDeleteEdges(selectedEdgeIdsRef.current);
+        const edgeIds = [...selectedEdgeIdsRef.current];
+        selectedEdgeIdsRef.current = [];
+        onDeleteEdges(edgeIds);
         onEdgeSelectionChange([]);
         return;
       }
@@ -210,27 +274,53 @@ export function GraphCanvas(props: {
     };
   }, []); // stable: reads latest props via propsRef
 
-  // Stable callbacks via useCallback + propsRef pattern: React Flow's SelectionListener
-  // has a useEffect that depends on onSelectionChange. If this is an inline function
-  // (new reference every render), SelectionListener fires its effect on every GraphCanvas
-  // re-render with whatever stale internal-store selection exists at that moment. That
-  // stale data can overwrite the custom store's selection and trigger cascading re-renders
-  // that overflow React's nested-update counter.
-
   const handleSelectionChange = useCallback((selection: { nodes: Node<FlowNodeData>[]; edges: Edge[] }) => {
-    const { selectedNodeIds, onSelectionChange, onEdgeSelectionChange } = propsRef.current;
+    const { onSelectionChange, onEdgeSelectionChange } = propsRef.current;
     const nextNodeIds = (selection.nodes ?? []).map((node) => node.id);
-    if (!areStringArraysEqual(selectedNodeIds, nextNodeIds)) {
+    const nextEdgeIds = (selection.edges ?? []).map((edge) => edge.id);
+
+    if (!areStringArraysEqual(lastSelectedNodeIdsRef.current, nextNodeIds)) {
+      lastSelectedNodeIdsRef.current = nextNodeIds;
       onSelectionChange(nextNodeIds);
     }
-    if (nextNodeIds.length > 0 && selectedEdgeIdsRef.current.length > 0) {
-      onEdgeSelectionChange([]);
+
+    if (!areStringArraysEqual(selectedEdgeIdsRef.current, nextEdgeIds)) {
+      selectedEdgeIdsRef.current = nextEdgeIds;
+      onEdgeSelectionChange(nextEdgeIds);
     }
   }, []);
 
   const handleConnect = useCallback((connection: Connection) => {
+    if (!connection.source || !connection.target) {
+      return;
+    }
+
+    const optimisticEdgeId = `${connection.source}:${connection.target}`;
+
+    setEdges((current) => {
+      if (current.some((edge) => edge.source === connection.source && edge.target === connection.target)) {
+        return current;
+      }
+
+      return [
+        ...current,
+        {
+          id: optimisticEdgeId,
+          source: connection.source,
+          target: connection.target,
+          type: "smoothstep",
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: "#6ee7b7",
+            width: 18,
+            height: 18
+          }
+        }
+      ];
+    });
+
     propsRef.current.onConnect(connection);
-  }, []);
+  }, [setEdges]);
 
   const handleNodeDragStop = useCallback((_event: React.MouseEvent, node: Node<FlowNodeData>) => {
     propsRef.current.onNodeDragStop(node.id, node.position);
@@ -239,38 +329,31 @@ export function GraphCanvas(props: {
   const handlePaneClick = useCallback(() => {
     const { selectedNodeIds, onSelectionChange, onEdgeSelectionChange } = propsRef.current;
     if (selectedNodeIds.length > 0) {
+      lastSelectedNodeIdsRef.current = [];
       onSelectionChange([]);
     }
     if (selectedEdgeIdsRef.current.length > 0) {
+      selectedEdgeIdsRef.current = [];
       onEdgeSelectionChange([]);
-    }
-  }, []);
-
-  const handleEdgeClick: EdgeMouseHandler = useCallback((_event, edge) => {
-    const { selectedNodeIds, onSelectionChange, onEdgeSelectionChange } = propsRef.current;
-    if (selectedNodeIds.length > 0) {
-      onSelectionChange([]);
-    }
-    if (!areStringArraysEqual(selectedEdgeIdsRef.current, [edge.id])) {
-      onEdgeSelectionChange([edge.id]);
     }
   }, []);
 
   return (
     <div className="vfx-flow h-full w-full">
       <ReactFlow
-        nodes={computedNodes}
-        edges={computedEdges}
+        nodes={nodes}
+        edges={edges}
         colorMode="dark"
         deleteKeyCode={null}
         onInit={(instance) => {
           reactFlowRef.current = instance;
           instance.fitView({ padding: 0.16, duration: 0 });
         }}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
         onConnect={handleConnect}
         onNodeDragStop={handleNodeDragStop}
         onPaneClick={handlePaneClick}
-        onEdgeClick={handleEdgeClick}
         onSelectionChange={handleSelectionChange}
       >
         <Background gap={36} size={1} color="rgba(255,255,255,0.045)" />
