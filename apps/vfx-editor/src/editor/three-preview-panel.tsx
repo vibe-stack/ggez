@@ -16,7 +16,7 @@
  */
 
 import type { CompiledVfxEffect, EmitterDocument, VfxEffectDocument } from "@ggez/vfx-schema";
-import { Pause, Play, RotateCcw } from "lucide-react";
+import { Pause, Play, RotateCcw, Zap } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -217,6 +217,15 @@ export function ThreePreviewPanel(props: {
   const [soloSelected, setSoloSelected] = useState(false);
   const [particleCount, setParticleCount] = useState(0);
   const [burstVersion, setBurstVersion] = useState(0);
+  const [selectedEventId, setSelectedEventId] = useState<string>("");
+  const [payloadValues, setPayloadValues] = useState<Record<string, string>>({});
+
+  // Reset payload values when the selected event changes
+  const prevEventIdRef = useRef(selectedEventId);
+  if (prevEventIdRef.current !== selectedEventId) {
+    prevEventIdRef.current = selectedEventId;
+    // Will be handled below with useEffect-like logic via a key reset
+  }
 
   const activeEmitterIds = useMemo(() => resolveActiveEmitterIds(document), [document]);
 
@@ -255,6 +264,23 @@ export function ThreePreviewPanel(props: {
 
   // Unique key to force a particle burst reset on compile/emitter change
   const burstKey = `${burstVersion}-${compileResult?.id ?? "none"}-${selectedEmitterId ?? ""}`;
+
+  // Which emitter IDs should participate in the next manual burst.
+  // If an event is selected, only emitters with a SpawnBurst that listens to it.
+  // Otherwise ("all events" / no selection) every emitter fires.
+  const burstFilteredConfigs = useMemo(() => {
+    if (!selectedEventId) return emitterConfigs;
+    return emitterConfigs.filter((cfg) => {
+      const emitter = document.emitters.find((e) => e.id === cfg.emitterId);
+      if (!emitter) return false;
+      return emitter.spawnStage.modules.some(
+        (m) => m.kind === "SpawnBurst" && m.config.everyEvent === selectedEventId
+      );
+    });
+  }, [emitterConfigs, selectedEventId, document.emitters]);
+
+  const burstFilteredConfigsRef = useRef(burstFilteredConfigs);
+  burstFilteredConfigsRef.current = burstFilteredConfigs;
 
   const isPlayingRef = useRef(isPlaying);
   isPlayingRef.current = isPlaying;
@@ -394,7 +420,8 @@ export function ThreePreviewPanel(props: {
     let lastTime = performance.now();
 
     function triggerBurst() {
-      for (const cfg of emitterConfigsRef.current) {
+      const configs = burstFilteredConfigsRef.current;
+      for (const cfg of configs) {
         const budget = Math.min(cfg.maxParticleCount, 300);
         const existing = particles.filter((p) => p.emitterId === cfg.emitterId).length;
         const count = Math.min(cfg.burstCount, Math.max(1, budget - existing));
@@ -559,10 +586,14 @@ export function ThreePreviewPanel(props: {
   const totalCount = document.emitters.length;
   const allShown = !effectiveActiveIds || effectiveActiveIds.size === totalCount;
 
+  const events = document.events;
+  const selectedEvent = events.find((e) => e.id === selectedEventId) ?? null;
+  const payloadKeys = selectedEvent ? Object.keys(selectedEvent.payload) : [];
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Controls */}
-      <div className="flex items-center gap-2 border-b border-white/8 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-white/8 px-3 py-2">
         <button
           type="button"
           className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300/20 bg-emerald-400/8 px-2.5 py-1 text-[11px] text-emerald-100 transition hover:border-emerald-300/35"
@@ -571,14 +602,42 @@ export function ThreePreviewPanel(props: {
           {isPlaying ? <Pause className="size-3" /> : <Play className="size-3" />}
           <span>{isPlaying ? "Pause" : "Play"}</span>
         </button>
+
+        {/* Event fire section */}
+        <div className="flex items-center gap-1">
+          <select
+            className="h-6.5 rounded-lg border border-white/10 bg-black/30 px-1.5 text-[11px] text-zinc-300 outline-none transition hover:border-white/20 focus:border-white/20"
+            value={selectedEventId}
+            onChange={(e) => {
+              setSelectedEventId(e.target.value);
+              setPayloadValues({});
+            }}
+          >
+            <option value="">All events</option>
+            {events.map((ev) => (
+              <option key={ev.id} value={ev.id}>{ev.name}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            title={selectedEventId ? `Fire "${selectedEvent?.name ?? selectedEventId}"` : "Fire all burst emitters"}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1 text-[11px] text-zinc-300 transition hover:border-emerald-300/30 hover:text-emerald-200"
+            onClick={() => setBurstVersion((c) => c + 1)}
+          >
+            <Zap className="size-3" />
+            <span>Fire</span>
+          </button>
+        </div>
+
         <button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1 text-[11px] text-zinc-300 transition hover:border-white/20"
+          title="Reset simulation"
+          className="inline-flex items-center gap-1 rounded-lg border border-white/8 px-2 py-1 text-[11px] text-zinc-600 transition hover:border-white/16 hover:text-zinc-400"
           onClick={() => setBurstVersion((c) => c + 1)}
         >
           <RotateCcw className="size-3" />
-          <span>Burst</span>
         </button>
+
         <label className="ml-1 inline-flex cursor-pointer items-center gap-1.5 text-[11px] text-zinc-500">
           <input
             type="checkbox"
@@ -590,6 +649,26 @@ export function ThreePreviewPanel(props: {
         </label>
         <span className="ml-auto text-[11px] text-zinc-600">{particleCount}</span>
       </div>
+
+      {/* Payload fields for the selected event */}
+      {payloadKeys.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-white/6 bg-black/15 px-3 py-2">
+          <span className="shrink-0 text-[10px] text-zinc-600">Payload</span>
+          {payloadKeys.map((key) => (
+            <label key={key} className="flex items-center gap-1.5">
+              <span className="text-[10px] text-zinc-500">{key}</span>
+              <span className="text-[10px] text-zinc-700">{selectedEvent?.payload[key]}</span>
+              <input
+                type="text"
+                className="h-6 w-20 rounded-md border border-white/10 bg-white/5 px-1.5 text-[11px] text-zinc-200 outline-none focus:border-white/20"
+                placeholder="0"
+                value={payloadValues[key] ?? ""}
+                onChange={(e) => setPayloadValues((prev) => ({ ...prev, [key]: e.target.value }))}
+              />
+            </label>
+          ))}
+        </div>
+      )}
 
       {/* Graph status */}
       <div

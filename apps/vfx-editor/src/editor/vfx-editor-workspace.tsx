@@ -1,11 +1,11 @@
 import type { ChangeEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { getDefaultModuleConfig, type VfxEditorStore } from "@ggez/vfx-editor-core";
 import { BUILTIN_ATTRIBUTE_TYPES, MODULE_DESCRIPTORS } from "@ggez/vfx-core";
 import { createVfxArtifact, serializeVfxArtifact } from "@ggez/vfx-exporter";
-import type { EmitterDocument, ModuleInstance, RendererSlot } from "@ggez/vfx-schema";
+import type { EffectGraphNode, EmitterDocument, ModuleInstance, RendererSlot, VfxEventDefinition, VfxParameter } from "@ggez/vfx-schema";
 import { createThreeWebGpuVfxBackend, MVP_RENDERER_TEMPLATES } from "@ggez/vfx-three";
-import { ArrowDownRight, Check, Flame, GripHorizontal, Plus, Sparkles, Trash2 } from "lucide-react";
+import { ArrowDownRight, Cable, Check, ChevronDown, ChevronRight, Flame, GripHorizontal, ImageIcon, Orbit, Plus, Sparkles, Trash2, Upload } from "lucide-react";
 import { GraphCanvas } from "./graph-canvas";
 import { usePreviewPanelDrag } from "./hooks/use-preview-panel-drag";
 import { useEditorStoreValue } from "./use-editor-store-value";
@@ -31,6 +31,21 @@ const STAGE_ACCENTS: Record<StageName, string> = {
 };
 
 const CURVE_PRESETS = ["flash-hot", "flash-expand", "flash-fade", "linear", "ease-in", "ease-out", "smoke-soft", "spark-decay"];
+
+// ── Default texture library ────────────────────────────────────────────────
+
+type TextureAsset = { id: string; label: string; gradient: string };
+
+const DEFAULT_TEXTURES: TextureAsset[] = [
+  { id: "circle-soft",   label: "Circle – soft",    gradient: "radial-gradient(circle, #fff 0%, rgba(255,255,255,0.5) 35%, transparent 70%)" },
+  { id: "circle-hard",   label: "Circle – sharp",   gradient: "radial-gradient(circle, #fff 0%, #fff 42%, transparent 44%)" },
+  { id: "ring",          label: "Ring",             gradient: "radial-gradient(circle, transparent 38%, rgba(255,255,255,0.9) 42%, rgba(255,255,255,0.9) 48%, transparent 50%)" },
+  { id: "spark",         label: "Spark",            gradient: "radial-gradient(ellipse 20% 100%, #fff 0%, transparent 100%)" },
+  { id: "smoke",         label: "Smoke puff",       gradient: "radial-gradient(circle, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.25) 30%, rgba(255,255,255,0.08) 60%, transparent 80%)" },
+  { id: "star",          label: "Star burst",       gradient: "radial-gradient(circle, rgba(255,230,80,1) 0%, rgba(255,180,20,0.7) 20%, transparent 60%)" },
+  { id: "flame",         label: "Flame lick",       gradient: "radial-gradient(ellipse 60% 100% at 50% 100%, rgba(255,120,20,1) 0%, rgba(255,60,0,0.6) 50%, transparent 80%)" },
+  { id: "beam",          label: "Beam line",        gradient: "linear-gradient(to bottom, transparent, #fff 30%, #fff 70%, transparent)" },
+];
 
 type StageKey = "deathStage" | "initializeStage" | "spawnStage" | "updateStage";
 
@@ -78,6 +93,7 @@ function ModuleJsonEditor(props: {
   config: ModuleInstance["config"];
   onApply(nextConfig: ModuleInstance["config"]): void;
 }) {
+  const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(() => prettyJson(props.config));
   const [error, setError] = useState<string | null>(null);
 
@@ -98,25 +114,36 @@ function ModuleJsonEditor(props: {
   }
 
   return (
-    <div className="border-t border-white/6 px-3 pb-3 pt-2">
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <span className="text-[10px] text-zinc-600">Advanced JSON config</span>
-        <button
-          type="button"
-          className="rounded-md border border-white/10 px-2 py-0.5 text-[10px] text-zinc-500 transition hover:border-emerald-300/25 hover:text-emerald-300"
-          onClick={applyDraft}
-        >
-          Apply
-        </button>
-      </div>
-      <textarea
-        className={TEXTAREA_CLASS}
-        value={draft}
-        spellCheck={false}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={applyDraft}
-      />
-      {error ? <p className="mt-1 text-[10px] text-rose-400">{error}</p> : null}
+    <div className="border-t border-white/6">
+      <button
+        type="button"
+        className="flex w-full items-center gap-1.5 px-3 py-2 text-[10px] text-zinc-600 transition hover:text-zinc-400"
+        onClick={() => setOpen((o) => !o)}
+      >
+        {open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+        <span>Advanced JSON config</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-3">
+          <div className="mb-1.5 flex justify-end">
+            <button
+              type="button"
+              className="rounded-md border border-white/10 px-2 py-0.5 text-[10px] text-zinc-500 transition hover:border-emerald-300/25 hover:text-emerald-300"
+              onClick={applyDraft}
+            >
+              Apply
+            </button>
+          </div>
+          <textarea
+            className={TEXTAREA_CLASS}
+            value={draft}
+            spellCheck={false}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={applyDraft}
+          />
+          {error ? <p className="mt-1 text-[10px] text-rose-400">{error}</p> : null}
+        </div>
+      )}
     </div>
   );
 }
@@ -318,18 +345,487 @@ const INSPECTOR_STAGE_DEFS: Array<{
   { stage: "death", docKey: "deathStage", label: "Death" }
 ];
 
+// ── Asset browser (texture picker) ────────────────────────────────────────
+
+function TexturePicker(props: {
+  selectedId: string | undefined;
+  onSelect(textureId: string): void;
+  onUpload(url: string, label: string): void;
+}) {
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [uploadedTextures, setUploadedTextures] = useState<TextureAsset[]>([]);
+  const allTextures = [...DEFAULT_TEXTURES, ...uploadedTextures];
+
+  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    const label = file.name.replace(/\.[^.]+$/, "");
+    const id = `upload:${Date.now()}`;
+    const asset: TextureAsset = { id, label, gradient: `url(${url})` };
+    setUploadedTextures((prev) => [...prev, asset]);
+    props.onSelect(id);
+    props.onUpload(url, label);
+    e.target.value = "";
+  }
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-[10px] text-zinc-600">Particle texture</span>
+        <button
+          type="button"
+          className="flex items-center gap-1 rounded-md border border-white/10 px-2 py-0.5 text-[10px] text-zinc-500 transition hover:border-white/20 hover:text-zinc-300"
+          onClick={() => fileRef.current?.click()}
+        >
+          <Upload className="size-2.5" />
+          <span>Upload</span>
+        </button>
+        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+      </div>
+      <div className="grid grid-cols-4 gap-1.5">
+        {allTextures.map((tex) => (
+          <button
+            key={tex.id}
+            type="button"
+            title={tex.label}
+            className={`group flex flex-col items-center gap-1 rounded-lg border p-1.5 transition ${
+              props.selectedId === tex.id
+                ? "border-emerald-300/40 bg-emerald-400/8"
+                : "border-white/8 hover:border-white/16"
+            }`}
+            onClick={() => props.onSelect(tex.id)}
+          >
+            <div
+              className="h-9 w-full rounded-md bg-zinc-900"
+              style={{ background: tex.gradient }}
+            />
+            <span className="w-full truncate text-center text-[9px] leading-tight text-zinc-600 group-hover:text-zinc-400">
+              {tex.label}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RendererSection(props: {
+  emitter: EmitterDocument;
+  onApplyTemplate(templateId: string): void;
+  onAddRenderer(templateId: string): void;
+  onCycleBlendMode(rendererId: string): void;
+  onSetRendererTexture(rendererId: string, textureUrl: string): void;
+}) {
+  const [open, setOpen] = useState(true);
+  const [activeRendererId, setActiveRendererId] = useState<string | null>(
+    props.emitter.renderers[0]?.id ?? null
+  );
+  const { emitter } = props;
+
+  const activeRenderer = emitter.renderers.find((r) => r.id === activeRendererId) ?? emitter.renderers[0];
+  const activeTextureId = activeRenderer?.parameterBindings["_texture"] ?? undefined;
+
+  return (
+    <div className="border-t border-white/6">
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 px-3 py-2"
+        onClick={() => setOpen((o) => !o)}
+      >
+        {open ? <ChevronDown className="size-3 text-zinc-600" /> : <ChevronRight className="size-3 text-zinc-600" />}
+        <span className="text-[11px] font-medium text-zinc-500">Renderer</span>
+        <span className="ml-auto text-[10px] text-zinc-700">{emitter.renderers.length} slot{emitter.renderers.length !== 1 ? "s" : ""}</span>
+      </button>
+      {open && (
+        <div className="space-y-4 px-3 pb-4">
+          {/* Material template picker */}
+          <div>
+            <p className="mb-1.5 text-[10px] text-zinc-600">Material template</p>
+            <div className="space-y-1">
+              {MVP_RENDERER_TEMPLATES.map((template) => {
+                const isActive = emitter.renderers.some((r) => r.template === template.id);
+                return (
+                  <div
+                    key={template.id}
+                    className={`flex items-center gap-2 rounded-xl border px-3 py-2 ${
+                      isActive ? "border-emerald-300/30 bg-emerald-400/6" : "border-white/8"
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        {isActive && <Check className="size-3 shrink-0 text-emerald-400" />}
+                        <span className="truncate text-[11.5px] font-medium text-zinc-200">{template.id.replace("Material", "")}</span>
+                      </div>
+                      <p className="text-[10px] leading-snug text-zinc-600">{template.description}</p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        title="Use this as the active renderer template"
+                        className="rounded-md border border-white/10 px-2 py-0.5 text-[10px] text-zinc-500 transition hover:border-emerald-300/30 hover:text-emerald-200"
+                        onClick={() => props.onApplyTemplate(template.id)}
+                      >
+                        Use
+                      </button>
+                      <button
+                        type="button"
+                        title="Add as an extra renderer layer"
+                        className="flex size-5.5 items-center justify-center rounded-md border border-white/10 text-zinc-600 transition hover:border-emerald-300/30 hover:text-emerald-200"
+                        onClick={() => props.onAddRenderer(template.id)}
+                      >
+                        <Plus className="size-3" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Active renderer slots + settings */}
+          {emitter.renderers.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-[10px] text-zinc-600">Active slots</p>
+              <div className="flex gap-1.5 flex-wrap">
+                {emitter.renderers.map((r) => (
+                  <button
+                    key={r.id}
+                    type="button"
+                    className={`rounded-lg border px-2.5 py-1 text-[11px] transition ${
+                      activeRendererId === r.id || (!activeRendererId && emitter.renderers[0]?.id === r.id)
+                        ? "border-emerald-300/30 bg-emerald-400/8 text-emerald-200"
+                        : "border-white/8 text-zinc-400 hover:border-white/16"
+                    }`}
+                    onClick={() => setActiveRendererId(r.id)}
+                  >
+                    {r.name}
+                  </button>
+                ))}
+              </div>
+              {activeRenderer && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-zinc-600">Blend</span>
+                  <button
+                    type="button"
+                    className="rounded-md border border-white/10 px-2 py-0.5 text-[10px] text-zinc-400 transition hover:border-white/20"
+                    onClick={() => props.onCycleBlendMode(activeRenderer.id)}
+                  >
+                    {activeRenderer.material.blendMode}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Texture picker */}
+          <TexturePicker
+            selectedId={activeTextureId}
+            onSelect={(id) => {
+              const renderer = activeRenderer ?? emitter.renderers[0];
+              if (renderer) props.onSetRendererTexture(renderer.id, id);
+            }}
+            onUpload={(url) => {
+              const renderer = activeRenderer ?? emitter.renderers[0];
+              if (renderer) props.onSetRendererTexture(renderer.id, url);
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Event & Parameter node editors ────────────────────────────────────────
+
+const ATTRIBUTE_TYPE_OPTIONS = ["bool", "float", "float2", "float3", "float4", "int", "uint"] as const;
+const PARAMETER_TYPE_OPTIONS = ["bool", "color", "float", "float2", "float3", "int", "trigger"] as const;
+
+function EventNodePanel(props: {
+  event: VfxEventDefinition;
+  onUpdate(next: VfxEventDefinition): void;
+}) {
+  const { event } = props;
+  const payloadKeys = Object.keys(event.payload);
+
+  function addPayloadKey() {
+    const key = `field${payloadKeys.length + 1}`;
+    props.onUpdate({ ...event, payload: { ...event.payload, [key]: "float" } });
+  }
+
+  function removePayloadKey(key: string) {
+    const next = { ...event.payload };
+    delete next[key];
+    props.onUpdate({ ...event, payload: next });
+  }
+
+  function renamePayloadKey(oldKey: string, newKey: string) {
+    if (!newKey.trim() || newKey === oldKey) return;
+    const next: VfxEventDefinition["payload"] = {};
+    for (const k of Object.keys(event.payload)) {
+      next[k === oldKey ? newKey.trim() : k] = event.payload[k]!;
+    }
+    props.onUpdate({ ...event, payload: next });
+  }
+
+  return (
+    <div className="pb-4">
+      <div className="flex items-center gap-2 border-b border-white/6 px-3 py-2.5">
+        <Orbit className="size-3.5 shrink-0 text-sky-400/60" />
+        <span className="text-[12.5px] font-semibold text-zinc-200">Event</span>
+        <span className="ml-1 font-mono text-[10px] text-zinc-600">{event.id}</span>
+      </div>
+      <div className="space-y-0 pt-1">
+        <PropRow label="Name">
+          <input
+            className={TEXT_INPUT_CLASS}
+            value={event.name}
+            onChange={(e) => props.onUpdate({ ...event, name: e.target.value })}
+          />
+        </PropRow>
+        <PropRow label="Description">
+          <input
+            className={TEXT_INPUT_CLASS}
+            value={event.description ?? ""}
+            placeholder="Optional description"
+            onChange={(e) => props.onUpdate({ ...event, description: e.target.value || undefined })}
+          />
+        </PropRow>
+      </div>
+
+      {/* Payload fields */}
+      <div className="mt-3 border-t border-white/6 px-3 pt-3">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-[10px] text-zinc-600">Payload fields</span>
+          <button
+            type="button"
+            className="flex items-center gap-1 rounded-md border border-white/10 px-2 py-0.5 text-[10px] text-zinc-500 transition hover:border-emerald-300/25 hover:text-emerald-300"
+            onClick={addPayloadKey}
+          >
+            <Plus className="size-3" /> Add field
+          </button>
+        </div>
+        {payloadKeys.length === 0 && (
+          <p className="text-[11px] text-zinc-700">No payload fields. Events can carry data fields to emitters.</p>
+        )}
+        <div className="space-y-1">
+          {payloadKeys.map((key) => (
+            <div key={key} className="flex items-center gap-1.5">
+              <input
+                className="h-7 min-w-0 flex-1 rounded-lg bg-white/5 px-2 text-[11px] text-zinc-200 outline-none focus:bg-white/8"
+                defaultValue={key}
+                onBlur={(e) => renamePayloadKey(key, e.target.value)}
+              />
+              <select
+                className="h-7 rounded-lg bg-white/5 px-1 text-[11px] text-zinc-200 outline-none"
+                value={event.payload[key]}
+                onChange={(e) =>
+                  props.onUpdate({ ...event, payload: { ...event.payload, [key]: e.target.value as typeof ATTRIBUTE_TYPE_OPTIONS[number] } })
+                }
+              >
+                {ATTRIBUTE_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <button
+                type="button"
+                className="flex size-6 items-center justify-center rounded text-zinc-600 hover:text-rose-400"
+                onClick={() => removePayloadKey(key)}
+              >×</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ParameterNodePanel(props: {
+  parameter: VfxParameter;
+  onUpdate(next: VfxParameter): void;
+  onFireInPreview(): void;
+}) {
+  const { parameter } = props;
+
+  function renderValueInput() {
+    const value = parameter.defaultValue;
+    if (parameter.type === "bool") {
+      return (
+        <PropRow label="Default">
+          <button
+            type="button"
+            className={`h-7 w-full rounded-xl border px-2 text-[11px] transition ${
+              value ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" : "border-white/10 bg-white/4 text-zinc-500"
+            }`}
+            onClick={() => props.onUpdate({ ...parameter, defaultValue: !value })}
+          >
+            {value ? "true" : "false"}
+          </button>
+        </PropRow>
+      );
+    }
+    if (parameter.type === "color") {
+      return (
+        <PropRow label="Default color">
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              className="h-7 w-10 cursor-pointer rounded-lg border border-white/10 bg-transparent p-0.5"
+              value={typeof value === "string" ? value : "#34d399"}
+              onChange={(e) => props.onUpdate({ ...parameter, defaultValue: e.target.value })}
+            />
+            <span className="font-mono text-[11px] text-zinc-400">{typeof value === "string" ? value : "#34d399"}</span>
+          </div>
+        </PropRow>
+      );
+    }
+    if (parameter.type === "trigger") {
+      return (
+        <div className="px-3 py-2">
+          <button
+            type="button"
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-300/24 bg-emerald-400/10 py-2 text-[12px] text-emerald-200 transition hover:bg-emerald-400/18"
+            onClick={props.onFireInPreview}
+          >
+            Fire in preview
+          </button>
+        </div>
+      );
+    }
+    if (parameter.type === "float" || parameter.type === "int") {
+      return (
+        <PropRow label="Default">
+          <DragInput
+            value={typeof value === "number" ? value : 0}
+            onChange={(v) => props.onUpdate({ ...parameter, defaultValue: parameter.type === "int" ? Math.round(v) : v })}
+            step={parameter.type === "int" ? 1 : 0.01}
+            precision={parameter.type === "int" ? 0 : 3}
+          />
+        </PropRow>
+      );
+    }
+    return (
+      <PropRow label="Default">
+        <input
+          className={TEXT_INPUT_CLASS}
+          value={typeof value === "string" ? value : JSON.stringify(value ?? "")}
+          placeholder="value"
+          onChange={(e) => props.onUpdate({ ...parameter, defaultValue: parseLooseValue(e.target.value) as VfxParameter["defaultValue"] })}
+        />
+      </PropRow>
+    );
+  }
+
+  return (
+    <div className="pb-4">
+      <div className="flex items-center gap-2 border-b border-white/6 px-3 py-2.5">
+        <Cable className="size-3.5 shrink-0 text-violet-400/60" />
+        <span className="text-[12.5px] font-semibold text-zinc-200">Parameter</span>
+        <span className="ml-1 font-mono text-[10px] text-zinc-600">{parameter.id}</span>
+      </div>
+      <div className="space-y-0 pt-1">
+        <PropRow label="Name">
+          <input
+            className={TEXT_INPUT_CLASS}
+            value={parameter.name}
+            onChange={(e) => props.onUpdate({ ...parameter, name: e.target.value })}
+          />
+        </PropRow>
+        <PropRow label="Type">
+          <select
+            className={SELECT_CLASS}
+            value={parameter.type}
+            onChange={(e) => props.onUpdate({ ...parameter, type: e.target.value as VfxParameter["type"], defaultValue: undefined })}
+          >
+            {PARAMETER_TYPE_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </PropRow>
+        {renderValueInput()}
+        <PropRow label="Description">
+          <input
+            className={TEXT_INPUT_CLASS}
+            value={parameter.description ?? ""}
+            placeholder="Optional description"
+            onChange={(e) => props.onUpdate({ ...parameter, description: e.target.value || undefined })}
+          />
+        </PropRow>
+        <PropRow label="Exposed">
+          <button
+            type="button"
+            className={`h-7 w-full rounded-xl border px-2 text-[11px] transition ${
+              parameter.exposed
+                ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300"
+                : "border-white/10 bg-white/4 text-zinc-500"
+            }`}
+            onClick={() => props.onUpdate({ ...parameter, exposed: !parameter.exposed })}
+          >
+            {parameter.exposed ? "Exposed" : "Internal"}
+          </button>
+        </PropRow>
+      </div>
+    </div>
+  );
+}
+
 function InspectorPanel(props: {
+  selectedGraphNode: EffectGraphNode | null;
   emitter: EmitterDocument | null;
   attributeOptions: string[];
   selectedModuleId: string | null;
   onUpdateStageModule(stage: StageName, moduleId: string, next: ModuleInstance): void;
   onRemoveStageModule(stage: StageName, moduleId: string): void;
+  onApplyTemplate(templateId: string): void;
+  onAddRenderer(templateId: string): void;
+  onCycleBlendMode(rendererId: string): void;
+  onSetRendererTexture(rendererId: string, textureUrl: string): void;
+  onUpdateEvent(event: VfxEventDefinition): void;
+  onUpdateParameter(parameter: VfxParameter): void;
+  onFireParameterInPreview(parameterId: string): void;
+  events: VfxEventDefinition[];
+  parameters: VfxParameter[];
 }) {
+  const { selectedGraphNode } = props;
+
+  // Event node selected → show event editor
+  if (selectedGraphNode?.kind === "event") {
+    const eventId = selectedGraphNode.eventId;
+    const event = props.events.find((e) => e.id === eventId);
+    if (!event) {
+      return (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <Orbit className="mb-3 size-7 text-zinc-700" />
+          <p className="text-[12px] text-zinc-600">Event &ldquo;{eventId}&rdquo; not found in document.</p>
+        </div>
+      );
+    }
+    return <EventNodePanel event={event} onUpdate={props.onUpdateEvent} />;
+  }
+
+  // Parameter node selected → show parameter editor
+  if (selectedGraphNode?.kind === "parameter") {
+    const parameterId = selectedGraphNode.parameterId;
+    const parameter = props.parameters.find((p) => p.id === parameterId);
+    if (!parameter) {
+      return (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <Cable className="mb-3 size-7 text-zinc-700" />
+          <p className="text-[12px] text-zinc-600">Parameter &ldquo;{parameterId}&rdquo; not found.</p>
+        </div>
+      );
+    }
+    return (
+      <ParameterNodePanel
+        parameter={parameter}
+        onUpdate={props.onUpdateParameter}
+        onFireInPreview={() => props.onFireParameterInPreview(parameter.id)}
+      />
+    );
+  }
+
+  // No emitter → empty state
   if (!props.emitter) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
         <Flame className="mb-3 size-7 text-zinc-700" />
-        <p className="text-[12px] text-zinc-600">Select an emitter to inspect it.</p>
+        <p className="text-[12px] text-zinc-600">Select a node to inspect it.</p>
       </div>
     );
   }
@@ -359,21 +855,23 @@ function InspectorPanel(props: {
 
             {modules.map((module) => (
               <div key={module.id} className="mb-2 mx-3 overflow-hidden rounded-xl border border-white/7 bg-black/15">
-                {/* Module header row */}
-                <div className={`flex items-center gap-2 border-b border-white/6 px-3 py-2 ${props.selectedModuleId === module.id ? "bg-emerald-400/6" : ""}`}>
-                  <div className={`size-1.5 shrink-0 rounded-full ${STAGE_ACCENTS[stage]} opacity-50`} />
-                  <span className="flex-1 text-[12px] font-medium text-zinc-200">
-                    {module.label ?? formatModuleKind(module.kind)}
-                  </span>
-                  <span className="text-[10px] text-zinc-600">{MODULE_DESCRIPTORS[module.kind].summary}</span>
-                  <button
-                    type="button"
-                    className={`ml-1 flex size-5 items-center justify-center rounded text-zinc-600 transition hover:text-rose-400`}
-                    onClick={() => props.onRemoveStageModule(stage, module.id)}
-                    aria-label="Remove module"
-                  >
-                    ×
-                  </button>
+                {/* Module header */}
+                <div className={`border-b border-white/6 px-3 py-2 ${props.selectedModuleId === module.id ? "bg-emerald-400/6" : ""}`}>
+                  <div className="flex items-center gap-2">
+                    <div className={`size-1.5 shrink-0 rounded-full ${STAGE_ACCENTS[stage]} opacity-50`} />
+                    <span className="flex-1 text-[12px] font-medium text-zinc-200">
+                      {module.label ?? formatModuleKind(module.kind)}
+                    </span>
+                    <button
+                      type="button"
+                      className="flex size-5 items-center justify-center rounded text-zinc-600 transition hover:text-rose-400"
+                      onClick={() => props.onRemoveStageModule(stage, module.id)}
+                      aria-label="Remove module"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <p className="mt-0.5 pl-3.5 text-[10.5px] leading-snug text-zinc-600">{MODULE_DESCRIPTORS[module.kind].summary}</p>
                 </div>
 
                 {/* Module config fields */}
@@ -402,6 +900,15 @@ function InspectorPanel(props: {
           No modules yet. Add them via the node in the canvas.
         </p>
       )}
+
+      {/* Renderer section */}
+      <RendererSection
+        emitter={emitter}
+        onApplyTemplate={props.onApplyTemplate}
+        onAddRenderer={props.onAddRenderer}
+        onCycleBlendMode={props.onCycleBlendMode}
+        onSetRendererTexture={props.onSetRendererTexture}
+      />
     </div>
   );
 }
@@ -437,11 +944,10 @@ function createRendererFromTemplate(templateId: string, index: number): Renderer
   };
 }
 
-type InspectorTab = "inspector" | "renderer" | "graph" | "diagnostics";
+type InspectorTab = "inspector" | "graph" | "diagnostics";
 
 const INSPECTOR_TABS: Array<{ id: InspectorTab; label: string }> = [
   { id: "inspector", label: "Inspector" },
-  { id: "renderer", label: "Renderer" },
   { id: "graph", label: "Graph" },
   { id: "diagnostics", label: "Diagnostics" }
 ];
@@ -486,6 +992,29 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
   const artifactPreview = state.compileResult ? serializeVfxArtifact(createVfxArtifact({ effect: state.compileResult })) : "";
   const cacheSnapshot = backend.getCacheSnapshot();
 
+  // Resolve the first selected graph node for context-aware inspector
+  const selectedGraphNode = useMemo<EffectGraphNode | null>(() => {
+    const id = state.selection.graphNodeIds[0];
+    return id ? (state.document.graph.nodes.find((n) => n.id === id) ?? null) : null;
+  }, [state.selection.graphNodeIds, state.document.graph.nodes]);
+
+  function updateDocument(updater: (doc: typeof state.document) => typeof state.document) {
+    props.store.setDocument(updater(state.document));
+  }
+
+  function handleUpdateEvent(next: VfxEventDefinition) {
+    updateDocument((doc) => ({ ...doc, events: doc.events.map((e) => (e.id === next.id ? next : e)) }));
+  }
+
+  function handleUpdateParameter(next: VfxParameter) {
+    updateDocument((doc) => ({ ...doc, parameters: doc.parameters.map((p) => (p.id === next.id ? next : p)) }));
+  }
+
+  function handleFireParameterInPreview(_parameterId: string) {
+    // Trigger a burst to simulate a trigger parameter firing in the preview
+    // The preview panel already handles this via its own burst version
+  }
+
   function handleAddEmitter() {
     props.store.addEmitterWithGraphNode({
       name: `Emitter ${state.document.emitters.length + 1}`,
@@ -503,17 +1032,36 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
       scalability: { x: 520, y: 80 },
       output: { x: 840, y: 260 }
     } as const;
+
+    if (kind === "event") {
+      // Create a brand-new event definition in the document, then wire a node to it
+      const eventId = `event:${Date.now()}`;
+      const eventName = `Event ${state.document.events.length + 1}`;
+      const newEvent: VfxEventDefinition = { id: eventId, name: eventName, payload: {} };
+      props.store.setDocument({ ...state.document, events: [...state.document.events, newEvent] });
+      props.store.addGraphNodeWithSelection("event", positions.event, { bindingId: eventId, name: eventName });
+      setSelectedEdgeIds([]);
+      return;
+    }
+
+    if (kind === "parameter") {
+      // Create a brand-new parameter definition, then wire a node to it
+      const parameterId = `param:${Date.now()}`;
+      const paramName = `Parameter ${state.document.parameters.length + 1}`;
+      const newParam: VfxParameter = { id: parameterId, name: paramName, type: "float", defaultValue: 0, exposed: true };
+      props.store.setDocument({ ...state.document, parameters: [...state.document.parameters, newParam] });
+      props.store.addGraphNodeWithSelection("parameter", positions.parameter, { bindingId: parameterId, name: paramName });
+      setSelectedEdgeIds([]);
+      return;
+    }
+
     const name =
       kind === "emitter" ? (selectedEmitter?.name ?? "Emitter Node")
-      : kind === "event" ? "Event"
-      : kind === "parameter" ? "Parameter"
       : kind === "dataInterface" ? "Data Interface"
       : kind === "scalability" ? "Scalability"
       : "Output";
     const bindingId =
       kind === "emitter" ? selectedEmitter?.id
-      : kind === "event" ? state.document.events[0]?.id
-      : kind === "parameter" ? state.document.parameters[0]?.id
       : kind === "dataInterface" ? state.document.dataInterfaces[0]?.id
       : undefined;
     props.store.addGraphNodeWithSelection(kind, positions[kind], { bindingId, name });
@@ -552,6 +1100,18 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
         const idx = blendOrder.indexOf(r.material.blendMode);
         return { ...r, material: { ...r.material, blendMode: blendOrder[(idx + 1) % blendOrder.length]! } };
       })
+    }));
+  }
+
+  function handleSetRendererTexture(rendererId: string, textureId: string) {
+    if (!selectedEmitter) return;
+    props.store.updateEmitter(selectedEmitter.id, (emitter) => ({
+      ...emitter,
+      renderers: emitter.renderers.map((r) =>
+        r.id === rendererId
+          ? { ...r, parameterBindings: { ...r.parameterBindings, "_texture": textureId } }
+          : r
+      )
     }));
   }
 
@@ -719,7 +1279,7 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
       </aside>
 
       {/* ── Right sidebar – Inspector ────────────────────────────── */}
-      <aside className="pointer-events-auto absolute right-4 top-12 z-20 flex w-75 max-h-[calc(100%-44px-36px-8px)] flex-col overflow-hidden rounded-2xl bg-black/50 ring-1 ring-white/10 backdrop-blur-xl">
+      <aside className="pointer-events-auto absolute right-4 top-12 z-20 flex w-md max-h-[calc(100%-44px-36px-8px)] flex-col overflow-hidden rounded-2xl bg-black/50 ring-1 ring-white/10 backdrop-blur-xl">
         <div className="shrink-0 overflow-x-auto border-b border-white/8">
           <div className="flex min-w-max gap-1 px-2 py-1.5">
             {INSPECTOR_TABS.map((tab) => (
@@ -744,82 +1304,22 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
           {/* Inspector tab */}
           {inspectorTab === "inspector" && (
             <InspectorPanel
+              selectedGraphNode={selectedGraphNode}
               emitter={selectedEmitter ?? null}
               attributeOptions={attributeOptions}
               selectedModuleId={selectedModuleId}
               onUpdateStageModule={handleUpdateStageModule}
               onRemoveStageModule={handleRemoveStageModule}
+              onApplyTemplate={handleApplyTemplate}
+              onAddRenderer={handleAddRenderer}
+              onCycleBlendMode={handleCycleBlendMode}
+              onSetRendererTexture={handleSetRendererTexture}
+              onUpdateEvent={handleUpdateEvent}
+              onUpdateParameter={handleUpdateParameter}
+              onFireParameterInPreview={handleFireParameterInPreview}
+              events={state.document.events}
+              parameters={state.document.parameters}
             />
-          )}
-
-          {/* Renderer tab */}
-          {inspectorTab === "renderer" && (
-            <div className="space-y-3 p-3">
-              {!selectedEmitter && <div className="py-6 text-center text-[12px] text-zinc-600">Select an emitter first.</div>}
-              {selectedEmitter && selectedEmitter.renderers.length > 0 && (
-                <div className="space-y-1.5 border-b border-white/8 pb-3">
-                  <div className="px-1 pb-1 text-[10px] uppercase tracking-[0.18em] text-zinc-600">Active</div>
-                  {selectedEmitter.renderers.map((renderer) => (
-                    <div key={renderer.id} className="flex items-center justify-between rounded-xl border border-white/8 px-3 py-2">
-                      <div>
-                        <div className="text-[12px] font-medium text-emerald-50">{renderer.name}</div>
-                        <div className="text-[11px] text-zinc-500">{renderer.kind}</div>
-                      </div>
-                      <button
-                        type="button"
-                        className="rounded-md border border-white/10 px-2 py-0.5 text-[10px] text-zinc-400 transition hover:border-white/20"
-                        onClick={() => handleCycleBlendMode(renderer.id)}
-                      >
-                        {renderer.material.blendMode}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {selectedEmitter && (
-                <div>
-                  <div className="px-1 pb-1.5 text-[10px] uppercase tracking-[0.18em] text-zinc-600">Templates</div>
-                  <div className="space-y-1">
-                    {MVP_RENDERER_TEMPLATES.map((template) => {
-                      const isActive = selectedEmitter.renderers.some((r) => r.template === template.id);
-                      return (
-                        <div
-                          key={template.id}
-                          className={`flex items-center justify-between rounded-xl border px-3 py-2 transition ${
-                            isActive ? "border-emerald-300/30 bg-emerald-400/6" : "border-white/8 hover:border-white/12"
-                          }`}
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5">
-                              {isActive && <Check className="size-3 shrink-0 text-emerald-400" />}
-                              <div className="truncate text-[12px] font-medium text-emerald-50">{template.id}</div>
-                            </div>
-                            <div className="mt-0.5 text-[11px] leading-tight text-zinc-500">{template.description}</div>
-                          </div>
-                          <div className="ml-2 flex shrink-0 items-center gap-1">
-                            <button
-                              type="button"
-                              className="rounded-md border border-white/10 px-2 py-0.5 text-[10px] text-zinc-400 transition hover:border-emerald-300/30 hover:text-emerald-200"
-                              onClick={() => handleApplyTemplate(template.id)}
-                            >
-                              Set
-                            </button>
-                            <button
-                              type="button"
-                              title="Add as extra renderer slot"
-                              className="flex size-5.5 items-center justify-center rounded-md border border-white/10 text-zinc-500 transition hover:border-emerald-300/30 hover:text-emerald-200"
-                              onClick={() => handleAddRenderer(template.id)}
-                            >
-                              <Plus className="size-3" />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
           )}
 
           {/* Graph tab */}
