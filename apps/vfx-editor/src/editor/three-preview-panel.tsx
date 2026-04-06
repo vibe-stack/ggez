@@ -64,19 +64,31 @@ function resolveActiveEmitterIds(document: VfxEffectDocument): Set<string> | nul
 
 type EmitterPreviewConfig = {
   emitterId: string;
-  burstCount: number;
+  startupBurstCount: number;
+  eventBursts: Array<{ eventId: string; count: number }>;
+  deathEventIds: string[];
   rate: number;
   spreadRadians: number;
+  spawnRadius: number;
   speedMin: number;
   speedMax: number;
   drag: number;
   gravity: number;
+  upwardDrift: number;
+  orbitRadius: number;
+  orbitAngularSpeed: number;
+  curlStrength: number;
   lifetime: number;
   sizeStart: number;
   sizeEnd: number;
+  sizeCurve?: string;
+  alphaCurve?: string;
+  colorCurve?: string;
   color: THREE.Color;
   additive: boolean;
   maxParticleCount: number;
+  isSmoke: boolean;
+  texturePreset: string;
 };
 
 function readNumber(value: unknown, fallback: number): number {
@@ -84,7 +96,19 @@ function readNumber(value: unknown, fallback: number): number {
 }
 
 function readHexColor(document: VfxEffectDocument, emitter: EmitterDocument): THREE.Color {
-  const boundColor = emitter.renderers.flatMap((r) => Object.values(r.parameterBindings))[0];
+  const candidateIds = emitter.renderers.flatMap((renderer) => {
+    const ids: string[] = [];
+    if (typeof renderer.parameterBindings.tint === "string") {
+      ids.push(renderer.parameterBindings.tint);
+    }
+    Object.values(renderer.parameterBindings).forEach((value) => {
+      if (typeof value === "string" && value.startsWith("param:")) {
+        ids.push(value);
+      }
+    });
+    return ids;
+  });
+  const boundColor = candidateIds.find((id) => document.parameters.some((parameter) => parameter.id === id && parameter.type === "color"));
   const parameter = boundColor
     ? document.parameters.find((p) => p.id === boundColor && p.type === "color")
     : document.parameters.find((p) => p.type === "color");
@@ -93,6 +117,29 @@ function readHexColor(document: VfxEffectDocument, emitter: EmitterDocument): TH
     return new THREE.Color(hex);
   } catch {
     return new THREE.Color("#34d399");
+  }
+}
+
+function readTexturePreset(emitter: EmitterDocument) {
+  const renderer = emitter.renderers.find((entry) => entry.enabled);
+  const boundTexture = typeof renderer?.parameterBindings._texture === "string" ? renderer.parameterBindings._texture : undefined;
+  if (boundTexture && !boundTexture.startsWith("param:")) {
+    return boundTexture;
+  }
+
+  switch (renderer?.template) {
+    case "SpriteSmokeMaterial":
+      return "smoke";
+    case "BeamMaterial":
+      return "beam";
+    case "RibbonTrailMaterial":
+      return "beam";
+    case "DistortionMaterial":
+      return "ring";
+    case "SpriteAdditiveMaterial":
+      return "spark";
+    default:
+      return "circle-soft";
   }
 }
 
@@ -108,37 +155,63 @@ function buildEmitterConfigs(
 
   return emitters.slice(0, 6).map((emitter) => {
     const compiledEmitter = compiledEffect?.emitters.find((e) => e.id === emitter.id);
-    const burstCount = emitter.spawnStage.modules
-      .filter((m) => m.kind === "SpawnBurst")
-      .reduce((sum, m) => sum + readNumber(m.config.count, 18), 0);
+    const burstModules = emitter.spawnStage.modules.filter((m) => m.kind === "SpawnBurst");
+    const startupBurstCount = burstModules
+      .filter((module) => typeof module.config.everyEvent !== "string" || module.config.everyEvent.length === 0)
+      .reduce((sum, module) => sum + readNumber(module.config.count, 18), 0);
+    const eventBursts = burstModules
+      .filter((module) => typeof module.config.everyEvent === "string" && module.config.everyEvent.length > 0)
+      .map((module) => ({ eventId: String(module.config.everyEvent), count: Math.max(1, Math.round(readNumber(module.config.count, 6))) }));
     const rate = emitter.spawnStage.modules
       .filter((m) => m.kind === "SpawnRate")
       .reduce((sum, m) => sum + readNumber(m.config.rate, 0), 0);
-    const spreadDeg = emitter.spawnStage.modules.find((m) => m.kind === "SpawnCone")?.config.angleDegrees;
+    const spawnCone = emitter.spawnStage.modules.find((m) => m.kind === "SpawnCone");
+    const spreadDeg = spawnCone?.config.angleDegrees;
     const velocityCone = emitter.initializeStage.modules.find((m) => m.kind === "VelocityCone");
     const drag = emitter.updateStage.modules.find((m) => m.kind === "Drag");
     const gravity = emitter.updateStage.modules.find((m) => m.kind === "GravityForce");
+    const orbit = emitter.updateStage.modules.find((m) => m.kind === "OrbitTarget");
+    const curl = emitter.updateStage.modules.find((m) => m.kind === "CurlNoiseForce");
+    const sizeOverLife = emitter.updateStage.modules.find((m) => m.kind === "SizeOverLife");
+    const alphaOverLife = emitter.updateStage.modules.find((m) => m.kind === "AlphaOverLife");
+    const colorOverLife = emitter.updateStage.modules.find((m) => m.kind === "ColorOverLife");
     const lifetimeModule = emitter.initializeStage.modules.find(
       (m) => m.kind === "SetAttribute" && m.config.attribute === "lifetime"
     );
+    const deathEventIds = emitter.deathStage.modules
+      .filter((module) => module.kind === "SendEvent")
+      .map((module) => module.config.eventId)
+      .filter((value): value is string => typeof value === "string" && value.length > 0);
     const firstRenderer = emitter.renderers.find((r) => r.enabled);
     const isSmoke = firstRenderer?.template === "SpriteSmokeMaterial";
 
     return {
       emitterId: emitter.id,
-      burstCount: Math.max(0, Math.round(burstCount)),
+      startupBurstCount: Math.max(0, Math.round(startupBurstCount)),
+      eventBursts,
+      deathEventIds,
       rate: Math.max(0, rate),
       spreadRadians: (readNumber(spreadDeg, 16) * Math.PI) / 180,
+      spawnRadius: readNumber(spawnCone?.config.radius, isSmoke ? 0.08 : 0.22) * 6,
       speedMin: readNumber(velocityCone?.config.speedMin, 60) * 0.04,
       speedMax: readNumber(velocityCone?.config.speedMax, 180) * 0.04,
       drag: readNumber(drag?.config.coefficient, 2.8),
       gravity: readNumber(gravity?.config.accelerationY, 120) * 0.04,
+      upwardDrift: isSmoke ? 0.7 : 0.12,
+      orbitRadius: readNumber(orbit?.config.radius, 0) * 1.4,
+      orbitAngularSpeed: readNumber(orbit?.config.angularSpeed, 0),
+      curlStrength: readNumber(curl?.config.strength, 0),
       lifetime: readNumber(lifetimeModule?.config.value, 0.42),
       sizeStart: isSmoke ? 0.55 : 0.4,
       sizeEnd: isSmoke ? 1.1 : 0.05,
+      sizeCurve: typeof sizeOverLife?.config.curve === "string" ? sizeOverLife.config.curve : undefined,
+      alphaCurve: typeof alphaOverLife?.config.curve === "string" ? alphaOverLife.config.curve : undefined,
+      colorCurve: typeof colorOverLife?.config.curve === "string" ? colorOverLife.config.curve : undefined,
       color: readHexColor(document, emitter),
       additive: firstRenderer?.material.blendMode !== "alpha",
       maxParticleCount: Math.min(compiledEmitter?.capacity ?? emitter.maxParticleCount, 800)
+      ,isSmoke,
+      texturePreset: readTexturePreset(emitter)
     };
   });
 }
@@ -147,6 +220,9 @@ function buildEmitterConfigs(
 
 type Particle = {
   emitterId: string;
+  centerX: number;
+  centerY: number;
+  centerZ: number;
   x: number;
   y: number;
   z: number;
@@ -158,50 +234,182 @@ type Particle = {
   sizeStart: number;
   sizeEnd: number;
   rotation: number;
+  seed: number;
 };
 
-function spawnParticle(cfg: EmitterPreviewConfig): Particle {
-  const angle = -Math.PI * 0.5 + (Math.random() * 2 - 1) * cfg.spreadRadians;
+function spawnParticle(cfg: EmitterPreviewConfig, origin: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 }): Particle {
+  const angle = Math.PI * 0.5 + (Math.random() * 2 - 1) * cfg.spreadRadians;
   const azimuth = Math.random() * Math.PI * 2;
   const speed = cfg.speedMin + Math.random() * Math.max(0, cfg.speedMax - cfg.speedMin);
   const cosA = Math.cos(angle);
   const sinA = Math.sin(angle);
+  const ringRadius = Math.max(cfg.orbitRadius, cfg.spawnRadius, 0);
+  const ringTheta = Math.random() * Math.PI * 2;
+  const ringJitter = ringRadius > 0 ? ringRadius * (0.78 + Math.random() * 0.44) : 0;
+  const radialX = Math.cos(ringTheta);
+  const radialZ = Math.sin(ringTheta);
+  const tangentX = -radialZ;
+  const tangentZ = radialX;
+  const tangentialSpeed = ringRadius > 0 ? Math.max(speed * 0.4, cfg.orbitAngularSpeed * Math.max(ringJitter, 0.12)) : 0;
+  const radialSpeed = ringRadius > 0 ? (Math.random() * 2 - 1) * speed * 0.16 : 0;
 
   return {
     emitterId: cfg.emitterId,
-    x: (Math.random() - 0.5) * 0.12,
-    y: (Math.random() - 0.5) * 0.12,
-    z: (Math.random() - 0.5) * 0.12,
-    vx: cosA * Math.cos(azimuth) * speed,
-    vy: sinA * speed,
-    vz: cosA * Math.sin(azimuth) * speed,
+    centerX: origin.x,
+    centerY: origin.y,
+    centerZ: origin.z,
+    x: origin.x + (ringRadius > 0 ? radialX * ringJitter : (Math.random() - 0.5) * 0.12),
+    y: origin.y + (Math.random() - 0.5) * (cfg.isSmoke ? 0.08 : 0.12),
+    z: origin.z + (ringRadius > 0 ? radialZ * ringJitter : (Math.random() - 0.5) * 0.12),
+    vx:
+      cosA * Math.cos(azimuth) * speed * (ringRadius > 0 ? 0.18 : 1) + tangentX * tangentialSpeed + radialX * radialSpeed,
+    vy: sinA * speed * (ringRadius > 0 ? 0.14 : 1) + cfg.upwardDrift * 0.12,
+    vz:
+      cosA * Math.sin(azimuth) * speed * (ringRadius > 0 ? 0.18 : 1) + tangentZ * tangentialSpeed + radialZ * radialSpeed,
     age: 0,
     lifetime: cfg.lifetime * (0.8 + Math.random() * 0.5),
     sizeStart: cfg.sizeStart * (0.75 + Math.random() * 0.5),
     sizeEnd: cfg.sizeEnd,
     rotation: Math.random() * Math.PI * 2
+    ,seed: Math.random() * 1000
   };
 }
 
 // ─── Sprite texture ────────────────────────────────────────────────────────────
 
-function makeSpriteTexture(): THREE.Texture {
-  const size = 64;
+function makeSpriteTexture(preset: string): THREE.Texture {
+  const size = 128;
   const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d")!;
 
-  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  gradient.addColorStop(0, "rgba(255,255,255,1)");
-  gradient.addColorStop(0.35, "rgba(255,255,255,0.6)");
-  gradient.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, size, size);
+  const center = size / 2;
+  ctx.clearRect(0, 0, size, size);
+
+  if (preset === "spark" || preset === "star") {
+    const gradient = ctx.createRadialGradient(center, center, 0, center, center, center * 0.9);
+    gradient.addColorStop(0, "rgba(255,255,255,1)");
+    gradient.addColorStop(0.18, "rgba(255,255,255,0.95)");
+    gradient.addColorStop(0.42, "rgba(255,255,255,0.4)");
+    gradient.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(center, center, center * 0.82, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(255,255,255,0.85)";
+    ctx.lineWidth = 10;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(center * 0.28, center);
+    ctx.lineTo(center * 1.72, center);
+    ctx.moveTo(center, center * 0.28);
+    ctx.lineTo(center, center * 1.72);
+    ctx.stroke();
+  } else if (preset === "smoke") {
+    for (const blob of [
+      [0.42, 0.42, 0.26],
+      [0.6, 0.44, 0.24],
+      [0.48, 0.62, 0.28],
+      [0.34, 0.56, 0.2]
+    ]) {
+      const [x, y, radius] = blob;
+      const gradient = ctx.createRadialGradient(size * x, size * y, 0, size * x, size * y, size * radius);
+      gradient.addColorStop(0, "rgba(255,255,255,0.42)");
+      gradient.addColorStop(0.55, "rgba(255,255,255,0.18)");
+      gradient.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(size * x, size * y, size * radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else if (preset === "ring") {
+    const gradient = ctx.createRadialGradient(center, center, center * 0.28, center, center, center * 0.7);
+    gradient.addColorStop(0, "rgba(255,255,255,0)");
+    gradient.addColorStop(0.55, "rgba(255,255,255,0.9)");
+    gradient.addColorStop(0.72, "rgba(255,255,255,0.28)");
+    gradient.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(center, center, center * 0.74, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (preset === "beam") {
+    const gradient = ctx.createLinearGradient(center, 0, center, size);
+    gradient.addColorStop(0, "rgba(255,255,255,0)");
+    gradient.addColorStop(0.3, "rgba(255,255,255,0.9)");
+    gradient.addColorStop(0.7, "rgba(255,255,255,0.9)");
+    gradient.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(center - 10, 0, 20, size);
+  } else if (preset === "flame") {
+    const gradient = ctx.createRadialGradient(center, center * 0.95, 0, center, center * 0.95, center * 0.92);
+    gradient.addColorStop(0, "rgba(255,255,255,1)");
+    gradient.addColorStop(0.35, "rgba(255,255,255,0.65)");
+    gradient.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.moveTo(center, center * 0.12);
+    ctx.quadraticCurveTo(size * 0.8, size * 0.45, center, size * 0.95);
+    ctx.quadraticCurveTo(size * 0.2, size * 0.45, center, center * 0.12);
+    ctx.fill();
+  } else {
+    const innerStop = preset === "circle-hard" ? 0.48 : 0.35;
+    const gradient = ctx.createRadialGradient(center, center, 0, center, center, center);
+    gradient.addColorStop(0, "rgba(255,255,255,1)");
+    gradient.addColorStop(innerStop, "rgba(255,255,255,0.7)");
+    gradient.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, size, size);
+  }
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.needsUpdate = true;
   return tex;
+}
+
+function clamp01(value: number) {
+  return Math.min(Math.max(value, 0), 1);
+}
+
+function lerp(left: number, right: number, t: number) {
+  return left + (right - left) * t;
+}
+
+function evaluateSize(curve: string | undefined, t: number, start: number, end: number) {
+  if (curve === "flash-expand") {
+    return lerp(start, end, 1 - Math.pow(1 - t, 3));
+  }
+  if (curve === "smoke-soft") {
+    return lerp(start, end, Math.sqrt(clamp01(t)));
+  }
+  return lerp(start, end, t);
+}
+
+function evaluateAlpha(curve: string | undefined, t: number, isSmoke: boolean) {
+  if (curve === "flash-fade") {
+    return Math.pow(1 - t, 2.2);
+  }
+  if (curve === "smoke-soft" || isSmoke) {
+    const fadeIn = clamp01(t / 0.14);
+    const fadeOut = Math.pow(1 - t, 1.35);
+    return clamp01(fadeIn * fadeOut);
+  }
+  return 1 - t;
+}
+
+function evaluateColor(color: THREE.Color, curve: string | undefined, t: number, isSmoke: boolean) {
+  if (curve === "flash-hot") {
+    const hot = new THREE.Color(1, 1, 1);
+    if (t < 0.22) {
+      return hot.lerp(color.clone(), t / 0.22);
+    }
+    return color.clone().multiplyScalar(lerp(1, 0.45, clamp01((t - 0.22) / 0.78)));
+  }
+  if (curve === "smoke-soft" || isSmoke) {
+    return color.clone().lerp(new THREE.Color(0.24, 0.28, 0.32), clamp01(t * 0.7));
+  }
+  return color.clone();
 }
 
 // ─── Preview component ────────────────────────────────────────────────────────
@@ -216,7 +424,8 @@ export function ThreePreviewPanel(props: {
   const [isPlaying, setIsPlaying] = useState(true);
   const [soloSelected, setSoloSelected] = useState(false);
   const [particleCount, setParticleCount] = useState(0);
-  const [burstVersion, setBurstVersion] = useState(0);
+  const [resetVersion, setResetVersion] = useState(0);
+  const [fireVersion, setFireVersion] = useState(0);
   const [selectedEventId, setSelectedEventId] = useState<string>("");
   const [payloadValues, setPayloadValues] = useState<Record<string, string>>({});
 
@@ -245,25 +454,32 @@ export function ThreePreviewPanel(props: {
         emitterConfigs.map((config) => ({
           emitterId: config.emitterId,
           additive: config.additive,
-          burstCount: config.burstCount,
+          startupBurstCount: config.startupBurstCount,
+          eventBursts: config.eventBursts,
+          deathEventIds: config.deathEventIds,
           color: config.color.getHexString(),
+          curlStrength: config.curlStrength,
           drag: config.drag,
           gravity: config.gravity,
           lifetime: config.lifetime,
           maxParticleCount: config.maxParticleCount,
+          orbitAngularSpeed: config.orbitAngularSpeed,
+          orbitRadius: config.orbitRadius,
           rate: config.rate,
+          spawnRadius: config.spawnRadius,
           sizeEnd: config.sizeEnd,
           sizeStart: config.sizeStart,
           speedMax: config.speedMax,
           speedMin: config.speedMin,
-          spreadRadians: config.spreadRadians
+          spreadRadians: config.spreadRadians,
+          texturePreset: config.texturePreset,
+          upwardDrift: config.upwardDrift
         }))
       ),
     [emitterConfigs]
   );
 
-  // Unique key to force a particle burst reset on compile/emitter change
-  const burstKey = `${burstVersion}-${compileResult?.id ?? "none"}-${selectedEmitterId ?? ""}`;
+  const resetKey = `${resetVersion}-${compileResult?.id ?? "none"}-${selectedEmitterId ?? ""}`;
 
   // Which emitter IDs should participate in the next manual burst.
   // If an event is selected, only emitters with a SpawnBurst that listens to it.
@@ -288,10 +504,18 @@ export function ThreePreviewPanel(props: {
   emitterConfigsRef.current = emitterConfigs;
   const setParticleCountRef = useRef(setParticleCount);
   setParticleCountRef.current = setParticleCount;
-  const burstKeyRef = useRef(burstKey);
-  burstKeyRef.current = burstKey;
+  const resetKeyRef = useRef(resetKey);
+  resetKeyRef.current = resetKey;
+  const fireVersionRef = useRef(fireVersion);
+  fireVersionRef.current = fireVersion;
+  const selectedEventIdRef = useRef(selectedEventId);
+  selectedEventIdRef.current = selectedEventId;
   const emitterConfigKeyRef = useRef(emitterConfigKey);
   emitterConfigKeyRef.current = emitterConfigKey;
+
+  useEffect(() => {
+    setResetVersion((current) => current + 1);
+  }, [compileResult, selectedEmitterId]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -325,9 +549,6 @@ export function ThreePreviewPanel(props: {
     // Ambient soft fill
     scene.add(new THREE.AmbientLight(0x0a1a0f, 2));
 
-    // Sprite texture shared across all emitters
-    const spriteTexture = makeSpriteTexture();
-
     // ── Per-emitter Three.js Points objects ──
     type EmitterMesh = {
       emitterId: string;
@@ -338,6 +559,7 @@ export function ThreePreviewPanel(props: {
       sizeAttr: THREE.BufferAttribute;
       maxCount: number;
       additive: boolean;
+      texture: THREE.Texture;
     };
 
     const emitterMeshes: EmitterMesh[] = [];
@@ -360,9 +582,11 @@ export function ThreePreviewPanel(props: {
       geometry.setAttribute("size", sizeAttr);
       geometry.setDrawRange(0, 0);
 
+      const texture = makeSpriteTexture(cfg.texturePreset);
+
       const material = new THREE.ShaderMaterial({
         uniforms: {
-          map: { value: spriteTexture }
+          map: { value: texture }
         },
         vertexShader: /* glsl */ `
           attribute float size;
@@ -392,7 +616,7 @@ export function ThreePreviewPanel(props: {
       const points = new THREE.Points(geometry, material);
       scene.add(points);
 
-      return { emitterId: cfg.emitterId, points, geometry, posAttr, colorAttr, sizeAttr, maxCount, additive: cfg.additive };
+      return { emitterId: cfg.emitterId, points, geometry, posAttr, colorAttr, sizeAttr, maxCount, additive: cfg.additive, texture };
     }
 
     function rebuildMeshes() {
@@ -401,6 +625,7 @@ export function ThreePreviewPanel(props: {
         scene.remove(em.points);
         em.geometry.dispose();
         (em.points.material as THREE.Material).dispose();
+        em.texture.dispose();
       }
       emitterMeshes.length = 0;
 
@@ -415,23 +640,58 @@ export function ThreePreviewPanel(props: {
     // ── CPU particle pool ──
     const particles: Particle[] = [];
     const accumulators = new Map<string, number>();
-    let previousBurstKey = burstKeyRef.current;
+    let previousResetKey = resetKeyRef.current;
+    let previousFireVersion = fireVersionRef.current;
     let previousEmitterConfigKey = emitterConfigKeyRef.current;
     let lastTime = performance.now();
 
-    function triggerBurst() {
-      const configs = burstFilteredConfigsRef.current;
+    function spawnConfigBurst(cfg: EmitterPreviewConfig, count: number, origin?: { x: number; y: number; z: number }) {
+      const budget = Math.min(cfg.maxParticleCount, 300);
+      const existing = particles.filter((p) => p.emitterId === cfg.emitterId).length;
+      const spawnCount = Math.min(count, Math.max(0, budget - existing));
+      for (let i = 0; i < spawnCount; i++) {
+        particles.push(spawnParticle(cfg, origin));
+      }
+    }
+
+    function triggerStartupBursts() {
+      const configs = emitterConfigsRef.current;
       for (const cfg of configs) {
-        const budget = Math.min(cfg.maxParticleCount, 300);
-        const existing = particles.filter((p) => p.emitterId === cfg.emitterId).length;
-        const count = Math.min(cfg.burstCount, Math.max(1, budget - existing));
-        for (let i = 0; i < count; i++) {
-          particles.push(spawnParticle(cfg));
+        if (cfg.startupBurstCount > 0) {
+          spawnConfigBurst(cfg, cfg.startupBurstCount);
         }
       }
     }
 
-    triggerBurst();
+    function emitEvent(eventId: string, origin: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 }) {
+      const configs = emitterConfigsRef.current;
+      for (const cfg of configs) {
+        const count = cfg.eventBursts
+          .filter((eventBurst) => eventBurst.eventId === eventId)
+          .reduce((sum, eventBurst) => sum + eventBurst.count, 0);
+        if (count > 0) {
+          spawnConfigBurst(cfg, count, origin);
+        }
+      }
+    }
+
+    function fireManualBurst() {
+      const eventId = selectedEventIdRef.current;
+      if (eventId) {
+        emitEvent(eventId);
+        return;
+      }
+
+      const configs = burstFilteredConfigsRef.current;
+      for (const cfg of configs) {
+        if (cfg.startupBurstCount > 0) {
+          spawnConfigBurst(cfg, cfg.startupBurstCount);
+        }
+        cfg.eventBursts.forEach((eventBurst) => emitEvent(eventBurst.eventId));
+      }
+    }
+
+    triggerStartupBursts();
 
     // Resize observer
     let width = 0;
@@ -468,19 +728,24 @@ export function ThreePreviewPanel(props: {
         particles.length = 0;
         accumulators.clear();
         rebuildMeshes();
-        triggerBurst();
+        triggerStartupBursts();
       }
 
-      // Burst on key change
-      if (burstKeyRef.current !== previousBurstKey) {
-        previousBurstKey = burstKeyRef.current;
+      if (resetKeyRef.current !== previousResetKey) {
+        previousResetKey = resetKeyRef.current;
         particles.length = 0;
         accumulators.clear();
         rebuildMeshes();
-        triggerBurst();
+        triggerStartupBursts();
+      }
+
+      if (fireVersionRef.current !== previousFireVersion) {
+        previousFireVersion = fireVersionRef.current;
+        fireManualBurst();
       }
 
       const playing = isPlayingRef.current;
+      const configByEmitterId = new Map(configs.map((cfg) => [cfg.emitterId, cfg]));
 
       if (playing) {
         // Spawn by rate
@@ -498,7 +763,7 @@ export function ThreePreviewPanel(props: {
         // Simulate
         for (let i = particles.length - 1; i >= 0; i--) {
           const p = particles[i]!;
-          const cfg = configs.find((c) => c.emitterId === p.emitterId);
+          const cfg = configByEmitterId.get(p.emitterId);
           if (!cfg) {
             particles.splice(i, 1);
             continue;
@@ -506,13 +771,33 @@ export function ThreePreviewPanel(props: {
 
           p.age += dt;
           if (p.age >= p.lifetime) {
+            cfg.deathEventIds.forEach((eventId) => emitEvent(eventId, { x: p.x, y: p.y, z: p.z }));
             particles.splice(i, 1);
             continue;
           }
 
+          if (cfg.orbitRadius > 0 || cfg.orbitAngularSpeed !== 0) {
+            const dx = p.x - p.centerX;
+            const dz = p.z - p.centerZ;
+            const radius = Math.max(0.0001, Math.hypot(dx, dz));
+            const tangentX = -dz / radius;
+            const tangentZ = dx / radius;
+            const radialError = radius - Math.max(cfg.orbitRadius, 0.08);
+            const orbitForce = cfg.orbitAngularSpeed * Math.max(cfg.orbitRadius, 0.12) * 0.85;
+            p.vx += (tangentX * orbitForce - (dx / radius) * radialError * 3.2) * dt;
+            p.vz += (tangentZ * orbitForce - (dz / radius) * radialError * 3.2) * dt;
+          }
+
+          if (cfg.curlStrength > 0) {
+            const phase = p.seed + p.age * 3.2;
+            p.vx += Math.sin(phase + p.z * 2.5) * cfg.curlStrength * 0.02 * dt;
+            p.vy += Math.cos(phase * 0.65 + p.x * 1.6) * cfg.curlStrength * 0.012 * dt;
+            p.vz += Math.sin(phase * 1.17 + p.y * 1.8) * cfg.curlStrength * 0.02 * dt;
+          }
+
           const dragF = Math.max(0, 1 - cfg.drag * dt);
           p.vx *= dragF;
-          p.vy = p.vy * dragF - cfg.gravity * dt;
+          p.vy = p.vy * dragF - cfg.gravity * dt + cfg.upwardDrift * dt;
           p.vz *= dragF;
           p.x += p.vx * dt;
           p.y += p.vy * dt;
@@ -537,11 +822,12 @@ export function ThreePreviewPanel(props: {
         for (let i = 0; i < count; i++) {
           const p = emParticles[i]!;
           const life = Math.min(p.age / p.lifetime, 1);
-          const alpha = (1 - life) * (1 - life * 0.4);
-          const size = p.sizeStart + (p.sizeEnd - p.sizeStart) * life;
+          const alpha = evaluateAlpha(cfg.alphaCurve, life, cfg.isSmoke);
+          const size = evaluateSize(cfg.sizeCurve, life, p.sizeStart, p.sizeEnd);
+          const color = evaluateColor(cfg.color, cfg.colorCurve, life, cfg.isSmoke);
 
           em.posAttr.setXYZ(i, p.x, p.y, p.z);
-          em.colorAttr.setXYZW(i, cfg.color.r, cfg.color.g, cfg.color.b, alpha);
+          em.colorAttr.setXYZW(i, color.r, color.g, color.b, alpha);
           em.sizeAttr.setX(i, Math.max(0.01, size));
         }
 
@@ -566,8 +852,8 @@ export function ThreePreviewPanel(props: {
         scene.remove(em.points);
         em.geometry.dispose();
         (em.points.material as THREE.Material).dispose();
+        em.texture.dispose();
       }
-      spriteTexture.dispose();
       renderer.dispose();
       if (mount.contains(renderer.domElement)) {
         mount.removeChild(renderer.domElement);
@@ -622,7 +908,7 @@ export function ThreePreviewPanel(props: {
             type="button"
             title={selectedEventId ? `Fire "${selectedEvent?.name ?? selectedEventId}"` : "Fire all burst emitters"}
             className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1 text-[11px] text-zinc-300 transition hover:border-emerald-300/30 hover:text-emerald-200"
-            onClick={() => setBurstVersion((c) => c + 1)}
+            onClick={() => setFireVersion((c) => c + 1)}
           >
             <Zap className="size-3" />
             <span>Fire</span>
@@ -633,7 +919,7 @@ export function ThreePreviewPanel(props: {
           type="button"
           title="Reset simulation"
           className="inline-flex items-center gap-1 rounded-lg border border-white/8 px-2 py-1 text-[11px] text-zinc-600 transition hover:border-white/16 hover:text-zinc-400"
-          onClick={() => setBurstVersion((c) => c + 1)}
+          onClick={() => setResetVersion((c) => c + 1)}
         >
           <RotateCcw className="size-3" />
         </button>

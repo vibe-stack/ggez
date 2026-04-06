@@ -5,8 +5,11 @@ import { BUILTIN_ATTRIBUTE_TYPES, MODULE_DESCRIPTORS } from "@ggez/vfx-core";
 import { createVfxArtifact, serializeVfxArtifact } from "@ggez/vfx-exporter";
 import type { EffectGraphNode, EmitterDocument, ModuleInstance, RendererSlot, VfxEventDefinition, VfxParameter } from "@ggez/vfx-schema";
 import { createThreeWebGpuVfxBackend, MVP_RENDERER_TEMPLATES } from "@ggez/vfx-three";
-import { ArrowDownRight, Cable, Check, ChevronDown, ChevronRight, Flame, GripHorizontal, ImageIcon, Orbit, Plus, Sparkles, Trash2, Upload } from "lucide-react";
+import { ArrowDownRight, Bot, Cable, Check, ChevronDown, ChevronRight, Flame, GripHorizontal, ImageIcon, Orbit, Plus, Sparkles, Trash2, Upload } from "lucide-react";
 import { GraphCanvas } from "./graph-canvas";
+import { CopilotPanel } from "./copilot/CopilotPanel";
+import { useCopilot } from "./hooks/use-copilot";
+import { useCopilotPanelDrag } from "./hooks/use-copilot-panel-drag";
 import { usePreviewPanelDrag } from "./hooks/use-preview-panel-drag";
 import { useEditorStoreValue } from "./use-editor-store-value";
 import { ThreePreviewPanel } from "./three-preview-panel";
@@ -954,12 +957,16 @@ const INSPECTOR_TABS: Array<{ id: InspectorTab; label: string }> = [
 
 export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
   const workspaceRef = useRef<HTMLDivElement | null>(null);
+  const copilotPanelRef = useRef<HTMLDivElement | null>(null);
   const [selectedEdgeIds, setSelectedEdgeIds] = useState<string[]>([]);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("inspector");
   const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
+  const [copilotOpen, setCopilotOpen] = useState(false);
   const state = useEditorStoreValue(props.store, () => props.store.getState(), ["document", "selection", "compile", "emitters"]);
   const selectedEmitter = state.document.emitters.find((e) => e.id === state.selection.selectedEmitterId) ?? state.document.emitters[0];
   const { previewRect, beginPreviewInteraction, updatePreviewBounds } = usePreviewPanelDrag(workspaceRef);
+  const { copilotPosition, beginCopilotDrag, updateCopilotBounds } = useCopilotPanelDrag(workspaceRef, copilotPanelRef, copilotOpen);
+  const copilot = useCopilot(props.store);
   const attributeOptions = selectedEmitter
     ? [...new Set([...Object.keys(BUILTIN_ATTRIBUTE_TYPES), ...Object.keys(selectedEmitter.attributes)])].sort((a, b) => a.localeCompare(b))
     : Object.keys(BUILTIN_ATTRIBUTE_TYPES);
@@ -980,10 +987,18 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
   useEffect(() => {
     const element = workspaceRef.current;
     if (!element) return;
-    const ro = new ResizeObserver(() => updatePreviewBounds());
+    const ro = new ResizeObserver(() => {
+      updatePreviewBounds();
+      if (copilotOpen) {
+        updateCopilotBounds();
+      }
+    });
     ro.observe(element);
+    if (copilotOpen && copilotPanelRef.current) {
+      ro.observe(copilotPanelRef.current);
+    }
     return () => ro.disconnect();
-  }, [updatePreviewBounds]);
+  }, [copilotOpen, updateCopilotBounds, updatePreviewBounds]);
 
   useEffect(() => {
     setSelectedModuleId(null);
@@ -1187,6 +1202,18 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
           onClick={() => props.store.compile()}
         >
           Compile
+        </button>
+        <button
+          type="button"
+          className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+            copilotOpen
+              ? "border-emerald-300/45 bg-emerald-400/16 text-emerald-100"
+              : "border-white/10 bg-white/3 text-zinc-300 hover:border-emerald-300/25 hover:text-emerald-100"
+          }`}
+          onClick={() => setCopilotOpen((current) => !current)}
+        >
+          <Bot className="size-3.5" />
+          Codex
         </button>
         {hasSelection && (
           <button
@@ -1434,6 +1461,29 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
           </button>
         </div>
       </div>
+
+      {copilotOpen ? (
+        <div
+          ref={copilotPanelRef}
+          className="pointer-events-auto absolute z-40 h-[min(74vh,760px)] w-[380px] max-w-[calc(100vw-2rem)]"
+          style={
+            copilotPosition
+              ? { left: `${copilotPosition.x}px`, top: `${copilotPosition.y}px` }
+              : { right: "1rem", top: "3.5rem" }
+          }
+        >
+          <CopilotPanel
+            onClose={() => setCopilotOpen(false)}
+            onSendMessage={(prompt) => void copilot.sendMessage(prompt)}
+            onAbort={copilot.abort}
+            onClearHistory={copilot.clearHistory}
+            onSettingsChanged={copilot.refreshConfigured}
+            session={copilot.session}
+            isConfigured={copilot.isConfigured}
+            onHeaderPointerDown={beginCopilotDrag}
+          />
+        </div>
+      ) : null}
 
       {/* ── Bottom status bar ───────────────────────────────────── */}
       <div className="absolute inset-x-0 bottom-0 z-10 flex h-7 items-center gap-5 border-t border-white/6 bg-black/85 px-4 text-[11px] text-zinc-600">
