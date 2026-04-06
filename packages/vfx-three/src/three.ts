@@ -1,5 +1,6 @@
 import type { VfxExecutionBackend, VfxPlaybackRequest } from "@ggez/vfx-runtime";
 import type { CompiledVfxEffect } from "@ggez/vfx-schema";
+import { compileCompiledEffectToGpuRuntimePlan, type GpuRuntimePlan } from "./ir";
 
 export type RendererMaterialSignature = string;
 
@@ -12,6 +13,7 @@ export type VfxRendererTemplateDefinition = {
 export type VfxPipelineCacheSnapshot = {
   materialSignatures: string[];
   preparedEffects: string[];
+  preparedRuntimePlans: string[];
 };
 
 export const MVP_RENDERER_TEMPLATES: VfxRendererTemplateDefinition[] = [
@@ -47,14 +49,19 @@ export const MVP_RENDERER_TEMPLATES: VfxRendererTemplateDefinition[] = [
   }
 ];
 
-export function createThreeWebGpuVfxBackend(): VfxExecutionBackend & { getCacheSnapshot(): VfxPipelineCacheSnapshot } {
+export function createThreeWebGpuVfxBackend(): VfxExecutionBackend & {
+  getCacheSnapshot(): VfxPipelineCacheSnapshot;
+  getRuntimePlan(effectId: string): GpuRuntimePlan | undefined;
+} {
   const preparedEffects = new Map<string, CompiledVfxEffect>();
+  const runtimePlans = new Map<string, GpuRuntimePlan>();
   const materialSignatures = new Set<string>();
   const activeInstances = new Map<string, VfxPlaybackRequest>();
 
   return {
     prepareEffect(effect) {
       preparedEffects.set(effect.id, effect);
+      runtimePlans.set(effect.id, compileCompiledEffectToGpuRuntimePlan(effect));
       effect.emitters.forEach((emitter: CompiledVfxEffect["emitters"][number]) => {
         emitter.renderers.forEach((renderer: CompiledVfxEffect["emitters"][number]["renderers"][number]) => {
           materialSignatures.add(renderer.materialSignature);
@@ -63,6 +70,9 @@ export function createThreeWebGpuVfxBackend(): VfxExecutionBackend & { getCacheS
     },
     createInstance(effect, request) {
       preparedEffects.set(effect.id, effect);
+      if (!runtimePlans.has(effect.id)) {
+        runtimePlans.set(effect.id, compileCompiledEffectToGpuRuntimePlan(effect));
+      }
       activeInstances.set(request.instanceId, request);
     },
     dispatchSimulation() {
@@ -74,8 +84,12 @@ export function createThreeWebGpuVfxBackend(): VfxExecutionBackend & { getCacheS
     getCacheSnapshot() {
       return {
         materialSignatures: Array.from(materialSignatures).sort(),
-        preparedEffects: Array.from(preparedEffects.keys()).sort()
+        preparedEffects: Array.from(preparedEffects.keys()).sort(),
+        preparedRuntimePlans: Array.from(runtimePlans.keys()).sort()
       };
+    },
+    getRuntimePlan(effectId) {
+      return runtimePlans.get(effectId);
     }
   };
 }

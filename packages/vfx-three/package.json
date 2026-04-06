@@ -28,5 +28,8 @@
     "@ggez/vfx-runtime": "workspace:*",
     "@ggez/vfx-schema": "workspace:*",
     "three": "^0.181.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.183.1"
   }
 }

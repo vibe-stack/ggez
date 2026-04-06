@@ -1,0 +1,110 @@
+import type { CompiledVfxEffect, VfxEffectDocument } from "@ggez/vfx-schema";
+import type * as THREE from "three";
+import type { WebGPURenderer } from "three/webgpu";
+
+export type ThreeWebGpuPreviewState = {
+  document: VfxEffectDocument;
+  compileResult?: CompiledVfxEffect;
+  selectedEmitterId?: string;
+  soloSelected?: boolean;
+  isPlaying?: boolean;
+  selectedEventId?: string;
+  resetVersion?: number;
+  fireVersion?: number;
+};
+
+export type ThreeWebGpuPreviewSummary = {
+  hasOutput: boolean;
+  activeCount: number;
+  renderableCount: number;
+  totalCount: number;
+  allShown: boolean;
+};
+
+export type CreateThreeWebGpuPreviewControllerInput = {
+  mount: HTMLDivElement;
+  renderer: WebGPURenderer;
+  onParticleCountChange?: (count: number) => void;
+};
+
+export type ThreeWebGpuPreviewController = {
+  update(next: ThreeWebGpuPreviewState): void;
+  resize(): void;
+  dispose(): void;
+};
+
+export type EmitterPreviewConfig = {
+  emitterId: string;
+  startupBurstCount: number;
+  eventBursts: Array<{ eventId: string; count: number }>;
+  deathEventIds: string[];
+  rate: number;
+  spreadRadians: number;
+  spawnRadius: number;
+  speedMin: number;
+  speedMax: number;
+  drag: number;
+  gravity: number;
+  upwardDrift: number;
+  orbitRadius: number;
+  orbitAngularSpeed: number;
+  curlStrength: number;
+  lifetime: number;
+  sizeStart: number;
+  sizeEnd: number;
+  sizeCurve?: string;
+  alphaCurve?: string;
+  colorCurve?: string;
+  color: THREE.Color;
+  additive: boolean;
+  maxParticleCount: number;
+  isSmoke: boolean;
+  texturePreset: string;
+};
+
+export type SpriteTextureDefinition = {
+  texture: THREE.Texture;
+};
+
+export type EmitterGpuResources = {
+  bindGroup: any;
+  particleBuffer: any;
+  readBuffer: any;
+  uniformBuffer: any;
+};
+
+export type EmitterPreviewEntry = {
+  accumulator: number;
+  config: EmitterPreviewConfig;
+  gpu: EmitterGpuResources;
+  particleData: Float32Array;
+  previousAlive: Uint8Array;
+  sprites: THREE.Sprite[];
+  texture: THREE.Texture;
+  readbackPending: boolean;
+  dirty: boolean;
+};
+
+export const PARTICLE_FLOATS = 20;
+export const WORKGROUP_SIZE = 64;
+export const MAX_PREVIEW_PARTICLES_PER_EMITTER = 320;
+export const GPU_BUFFER_USAGE = globalThis.GPUBufferUsage as any;
+export const GPU_MAP_MODE = globalThis.GPUMapMode as any;
+
+export const PARTICLE_INDEX = {
+  positionX: 0,
+  positionY: 1,
+  positionZ: 2,
+  velocityX: 4,
+  velocityY: 5,
+  velocityZ: 6,
+  age: 8,
+  lifetime: 9,
+  sizeStart: 10,
+  sizeEnd: 11,
+  rotation: 12,
+  rotationSpeed: 13,
+  alive: 14,
+  frame: 15,
+  seed: 16
+} as const;
