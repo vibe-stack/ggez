@@ -101,9 +101,10 @@ function buildEmitterConfigs(
   compiledEffect: CompiledVfxEffect | undefined,
   activeEmitterIds: Set<string> | null
 ): EmitterPreviewConfig[] {
-  const emitters = activeEmitterIds
+  const emitters = (activeEmitterIds
     ? document.emitters.filter((e) => activeEmitterIds.has(e.id))
-    : document.emitters;
+    : document.emitters)
+    .filter((emitter) => emitter.renderers.some((renderer) => renderer.enabled));
 
   return emitters.slice(0, 6).map((emitter) => {
     const compiledEmitter = compiledEffect?.emitters.find((e) => e.id === emitter.id);
@@ -125,7 +126,7 @@ function buildEmitterConfigs(
 
     return {
       emitterId: emitter.id,
-      burstCount: Math.max(1, Math.round(burstCount || Math.min(24, emitter.maxParticleCount * 0.08))),
+      burstCount: Math.max(0, Math.round(burstCount)),
       rate: Math.max(0, rate),
       spreadRadians: (readNumber(spreadDeg, 16) * Math.PI) / 180,
       speedMin: readNumber(velocityCone?.config.speedMin, 60) * 0.04,
@@ -229,6 +230,29 @@ export function ThreePreviewPanel(props: {
     [document, compileResult, effectiveActiveIds]
   );
 
+  const emitterConfigKey = useMemo(
+    () =>
+      JSON.stringify(
+        emitterConfigs.map((config) => ({
+          emitterId: config.emitterId,
+          additive: config.additive,
+          burstCount: config.burstCount,
+          color: config.color.getHexString(),
+          drag: config.drag,
+          gravity: config.gravity,
+          lifetime: config.lifetime,
+          maxParticleCount: config.maxParticleCount,
+          rate: config.rate,
+          sizeEnd: config.sizeEnd,
+          sizeStart: config.sizeStart,
+          speedMax: config.speedMax,
+          speedMin: config.speedMin,
+          spreadRadians: config.spreadRadians
+        }))
+      ),
+    [emitterConfigs]
+  );
+
   // Unique key to force a particle burst reset on compile/emitter change
   const burstKey = `${burstVersion}-${compileResult?.id ?? "none"}-${selectedEmitterId ?? ""}`;
 
@@ -240,6 +264,8 @@ export function ThreePreviewPanel(props: {
   setParticleCountRef.current = setParticleCount;
   const burstKeyRef = useRef(burstKey);
   burstKeyRef.current = burstKey;
+  const emitterConfigKeyRef = useRef(emitterConfigKey);
+  emitterConfigKeyRef.current = emitterConfigKey;
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -364,6 +390,7 @@ export function ThreePreviewPanel(props: {
     const particles: Particle[] = [];
     const accumulators = new Map<string, number>();
     let previousBurstKey = burstKeyRef.current;
+    let previousEmitterConfigKey = emitterConfigKeyRef.current;
     let lastTime = performance.now();
 
     function triggerBurst() {
@@ -408,6 +435,14 @@ export function ThreePreviewPanel(props: {
       lastTime = now;
 
       const configs = emitterConfigsRef.current;
+
+      if (emitterConfigKeyRef.current !== previousEmitterConfigKey) {
+        previousEmitterConfigKey = emitterConfigKeyRef.current;
+        particles.length = 0;
+        accumulators.clear();
+        rebuildMeshes();
+        triggerBurst();
+      }
 
       // Burst on key change
       if (burstKeyRef.current !== previousBurstKey) {
@@ -520,6 +555,7 @@ export function ThreePreviewPanel(props: {
 
   const hasOutput = document.graph.nodes.some((n) => n.kind === "output");
   const activeCount = effectiveActiveIds?.size ?? document.emitters.length;
+  const renderableCount = emitterConfigs.length;
   const totalCount = document.emitters.length;
   const allShown = !effectiveActiveIds || effectiveActiveIds.size === totalCount;
 
@@ -570,6 +606,7 @@ export function ThreePreviewPanel(props: {
             ? `Graph: all ${totalCount} emitter${totalCount === 1 ? "" : "s"} connected to output`
             : `Graph: ${activeCount} of ${totalCount} emitter${totalCount === 1 ? "" : "s"} connected to output`
           : "Graph: no output node — showing all emitters. Connect emitters → output to filter."}
+        {` · renderable in preview: ${renderableCount}`}
       </div>
 
       {/* Three.js canvas mount */}
@@ -578,7 +615,9 @@ export function ThreePreviewPanel(props: {
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-zinc-600">
             {hasOutput && activeCount === 0
               ? "No emitters connected to the output node."
-              : "Add an emitter with a renderer to preview."}
+              : activeCount > 0
+                ? "Connected emitters need at least one enabled renderer to appear in preview."
+                : "Add an emitter with a renderer to preview."}
           </div>
         )}
       </div>

@@ -1,9 +1,9 @@
-import type { PointerEvent as ReactPointerEvent } from "react";
+import type { ChangeEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-import type { VfxEditorStore } from "@ggez/vfx-editor-core";
-import { MODULE_DESCRIPTORS } from "@ggez/vfx-core";
+import { getDefaultModuleConfig, type VfxEditorStore } from "@ggez/vfx-editor-core";
+import { BUILTIN_ATTRIBUTE_TYPES, MODULE_DESCRIPTORS } from "@ggez/vfx-core";
 import { createVfxArtifact, serializeVfxArtifact } from "@ggez/vfx-exporter";
-import type { ModuleInstance, RendererSlot } from "@ggez/vfx-schema";
+import type { EmitterDocument, ModuleInstance, RendererSlot } from "@ggez/vfx-schema";
 import { createThreeWebGpuVfxBackend, MVP_RENDERER_TEMPLATES } from "@ggez/vfx-three";
 import { ArrowDownRight, Check, Flame, GripHorizontal, Plus, Sparkles, Trash2 } from "lucide-react";
 import { GraphCanvas } from "./graph-canvas";
@@ -19,6 +19,390 @@ const STAGE_PRESETS: Record<"death" | "initialize" | "spawn" | "update", ModuleI
   update: ["Drag", "GravityForce", "CurlNoiseForce", "ColorOverLife", "SizeOverLife", "AlphaOverLife", "CollisionQuery", "CollisionBounce", "RibbonLink", "OrbitTarget"],
   death: ["KillByAge", "KillByDistance", "SendEvent"]
 };
+
+const STAGE_EXPLANATIONS: Record<keyof typeof STAGE_PRESETS, string> = {
+  spawn: "Decides when and where particles are created.",
+  initialize: "Sets initial particle attributes right after spawn.",
+  update: "Runs every frame to move, color, size, and otherwise evolve particles.",
+  death: "Stops particles or emits events when their lifetime or conditions end."
+};
+
+const INSPECTOR_TABS = [
+  { id: "stages" as const, label: "Stages" },
+  { id: "renderer" as const, label: "Renderer" },
+  { id: "graph" as const, label: "Graph" },
+  { id: "diagnostics" as const, label: "Diagnostics" }
+];
+
+const CURVE_PRESETS = ["flash-hot", "flash-expand", "flash-fade", "linear", "ease-in", "ease-out", "smoke-soft", "spark-decay"];
+
+const INPUT_CLASS_NAME =
+  "mt-1 w-full rounded-lg border border-white/10 bg-black/25 px-2.5 py-1.5 text-[12px] text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-emerald-300/35";
+const TEXTAREA_CLASS_NAME = `${INPUT_CLASS_NAME} min-h-28 resize-y font-mono text-[11px] leading-relaxed`;
+
+type StageName = keyof typeof STAGE_PRESETS;
+type StageKey = "deathStage" | "initializeStage" | "spawnStage" | "updateStage";
+
+function getStageKey(stage: StageName): StageKey {
+  return stage === "spawn"
+    ? "spawnStage"
+    : stage === "initialize"
+      ? "initializeStage"
+      : stage === "update"
+        ? "updateStage"
+        : "deathStage";
+}
+
+function parseLooseValue(value: string): unknown {
+  const trimmed = value.trim();
+
+  if (trimmed.length === 0) {
+    return "";
+  }
+
+  if (trimmed === "true") {
+    return true;
+  }
+
+  if (trimmed === "false") {
+    return false;
+  }
+
+  if (trimmed === "null") {
+    return null;
+  }
+
+  const numeric = Number(trimmed);
+  if (Number.isFinite(numeric) && `${numeric}` === trimmed) {
+    return numeric;
+  }
+
+  return trimmed;
+}
+
+function prettyJson(value: unknown) {
+  return JSON.stringify(value, null, 2);
+}
+
+function LabeledField(props: { label: string; children: ReactNode; hint?: string }) {
+  return (
+    <label className="block min-w-0">
+      <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-zinc-500">{props.label}</div>
+      {props.children}
+      {props.hint ? <div className="mt-1 text-[10px] leading-snug text-zinc-600">{props.hint}</div> : null}
+    </label>
+  );
+}
+
+function ModuleJsonEditor(props: {
+  config: ModuleInstance["config"];
+  onApply(nextConfig: ModuleInstance["config"]): void;
+}) {
+  const [draft, setDraft] = useState(() => prettyJson(props.config));
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft(prettyJson(props.config));
+    setError(null);
+  }, [props.config]);
+
+  function applyDraft() {
+    try {
+      const nextConfig = draft.trim().length === 0 ? {} : JSON.parse(draft);
+      if (!nextConfig || typeof nextConfig !== "object" || Array.isArray(nextConfig)) {
+        throw new Error("Config must be a JSON object.");
+      }
+      props.onApply(nextConfig as ModuleInstance["config"]);
+      setError(null);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Invalid JSON config.");
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-white/8 bg-black/20 p-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[10px] uppercase tracking-[0.14em] text-zinc-500">Advanced Config</div>
+        <button
+          type="button"
+          className="rounded-md border border-white/10 px-2 py-0.5 text-[10px] text-zinc-400 transition hover:border-emerald-300/30 hover:text-emerald-200"
+          onClick={applyDraft}
+        >
+          Apply JSON
+        </button>
+      </div>
+      <textarea
+        className={TEXTAREA_CLASS_NAME}
+        value={draft}
+        spellCheck={false}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={applyDraft}
+      />
+      {error ? <div className="mt-2 text-[10px] text-rose-300">{error}</div> : null}
+    </div>
+  );
+}
+
+function ModuleConfigEditor(props: {
+  attributeOptions: string[];
+  module: ModuleInstance;
+  onUpdate(nextModule: ModuleInstance): void;
+}) {
+  const moduleLabel = props.module.label ?? "";
+  const config = {
+    ...getDefaultModuleConfig(props.module.kind),
+    ...props.module.config
+  };
+
+  function updateConfig(patch: Record<string, unknown>) {
+    props.onUpdate({
+      ...props.module,
+      config: {
+        ...props.module.config,
+        ...patch
+      }
+    });
+  }
+
+  function updateNumber(key: string, fallback = 0) {
+    return (event: ChangeEvent<HTMLInputElement>) => {
+      const value = event.target.value;
+      updateConfig({ [key]: value === "" ? fallback : Number(value) });
+    };
+  }
+
+  function updateString(key: string) {
+    return (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      updateConfig({ [key]: event.target.value });
+    };
+  }
+
+  function updateLooseValue(key: string) {
+    return (event: ChangeEvent<HTMLInputElement>) => {
+      updateConfig({ [key]: parseLooseValue(event.target.value) });
+    };
+  }
+
+  return (
+    <div className="space-y-3 rounded-xl border border-white/8 bg-black/18 p-3">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <LabeledField label="Label" hint="Optional display label for this module.">
+          <input
+            className={INPUT_CLASS_NAME}
+            value={moduleLabel}
+            placeholder={formatModuleKind(props.module.kind)}
+            onChange={(event) =>
+              props.onUpdate({
+                ...props.module,
+                label: event.target.value.trim().length > 0 ? event.target.value : undefined
+              })
+            }
+          />
+        </LabeledField>
+        <LabeledField label="Enabled" hint="Disabled modules are skipped during compile and preview.">
+          <button
+            type="button"
+            className={`mt-1 inline-flex h-8.5 items-center justify-center rounded-lg border px-3 text-[12px] transition ${
+              props.module.enabled
+                ? "border-emerald-300/35 bg-emerald-400/10 text-emerald-200"
+                : "border-white/10 bg-black/20 text-zinc-500"
+            }`}
+            onClick={() => props.onUpdate({ ...props.module, enabled: !props.module.enabled })}
+          >
+            {props.module.enabled ? "Enabled" : "Disabled"}
+          </button>
+        </LabeledField>
+      </div>
+
+      {props.module.kind === "SpawnRate" && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <LabeledField label="Rate / sec" hint="Continuous particles emitted each second.">
+            <input className={INPUT_CLASS_NAME} type="number" step="1" min="0" value={String(config.rate ?? 24)} onChange={updateNumber("rate", 0)} />
+          </LabeledField>
+          <LabeledField label="Max Alive" hint="Optional soft cap for this spawner.">
+            <input className={INPUT_CLASS_NAME} type="number" step="1" min="0" value={String(config.maxAlive ?? "")} onChange={updateNumber("maxAlive", 0)} />
+          </LabeledField>
+        </div>
+      )}
+
+      {props.module.kind === "SpawnBurst" && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <LabeledField label="Count" hint="How many particles this burst emits.">
+            <input className={INPUT_CLASS_NAME} type="number" step="1" min="0" value={String(config.count ?? 24)} onChange={updateNumber("count", 0)} />
+          </LabeledField>
+          <LabeledField label="Every Event" hint="Optional event id that retriggers this burst.">
+            <input className={INPUT_CLASS_NAME} value={String(config.everyEvent ?? "")} placeholder="event:fire" onChange={updateString("everyEvent")} />
+          </LabeledField>
+        </div>
+      )}
+
+      {props.module.kind === "SpawnCone" && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <LabeledField label="Angle Degrees" hint="Spread angle of the spawn volume.">
+            <input className={INPUT_CLASS_NAME} type="number" step="1" min="0" value={String(config.angleDegrees ?? 16)} onChange={updateNumber("angleDegrees", 0)} />
+          </LabeledField>
+          <LabeledField label="Radius" hint="Radius of the cone base / spawn footprint.">
+            <input className={INPUT_CLASS_NAME} type="number" step="0.01" min="0" value={String(config.radius ?? 0.1)} onChange={updateNumber("radius", 0)} />
+          </LabeledField>
+        </div>
+      )}
+
+      {props.module.kind === "SetAttribute" && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <LabeledField label="Attribute" hint="Particle attribute this module writes.">
+            <select className={INPUT_CLASS_NAME} value={String(config.attribute ?? "lifetime")} onChange={updateString("attribute")}>
+              {[...new Set([...(props.attributeOptions.length > 0 ? props.attributeOptions : ["lifetime"]), String(config.attribute ?? "")].filter(Boolean))].map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </LabeledField>
+          <LabeledField label="Value" hint="Loose scalar parsing: numbers, booleans, null, or text.">
+            <input className={INPUT_CLASS_NAME} value={String(config.value ?? "")} placeholder="0.42" onChange={updateLooseValue("value")} />
+          </LabeledField>
+        </div>
+      )}
+
+      {props.module.kind === "VelocityCone" && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <LabeledField label="Speed Min">
+            <input className={INPUT_CLASS_NAME} type="number" step="0.1" value={String(config.speedMin ?? 8)} onChange={updateNumber("speedMin", 0)} />
+          </LabeledField>
+          <LabeledField label="Speed Max">
+            <input className={INPUT_CLASS_NAME} type="number" step="0.1" value={String(config.speedMax ?? 22)} onChange={updateNumber("speedMax", 0)} />
+          </LabeledField>
+          <LabeledField label="Angle Degrees">
+            <input className={INPUT_CLASS_NAME} type="number" step="1" min="0" value={String(config.angleDegrees ?? 16)} onChange={updateNumber("angleDegrees", 0)} />
+          </LabeledField>
+        </div>
+      )}
+
+      {props.module.kind === "InheritVelocity" && (
+        <LabeledField label="Scale" hint="Multiplier for inherited source velocity.">
+          <input className={INPUT_CLASS_NAME} type="number" step="0.05" value={String(config.scale ?? 1)} onChange={updateNumber("scale", 0)} />
+        </LabeledField>
+      )}
+
+      {props.module.kind === "RandomRange" && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <LabeledField label="Min">
+            <input className={INPUT_CLASS_NAME} type="number" step="0.01" value={String(config.min ?? 0)} onChange={updateNumber("min", 0)} />
+          </LabeledField>
+          <LabeledField label="Max">
+            <input className={INPUT_CLASS_NAME} type="number" step="0.01" value={String(config.max ?? 1)} onChange={updateNumber("max", 0)} />
+          </LabeledField>
+          <LabeledField label="Output Key" hint="Where downstream modules should read this sample.">
+            <input className={INPUT_CLASS_NAME} value={String(config.output ?? "sample")} onChange={updateString("output")} />
+          </LabeledField>
+        </div>
+      )}
+
+      {props.module.kind === "Drag" && (
+        <LabeledField label="Coefficient" hint="Higher values damp velocity faster.">
+          <input className={INPUT_CLASS_NAME} type="number" step="0.1" min="0" value={String(config.coefficient ?? 2.8)} onChange={updateNumber("coefficient", 0)} />
+        </LabeledField>
+      )}
+
+      {props.module.kind === "GravityForce" && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <LabeledField label="Accel X">
+            <input className={INPUT_CLASS_NAME} type="number" step="0.1" value={String(config.accelerationX ?? 0)} onChange={updateNumber("accelerationX", 0)} />
+          </LabeledField>
+          <LabeledField label="Accel Y">
+            <input className={INPUT_CLASS_NAME} type="number" step="0.1" value={String(config.accelerationY ?? 120)} onChange={updateNumber("accelerationY", 0)} />
+          </LabeledField>
+          <LabeledField label="Accel Z">
+            <input className={INPUT_CLASS_NAME} type="number" step="0.1" value={String(config.accelerationZ ?? 0)} onChange={updateNumber("accelerationZ", 0)} />
+          </LabeledField>
+        </div>
+      )}
+
+      {(props.module.kind === "ColorOverLife" || props.module.kind === "SizeOverLife" || props.module.kind === "AlphaOverLife") && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <LabeledField label="Curve" hint="Named authored curve or preset id.">
+            <select className={INPUT_CLASS_NAME} value={String(config.curve ?? CURVE_PRESETS[0])} onChange={updateString("curve")}>
+              {[...new Set([String(config.curve ?? CURVE_PRESETS[0]), ...CURVE_PRESETS])].map((curve) => (
+                <option key={curve} value={curve}>
+                  {curve}
+                </option>
+              ))}
+            </select>
+          </LabeledField>
+          <LabeledField label="Bias" hint="Optional multiplier / blend scalar.">
+            <input className={INPUT_CLASS_NAME} type="number" step="0.05" value={String(config.bias ?? 1)} onChange={updateNumber("bias", 1)} />
+          </LabeledField>
+        </div>
+      )}
+
+      {props.module.kind === "KillByDistance" && (
+        <LabeledField label="Max Distance" hint="Particles beyond this distance are killed.">
+          <input className={INPUT_CLASS_NAME} type="number" step="0.1" min="0" value={String(config.maxDistance ?? 10)} onChange={updateNumber("maxDistance", 0)} />
+        </LabeledField>
+      )}
+
+      {props.module.kind === "SendEvent" && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <LabeledField label="Event Id">
+            <input className={INPUT_CLASS_NAME} value={String(config.eventId ?? "")} placeholder="event:impact" onChange={updateString("eventId")} />
+          </LabeledField>
+          <LabeledField label="When" hint="Optional authored condition label.">
+            <input className={INPUT_CLASS_NAME} value={String(config.when ?? "")} placeholder="on-death" onChange={updateString("when")} />
+          </LabeledField>
+        </div>
+      )}
+
+      {props.module.kind === "CollisionBounce" && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <LabeledField label="Restitution">
+            <input className={INPUT_CLASS_NAME} type="number" step="0.05" min="0" value={String(config.restitution ?? 0.6)} onChange={updateNumber("restitution", 0)} />
+          </LabeledField>
+          <LabeledField label="Friction">
+            <input className={INPUT_CLASS_NAME} type="number" step="0.05" min="0" value={String(config.friction ?? 0.1)} onChange={updateNumber("friction", 0)} />
+          </LabeledField>
+        </div>
+      )}
+
+      {props.module.kind === "CollisionQuery" && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <LabeledField label="Interface Id">
+            <input className={INPUT_CLASS_NAME} value={String(config.interfaceId ?? "")} placeholder="interface:collision" onChange={updateString("interfaceId")} />
+          </LabeledField>
+          <LabeledField label="Radius">
+            <input className={INPUT_CLASS_NAME} type="number" step="0.01" min="0" value={String(config.radius ?? 0.1)} onChange={updateNumber("radius", 0)} />
+          </LabeledField>
+        </div>
+      )}
+
+      {props.module.kind === "CurlNoiseForce" && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <LabeledField label="Strength">
+            <input className={INPUT_CLASS_NAME} type="number" step="0.1" value={String(config.strength ?? 1)} onChange={updateNumber("strength", 0)} />
+          </LabeledField>
+          <LabeledField label="Frequency">
+            <input className={INPUT_CLASS_NAME} type="number" step="0.1" value={String(config.frequency ?? 1)} onChange={updateNumber("frequency", 0)} />
+          </LabeledField>
+        </div>
+      )}
+
+      {props.module.kind === "OrbitTarget" && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <LabeledField label="Radius">
+            <input className={INPUT_CLASS_NAME} type="number" step="0.01" min="0" value={String(config.radius ?? 1)} onChange={updateNumber("radius", 0)} />
+          </LabeledField>
+          <LabeledField label="Angular Speed">
+            <input className={INPUT_CLASS_NAME} type="number" step="0.1" value={String(config.angularSpeed ?? 1)} onChange={updateNumber("angularSpeed", 0)} />
+          </LabeledField>
+        </div>
+      )}
+
+      <ModuleJsonEditor
+        config={props.module.config}
+        onApply={(nextConfig) => props.onUpdate({ ...props.module, config: nextConfig })}
+      />
+    </div>
+  );
+}
 
 function formatModuleKind(kind: ModuleInstance["kind"]) {
   return kind.replace(/([a-z0-9])([A-Z])/g, "$1 $2");
@@ -64,9 +448,13 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
   const [selectedEdgeIds, setSelectedEdgeIds] = useState<string[]>([]);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("stages");
   const [openStagePicker, setOpenStagePicker] = useState<"death" | "initialize" | "spawn" | "update" | null>(null);
+  const [expandedModuleId, setExpandedModuleId] = useState<string | null>(null);
   const state = useEditorStoreValue(props.store, () => props.store.getState(), ["document", "selection", "compile", "emitters"]);
   const selectedEmitter = state.document.emitters.find((entry) => entry.id === state.selection.selectedEmitterId) ?? state.document.emitters[0];
   const { previewRect, beginPreviewInteraction, updatePreviewBounds } = usePreviewPanelDrag(workspaceRef);
+  const attributeOptions = selectedEmitter
+    ? [...new Set([...Object.keys(BUILTIN_ATTRIBUTE_TYPES), ...Object.keys(selectedEmitter.attributes)])].sort((left, right) => left.localeCompare(right))
+    : Object.keys(BUILTIN_ATTRIBUTE_TYPES);
 
   useEffect(() => {
     if (state.compileResult) {
@@ -89,6 +477,11 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
       resizeObserver.disconnect();
     };
   }, [updatePreviewBounds]);
+
+  useEffect(() => {
+    setExpandedModuleId(null);
+    setOpenStagePicker(null);
+  }, [selectedEmitter?.id]);
 
   const artifactPreview = state.compileResult ? serializeVfxArtifact(createVfxArtifact({ effect: state.compileResult })) : "";
   const cacheSnapshot = backend.getCacheSnapshot();
@@ -222,6 +615,46 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
     props.store.deleteSelectedGraphNodes();
   }
 
+  function updateStageModules(
+    emitterId: string,
+    stage: StageName,
+    updater: (modules: ModuleInstance[]) => ModuleInstance[]
+  ) {
+    const stageKey = getStageKey(stage);
+    props.store.updateEmitter(emitterId, (emitter: EmitterDocument) => {
+      const currentStage = emitter[stageKey];
+      return {
+        ...emitter,
+        [stageKey]: {
+          ...currentStage,
+          modules: updater(currentStage.modules)
+        }
+      } as EmitterDocument;
+    });
+  }
+
+  function handleUpdateStageModule(stage: StageName, moduleId: string, nextModule: ModuleInstance) {
+    if (!selectedEmitter) {
+      return;
+    }
+
+    updateStageModules(selectedEmitter.id, stage, (modules) =>
+      modules.map((module) => (module.id === moduleId ? nextModule : module))
+    );
+  }
+
+  function handleRemoveStageModule(stage: StageName, moduleId: string) {
+    if (!selectedEmitter) {
+      return;
+    }
+
+    updateStageModules(selectedEmitter.id, stage, (modules) => modules.filter((module) => module.id !== moduleId));
+
+    if (expandedModuleId === moduleId) {
+      setExpandedModuleId(null);
+    }
+  }
+
   const hasSelection = selectedEdgeIds.length > 0 || state.selection.graphNodeIds.length > 0;
 
   return (
@@ -334,21 +767,23 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
       {/* ── Right floating sidebar – Inspector ───────────────────────────── */}
       <aside className="pointer-events-auto absolute right-4 top-12 z-20 flex w-75 max-h-[calc(100%-44px-36px-8px)] flex-col overflow-hidden rounded-2xl bg-black/50 ring-1 ring-white/10 backdrop-blur-xl">
         {/* Tab bar */}
-        <div className="flex shrink-0 border-b border-white/8">
-          {(["stages", "renderer", "graph", "diagnostics"] as const).map((tab) => (
+        <div className="shrink-0 overflow-x-auto border-b border-white/8">
+          <div className="flex min-w-max gap-1 px-2 py-1.5">
+          {INSPECTOR_TABS.map((tab) => (
             <button
-              key={tab}
+              key={tab.id}
               type="button"
-              className={`flex-1 px-1 py-2.5 text-[10px] uppercase tracking-[0.16em] transition ${
-                inspectorTab === tab
-                  ? "text-emerald-300 shadow-[inset_0_-1px_0_0] shadow-emerald-400"
-                  : "text-zinc-600 hover:text-zinc-400"
+              className={`shrink-0 rounded-full px-3 py-1.5 text-[10px] uppercase tracking-[0.16em] transition ${
+                inspectorTab === tab.id
+                  ? "bg-emerald-400/10 text-emerald-300 ring-1 ring-emerald-300/20"
+                  : "text-zinc-600 hover:bg-white/4 hover:text-zinc-400"
               }`}
-              onClick={() => setInspectorTab(tab)}
+              onClick={() => setInspectorTab(tab.id)}
             >
-              {tab}
+              {tab.label}
             </button>
           ))}
+          </div>
         </div>
 
         {/* Tab content */}
@@ -380,47 +815,68 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
                     return (
                       <div key={stage} className="border-b border-white/6 last:border-0">
                         {/* Stage header */}
-                        <div className="flex items-center gap-2.5 px-3 py-2">
-                          <div className={`h-3.5 w-0.5 shrink-0 rounded-full ${accent} opacity-70`} />
-                          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400">{label}</span>
-                          <span className="ml-auto text-[10px] text-zinc-700">{modules.length} module{modules.length !== 1 ? "s" : ""}</span>
+                        <div className="px-3 py-2.5">
+                          <div className="flex items-center gap-2.5">
+                            <div className={`h-3.5 w-0.5 shrink-0 rounded-full ${accent} opacity-70`} />
+                            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400">{label}</span>
+                            <span className="ml-auto text-[10px] text-zinc-700">{modules.length} module{modules.length !== 1 ? "s" : ""}</span>
+                          </div>
+                          <div className="pl-3.5 pt-1 text-[11px] leading-snug text-zinc-600">{STAGE_EXPLANATIONS[stage]}</div>
                         </div>
 
                         {/* Module rows */}
                         {modules.length === 0 ? (
                           <div className="px-4 pb-2 text-[11px] italic text-zinc-700">Empty — no modules yet.</div>
                         ) : (
-                          <div className="px-3 pb-1">
+                          <div className="space-y-2 px-3 pb-2">
                             {modules.map((module) => (
-                              <div
-                                key={module.id}
-                                className="group flex items-center gap-2 rounded-lg px-2 py-1.5 transition hover:bg-white/4"
-                              >
-                                <div className={`size-1.5 shrink-0 rounded-full ${accent} opacity-55`} />
-                                <div className="min-w-0 flex-1">
-                                  <div className="text-[12px] font-medium text-zinc-200">{formatModuleKind(module.kind)}</div>
-                                  <div className="truncate text-[10px] text-zinc-600">{MODULE_DESCRIPTORS[module.kind].summary}</div>
+                              <div key={module.id} className="rounded-xl border border-white/8 bg-black/15">
+                                <div className="group flex items-start gap-2 px-2.5 py-2">
+                                  <button
+                                    type="button"
+                                    className="flex min-w-0 flex-1 items-start gap-2 text-left"
+                                    onClick={() => setExpandedModuleId((current) => (current === module.id ? null : module.id))}
+                                  >
+                                    <div className={`mt-1 size-1.5 shrink-0 rounded-full ${accent} opacity-55`} />
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-center gap-2">
+                                        <div className="text-[12px] font-medium text-zinc-200">{module.label ?? formatModuleKind(module.kind)}</div>
+                                        {!module.enabled ? (
+                                          <span className="rounded-full border border-white/10 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.16em] text-zinc-500">
+                                            disabled
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                      <div className="mt-0.5 text-[10px] leading-snug text-zinc-600">{MODULE_DESCRIPTORS[module.kind].summary}</div>
+                                    </div>
+                                  </button>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      className="rounded-md border border-white/8 px-1.5 py-0.5 text-[10px] text-zinc-500 transition hover:border-white/12 hover:text-zinc-300"
+                                      onClick={() => setExpandedModuleId((current) => (current === module.id ? null : module.id))}
+                                    >
+                                      {expandedModuleId === module.id ? "Hide" : "Edit"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      aria-label="Remove module"
+                                      className="flex size-6 shrink-0 items-center justify-center rounded text-zinc-700 transition hover:bg-rose-400/12 hover:text-rose-400"
+                                      onClick={() => handleRemoveStageModule(stage, module.id)}
+                                    >
+                                      ×
+                                    </button>
+                                  </div>
                                 </div>
-                                <button
-                                  type="button"
-                                  aria-label="Remove module"
-                                  className="flex size-5 shrink-0 items-center justify-center rounded text-zinc-700 opacity-0 transition hover:bg-rose-400/12 hover:text-rose-400 group-hover:opacity-100"
-                                  onClick={() =>
-                                    props.store.updateEmitter(selectedEmitter.id, (emitter) => {
-                                      const stageKey =
-                                        stage === "spawn" ? "spawnStage"
-                                        : stage === "initialize" ? "initializeStage"
-                                        : stage === "update" ? "updateStage"
-                                        : "deathStage";
-                                      return {
-                                        ...emitter,
-                                        [stageKey]: { modules: emitter[stageKey].modules.filter((m) => m.id !== module.id) }
-                                      };
-                                    })
-                                  }
-                                >
-                                  ×
-                                </button>
+                                {expandedModuleId === module.id ? (
+                                  <div className="px-2.5 pb-2.5">
+                                    <ModuleConfigEditor
+                                      attributeOptions={attributeOptions}
+                                      module={module}
+                                      onUpdate={(nextModule) => handleUpdateStageModule(stage, module.id, nextModule)}
+                                    />
+                                  </div>
+                                ) : null}
                               </div>
                             ))}
                           </div>
@@ -446,7 +902,8 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
                                   type="button"
                                   className="flex w-full items-start gap-2.5 px-2.5 py-1.5 text-left transition hover:bg-emerald-400/8"
                                   onClick={() => {
-                                    props.store.addStageModule(selectedEmitter.id, stage, kind);
+                                    const moduleId = props.store.addStageModule(selectedEmitter.id, stage, kind);
+                                    setExpandedModuleId(moduleId);
                                     setOpenStagePicker(null);
                                   }}
                                 >

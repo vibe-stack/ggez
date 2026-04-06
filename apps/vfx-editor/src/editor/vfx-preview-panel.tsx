@@ -75,7 +75,9 @@ function buildEmitterPreviewConfigs(
   const activeEmitters = (soloSelectedEmitter && selectedEmitterId
     ? document.emitters.filter((emitter) => emitter.id === selectedEmitterId)
     : document.emitters
-  ).slice(0, 4);
+  )
+    .filter((emitter) => emitter.renderers.some((renderer) => renderer.enabled))
+    .slice(0, 4);
 
   return activeEmitters.map((emitter) => {
     const compiledEmitter = compiledEffect?.emitters.find((entry) => entry.id === emitter.id);
@@ -100,7 +102,7 @@ function buildEmitterPreviewConfigs(
 
     return {
       emitterId: emitter.id,
-      burstCount: Math.max(1, Math.round(burstCount || Math.min(24, emitter.maxParticleCount * 0.08))),
+      burstCount: Math.max(0, Math.round(burstCount)),
       rate: Math.max(0, rate),
       spreadRadians: (readNumber(spreadDegrees, 16) * Math.PI) / 180,
       speedMin: readNumber(velocityCone?.config.speedMin, 60),

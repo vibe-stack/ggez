@@ -1,7 +1,7 @@
 import { compileVfxEffectDocument, type CompileVfxResult } from "@ggez/vfx-compiler";
 import type { CompileDiagnostic, EmitterDocument, ModuleInstance, VfxEffectDocument } from "@ggez/vfx-schema";
 import { createStableId, Emitter, type Unsubscribe } from "@ggez/anim-utils";
-import { createDefaultVfxEffectDocument } from "./defaults";
+import { createDefaultVfxEffectDocument, getDefaultModuleConfig } from "./defaults";
 
 type StageKey = "deathStage" | "initializeStage" | "spawnStage" | "updateStage";
 
@@ -78,6 +78,33 @@ function areStringArraysEqual(left: string[], right: string[]) {
   return left.every((value, index) => value === right[index]);
 }
 
+function inferGraphEdgeLabel(document: VfxEffectDocument, sourceNodeId: string, targetNodeId: string) {
+  const sourceNode = document.graph.nodes.find((node) => node.id === sourceNodeId);
+  const targetNode = document.graph.nodes.find((node) => node.id === targetNodeId);
+
+  if (!sourceNode || !targetNode) {
+    return undefined;
+  }
+
+  if (sourceNode.kind === "emitter" && targetNode.kind === "output") {
+    return "render";
+  }
+
+  if (sourceNode.kind === "event" && targetNode.kind === "emitter") {
+    return "trigger";
+  }
+
+  if (sourceNode.kind === "parameter" && targetNode.kind === "emitter") {
+    return "parameter";
+  }
+
+  if (sourceNode.kind === "dataInterface" && targetNode.kind === "emitter") {
+    return "data";
+  }
+
+  return undefined;
+}
+
 export function createVfxEditorStore(initialDocument = createDefaultVfxEffectDocument()): VfxEditorStore {
   const emitter = new Emitter<Set<VfxEditorTopic>>();
   const past: Snapshot[] = [];
@@ -117,6 +144,8 @@ export function createVfxEditorStore(initialDocument = createDefaultVfxEffectDoc
   function commit(mutator: () => void, topics: VfxEditorTopic[]) {
     past.push(cloneSnapshot(state));
     future.length = 0;
+    state.document = structuredClone(state.document);
+    state.selection = structuredClone(state.selection);
     mutator();
     const nextTopics: VfxEditorTopic[] = shouldCompile(topics) ? [...topics, "compile"] : topics;
     if (shouldCompile(topics)) {
@@ -309,7 +338,8 @@ export function createVfxEditorStore(initialDocument = createDefaultVfxEffectDoc
         state.document.graph.edges.push({
           id: edgeId,
           sourceNodeId,
-          targetNodeId
+          targetNodeId,
+          label: inferGraphEdgeLabel(state.document, sourceNodeId, targetNodeId)
         });
       }, ["document", "graph"]);
 
@@ -382,7 +412,7 @@ export function createVfxEditorStore(initialDocument = createDefaultVfxEffectDoc
             return entry;
           }
 
-          const nextModules = [...entry[stageKey].modules, { id: moduleId, kind, enabled: true, config: {} }];
+          const nextModules = [...entry[stageKey].modules, { id: moduleId, kind, enabled: true, config: getDefaultModuleConfig(kind) }];
           return {
             ...entry,
             [stageKey]: {

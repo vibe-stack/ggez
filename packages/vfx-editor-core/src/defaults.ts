@@ -13,12 +13,68 @@ function createNodeBase<K extends EffectGraphNode["kind"]>(id: string, kind: K, 
   };
 }
 
+export function getDefaultModuleConfig(kind: ModuleInstance["kind"]): Record<string, unknown> {
+  switch (kind) {
+    case "AlphaOverLife":
+      return { curve: "flash-fade", bias: 1 };
+    case "Attractor":
+      return { strength: 1, radius: 1 };
+    case "CollisionBounce":
+      return { restitution: 0.6, friction: 0.1 };
+    case "CollisionQuery":
+      return { interfaceId: "", radius: 0.1 };
+    case "ColorOverLife":
+      return { curve: "flash-hot", bias: 1 };
+    case "CurlNoiseForce":
+      return { strength: 1, frequency: 1 };
+    case "Drag":
+      return { coefficient: 2.8 };
+    case "GravityForce":
+      return { accelerationX: 0, accelerationY: 120, accelerationZ: 0 };
+    case "InheritVelocity":
+      return { scale: 1 };
+    case "KillByDistance":
+      return { maxDistance: 10 };
+    case "OrbitTarget":
+      return { radius: 1, angularSpeed: 1 };
+    case "RandomRange":
+      return { min: 0, max: 1, output: "sample" };
+    case "SendEvent":
+      return { eventId: "", when: "on-death" };
+    case "SetAttribute":
+      return { attribute: "lifetime", value: 0.42 };
+    case "SizeOverLife":
+      return { curve: "flash-expand", bias: 1 };
+    case "SpawnBurst":
+      return { count: 24, everyEvent: "" };
+    case "SpawnCone":
+      return { angleDegrees: 16, radius: 0.1 };
+    case "SpawnFromBone":
+      return { boneId: "" };
+    case "SpawnFromMeshSurface":
+      return { meshId: "" };
+    case "SpawnFromSpline":
+      return { splineId: "" };
+    case "SpawnRate":
+      return { rate: 24, maxAlive: 500 };
+    case "VelocityCone":
+      return { speedMin: 8, speedMax: 22, angleDegrees: 16 };
+    case "KillByAge":
+    case "ReceiveEvent":
+    case "RibbonLink":
+      return {};
+  }
+}
+
 function createModule(id: string, kind: ModuleInstance["kind"], config: Record<string, unknown> = {}): ModuleInstance {
   return {
     id,
     kind,
     enabled: true,
-    config
+    config: {
+      ...getDefaultModuleConfig(kind),
+      ...config
+    }
   };
 }
 
