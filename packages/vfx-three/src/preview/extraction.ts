@@ -65,10 +65,7 @@ function readHexColor(document: VfxEffectDocument, emitter: EmitterDocument): TH
   const hex = typeof parameter?.defaultValue === "string" ? parameter.defaultValue : fallbackHex;
 
   try {
-    const color = new THREE.Color(hex);
-    return renderer?.template === "SpriteSmokeMaterial"
-      ? color.clone().lerp(new THREE.Color("#8794a5"), 0.55)
-      : color;
+    return new THREE.Color(hex);
   } catch {
     return new THREE.Color(fallbackHex);
   }
@@ -151,13 +148,13 @@ export function buildEmitterPreviewConfigs(
       speedMax: readNumber(velocityCone?.config.speedMax, 180) * 0.04,
       drag: readNumber(drag?.config.coefficient, 2.8),
       gravity: readNumber(gravity?.config.accelerationY, 120) * 0.04,
-      upwardDrift: isSmoke ? 0.7 : 0.12,
+      upwardDrift: isSmoke ? 1.35 : 0.12,
       orbitRadius: readNumber(orbit?.config.radius, 0) * 1.4,
       orbitAngularSpeed: readNumber(orbit?.config.angularSpeed, 0),
       curlStrength: readNumber(curl?.config.strength, 0),
       lifetime: readNumber(lifetimeModule?.config.value, 0.42),
-      sizeStart: isSmoke ? 0.82 : 0.16,
-      sizeEnd: isSmoke ? 2.35 : 0.045,
+      sizeStart: isSmoke ? 1.35 : 0.16,
+      sizeEnd: isSmoke ? 5.4 : 0.045,
       sizeCurve: typeof sizeOverLife?.config.curve === "string" ? sizeOverLife.config.curve : undefined,
       alphaCurve: typeof alphaOverLife?.config.curve === "string" ? alphaOverLife.config.curve : undefined,
       colorCurve: typeof colorOverLife?.config.curve === "string" ? colorOverLife.config.curve : undefined,

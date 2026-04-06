@@ -81,77 +81,61 @@ function createModule(id: string, kind: ModuleInstance["kind"], config: Record<s
 export function createDefaultVfxEffectDocument(): VfxEffectDocument {
   return {
     version: 1,
-    id: "effect:muzzle-flash",
-    name: "Muzzle Flash",
+    id: "effect:red-smoke-plume",
+    name: "Red Smoke Plume",
     graph: {
       id: "graph:main",
       name: "Main",
       nodes: [
-        { ...createNodeBase("node:parameter:color", "parameter", "Tint", -120, -110), parameterId: "param:tint" },
-        { ...createNodeBase("node:event:fire", "event", "Fire", -120, 90), eventId: "event:fire" },
-        { ...createNodeBase("node:emitter:flash", "emitter", "Flash Sprite", 180, -10), emitterId: "emitter:flash" },
-        { ...createNodeBase("node:scalability", "scalability", "Scalability", 500, -120) },
-        { ...createNodeBase("node:output", "output", "Effect Output", 500, 120) }
+        { ...createNodeBase("node:parameter:color", "parameter", "Smoke Tint", -120, -60), parameterId: "param:tint" },
+        { ...createNodeBase("node:emitter:smoke", "emitter", "Smoke Volume", 180, 20), emitterId: "emitter:smoke" },
+        { ...createNodeBase("node:output", "output", "Effect Output", 500, 20) }
       ],
       edges: [
-        { id: "edge:param-flash", sourceNodeId: "node:parameter:color", targetNodeId: "node:emitter:flash", label: "parameter" },
-        { id: "edge:event-flash", sourceNodeId: "node:event:fire", targetNodeId: "node:emitter:flash", label: "trigger" },
-        { id: "edge:flash-output", sourceNodeId: "node:emitter:flash", targetNodeId: "node:output", label: "render" }
+        { id: "edge:param-smoke", sourceNodeId: "node:parameter:color", targetNodeId: "node:emitter:smoke", label: "parameter" },
+        { id: "edge:smoke-output", sourceNodeId: "node:emitter:smoke", targetNodeId: "node:output", label: "render" }
       ]
     },
     parameters: [
       {
         id: "param:tint",
-        name: "Tint",
+        name: "Smoke Tint",
         type: "color",
-        defaultValue: "#ffcc7a",
-        exposed: true
-      },
-      {
-        id: "param:intensity",
-        name: "Intensity",
-        type: "float",
-        defaultValue: 1,
+        defaultValue: "#ff0000",
         exposed: true
       }
     ],
-    events: [
-      {
-        id: "event:fire",
-        name: "Fire",
-        payload: {
-          muzzleVelocity: "float3"
-        }
-      }
-    ],
+    events: [],
     emitters: [
       {
-        id: "emitter:flash",
-        name: "Flash Sprite",
+        id: "emitter:smoke",
+        name: "Smoke Volume",
         simulationDomain: "particle",
-        maxParticleCount: 256,
+        maxParticleCount: 512,
         attributes: {
-          heat: "float"
+          density: "float"
         },
         spawnStage: {
           modules: [
-            createModule("module:burst", "SpawnBurst", { count: 24, everyEvent: "event:fire" }),
-            createModule("module:cone", "SpawnCone", { angleDegrees: 14, radius: 0.06 })
+            createModule("module:burst", "SpawnBurst", { count: 40, everyEvent: "" }),
+            createModule("module:rate", "SpawnRate", { rate: 72, maxAlive: 512 }),
+            createModule("module:cone", "SpawnCone", { angleDegrees: 14, radius: 0.26 })
           ]
         },
         initializeStage: {
           modules: [
-            createModule("module:set-age", "SetAttribute", { attribute: "lifetime", value: 0.12 }),
-            createModule("module:velocity", "VelocityCone", { speedMin: 8, speedMax: 22 }),
-            createModule("module:inherit", "InheritVelocity", { scale: 0.8 })
+            createModule("module:set-age", "SetAttribute", { attribute: "lifetime", value: 3.2 }),
+            createModule("module:velocity", "VelocityCone", { speedMin: 0.35, speedMax: 1.4, angleDegrees: 16 })
           ]
         },
         updateStage: {
           modules: [
-            createModule("module:drag", "Drag", { coefficient: 3.4 }),
-            createModule("module:color", "ColorOverLife", { curve: "flash-hot" }),
-            createModule("module:size", "SizeOverLife", { curve: "flash-expand" }),
-            createModule("module:alpha", "AlphaOverLife", { curve: "flash-fade" })
+            createModule("module:drag", "Drag", { coefficient: 0.82 }),
+            createModule("module:gravity", "GravityForce", { accelerationX: 0, accelerationY: -16, accelerationZ: 0 }),
+            createModule("module:curl", "CurlNoiseForce", { strength: 2.25, frequency: 0.8 }),
+            createModule("module:color", "ColorOverLife", { curve: "smoke-soft" }),
+            createModule("module:size", "SizeOverLife", { curve: "smoke-soft" }),
+            createModule("module:alpha", "AlphaOverLife", { curve: "smoke-soft" })
           ]
         },
         deathStage: {
@@ -162,51 +146,33 @@ export function createDefaultVfxEffectDocument(): VfxEffectDocument {
         eventHandlers: [],
         renderers: [
           {
-            id: "renderer:flash",
-            name: "Flash Sprites",
+            id: "renderer:smoke",
+            name: "Smoke Sprites",
             kind: "sprite",
-            template: "SpriteAdditiveMaterial",
+            template: "SpriteSmokeMaterial",
             enabled: true,
             material: {
-              blendMode: "additive",
+              blendMode: "alpha",
               lightingMode: "unlit",
-              softParticles: false,
-              depthFade: false,
+              softParticles: true,
+              depthFade: true,
               flipbook: true,
               distortion: false,
-              emissive: true,
+              emissive: false,
               facingMode: "full",
-              sortMode: "none"
+              sortMode: "back-to-front"
             },
             parameterBindings: {
-              tint: "param:tint"
+              tint: "param:tint",
+              _texture: "smoke"
             }
           }
         ],
-        sourceBindings: [
-          {
-            id: "source:muzzle",
-            name: "Muzzle Socket",
-            kind: "socket",
-            sourceId: "socket:muzzle",
-            config: {
-              inheritRotation: true
-            }
-          }
-        ],
+        sourceBindings: [],
         dataInterfaces: []
       }
     ],
-    dataInterfaces: [
-      {
-        id: "interface:bone",
-        name: "Character Socket Binding",
-        kind: "bone",
-        config: {
-          skeletonSource: "preview-character"
-        }
-      }
-    ],
+    dataInterfaces: [],
     subgraphs: [],
     scalability: {
       tier: "high",
@@ -239,14 +205,14 @@ export function createDefaultVfxEffectDocument(): VfxEffectDocument {
     },
     preview: {
       loop: true,
-      durationSeconds: 2,
-      attachMode: "character",
+      durationSeconds: 6,
+      attachMode: "isolated",
       playbackRate: 1
     },
     metadata: {
       createdAt: nowIso(),
       updatedAt: nowIso(),
-      tags: ["muzzle", "weapon", "flash"]
+      tags: ["smoke", "red", "volumetric"]
     }
   };
 }

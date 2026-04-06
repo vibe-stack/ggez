@@ -69,8 +69,14 @@ export type SpriteTextureDefinition = {
 export type EmitterGpuResources = {
   bindGroup: any;
   particleBuffer: any;
-  readBuffer: any;
+  readBuffers: any[];
   uniformBuffer: any;
+};
+
+export type EmitterReadbackSlot = {
+  buffer: any;
+  pending: boolean;
+  sequence: number;
 };
 
 export type EmitterPreviewEntry = {
@@ -81,13 +87,20 @@ export type EmitterPreviewEntry = {
   previousAlive: Uint8Array;
   sprites: THREE.Sprite[];
   texture: THREE.Texture;
-  readbackPending: boolean;
+  readbackCooldownSeconds: number;
+  readbackSlots: EmitterReadbackSlot[];
+  nextReadbackSlot: number;
+  lastScheduledReadbackSequence: number;
+  lastAppliedReadbackSequence: number;
+  lastAppliedReadbackAtSeconds: number;
   dirty: boolean;
 };
 
 export const PARTICLE_FLOATS = 20;
 export const WORKGROUP_SIZE = 64;
-export const MAX_PREVIEW_PARTICLES_PER_EMITTER = 320;
+export const MAX_PREVIEW_PARTICLES_PER_EMITTER = 192;
+export const PREVIEW_READBACK_INTERVAL_SECONDS = 1 / 15;
+export const PREVIEW_READBACK_BUFFER_COUNT = 3;
 export const GPU_BUFFER_USAGE = globalThis.GPUBufferUsage as any;
 export const GPU_MAP_MODE = globalThis.GPUMapMode as any;
 

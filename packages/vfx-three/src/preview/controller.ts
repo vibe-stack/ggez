@@ -8,6 +8,8 @@ import {
   GPU_MAP_MODE,
   PARTICLE_FLOATS,
   PARTICLE_INDEX,
+  PREVIEW_READBACK_BUFFER_COUNT,
+  PREVIEW_READBACK_INTERVAL_SECONDS,
   WORKGROUP_SIZE,
   type CreateThreeWebGpuPreviewControllerInput,
   type EmitterPreviewConfig,
@@ -20,7 +22,7 @@ const COMPUTE_SHADER_CODE = /* wgsl */ `
 struct Particle {
   position : vec4f,
   velocity : vec4f,
-  meta : vec4f,
+  timing : vec4f,
   extra : vec4f,
   misc : vec4f,
 }
@@ -56,9 +58,9 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   }
 
   let dt = params.deltaTime;
-  var age = particle.meta.x + dt;
-  if (age >= particle.meta.y) {
-    particle.meta.x = age;
+  var age = particle.timing.x + dt;
+  if (age >= particle.timing.y) {
+    particle.timing.x = age;
     particle.extra.z = 0.0;
     particles[index] = particle;
     return;
@@ -94,7 +96,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
 
   particle.position = vec4f(position, 1.0);
   particle.velocity = vec4f(velocity, 0.0);
-  particle.meta.x = age;
+  particle.timing.x = age;
   particle.extra.x = particle.extra.x + particle.extra.y * dt;
 
   particles[index] = particle;
@@ -148,7 +150,7 @@ export async function createThreeWebGpuPreviewController(
 
   const previewScene = createPreviewThreeScene({ mount: input.mount, renderer: input.renderer });
   const shaderModule = device.createShaderModule({ code: COMPUTE_SHADER_CODE, label: "vfx-preview-sim" });
-  const computePipeline = device.createComputePipeline({
+  const computePipeline = await device.createComputePipelineAsync({
     label: "vfx-preview-sim-pipeline",
     layout: "auto",
     compute: {
@@ -177,7 +179,7 @@ export async function createThreeWebGpuPreviewController(
     });
     entry.texture.dispose();
     entry.gpu.particleBuffer.destroy();
-    entry.gpu.readBuffer.destroy();
+    entry.gpu.readBuffers.forEach((buffer) => buffer.destroy());
     entry.gpu.uniformBuffer.destroy();
   }
 
@@ -200,11 +202,15 @@ export async function createThreeWebGpuPreviewController(
         size: particleData.byteLength,
         usage: GPU_BUFFER_USAGE.STORAGE | GPU_BUFFER_USAGE.COPY_SRC | GPU_BUFFER_USAGE.COPY_DST
       });
-      const readBuffer = device.createBuffer({
-        label: `vfx-preview-read-${config.emitterId}`,
-        size: particleData.byteLength,
-        usage: GPU_BUFFER_USAGE.COPY_DST | GPU_BUFFER_USAGE.MAP_READ
-      });
+      const readbackSlots = Array.from({ length: PREVIEW_READBACK_BUFFER_COUNT }, (_, index) => ({
+        buffer: device.createBuffer({
+          label: `vfx-preview-read-${config.emitterId}-${index}`,
+          size: particleData.byteLength,
+          usage: GPU_BUFFER_USAGE.COPY_DST | GPU_BUFFER_USAGE.MAP_READ
+        }),
+        pending: false,
+        sequence: 0
+      }));
       const uniformBuffer = device.createBuffer({
         label: `vfx-preview-uniform-${config.emitterId}`,
         size: 32,
@@ -221,12 +227,17 @@ export async function createThreeWebGpuPreviewController(
       entries.set(config.emitterId, {
         accumulator: 0,
         config,
-        gpu: { bindGroup, particleBuffer, readBuffer, uniformBuffer },
+        gpu: { bindGroup, particleBuffer, readBuffers: readbackSlots.map((slot) => slot.buffer), uniformBuffer },
         particleData,
         previousAlive: new Uint8Array(config.maxParticleCount),
         sprites,
         texture,
-        readbackPending: false,
+        readbackCooldownSeconds: 0,
+        readbackSlots,
+        nextReadbackSlot: 0,
+        lastScheduledReadbackSequence: 0,
+        lastAppliedReadbackSequence: 0,
+        lastAppliedReadbackAtSeconds: 0,
         dirty: true
       });
     }
@@ -295,13 +306,27 @@ export async function createThreeWebGpuPreviewController(
       entry.particleData.fill(0);
       entry.previousAlive.fill(0);
       entry.accumulator = 0;
+      entry.readbackCooldownSeconds = 0;
+      entry.nextReadbackSlot = 0;
+      entry.lastScheduledReadbackSequence = 0;
+      entry.lastAppliedReadbackSequence = 0;
+      entry.lastAppliedReadbackAtSeconds = 0;
+      entry.readbackSlots.forEach((slot) => {
+        slot.pending = false;
+        slot.sequence = 0;
+      });
       entry.dirty = true;
     }
     triggerStartupBursts();
   }
 
-  function updateSprites(entry: EmitterPreviewEntry) {
+  function updateSprites(entry: EmitterPreviewEntry, nowSeconds: number) {
     let livingCount = 0;
+    const predictionSeconds = Math.min(
+      PREVIEW_READBACK_INTERVAL_SECONDS,
+      Math.max(0, nowSeconds - entry.lastAppliedReadbackAtSeconds)
+    );
+
     for (let index = 0; index < entry.config.maxParticleCount; index += 1) {
       const offset = index * PARTICLE_FLOATS;
       const sprite = entry.sprites[index]!;
@@ -314,7 +339,7 @@ export async function createThreeWebGpuPreviewController(
       }
 
       livingCount += 1;
-      const age = entry.particleData[offset + PARTICLE_INDEX.age];
+      const age = entry.particleData[offset + PARTICLE_INDEX.age] + predictionSeconds;
       const lifetime = Math.max(0.0001, entry.particleData[offset + PARTICLE_INDEX.lifetime]);
       const life = Math.min(age / lifetime, 1);
       const alpha = evaluatePreviewAlpha(entry.config.alphaCurve, life, entry.config.isSmoke);
@@ -328,19 +353,23 @@ export async function createThreeWebGpuPreviewController(
 
       sprite.visible = true;
       sprite.position.set(
-        entry.particleData[offset + PARTICLE_INDEX.positionX],
-        entry.particleData[offset + PARTICLE_INDEX.positionY],
-        entry.particleData[offset + PARTICLE_INDEX.positionZ]
+        entry.particleData[offset + PARTICLE_INDEX.positionX] + entry.particleData[offset + PARTICLE_INDEX.velocityX] * predictionSeconds,
+        entry.particleData[offset + PARTICLE_INDEX.positionY] + entry.particleData[offset + PARTICLE_INDEX.velocityY] * predictionSeconds,
+        entry.particleData[offset + PARTICLE_INDEX.positionZ] + entry.particleData[offset + PARTICLE_INDEX.velocityZ] * predictionSeconds
       );
       sprite.scale.setScalar(Math.max(0.01, size));
       material.color.copy(color);
       material.opacity = alpha;
-      material.rotation = entry.particleData[offset + PARTICLE_INDEX.rotation];
+      material.rotation = entry.particleData[offset + PARTICLE_INDEX.rotation] + entry.particleData[offset + PARTICLE_INDEX.rotationSpeed] * predictionSeconds;
     }
     return livingCount;
   }
 
-  function processReadback(entry: EmitterPreviewEntry, copy: ArrayBuffer) {
+  function processReadback(entry: EmitterPreviewEntry, copy: ArrayBuffer, sequence: number, resolvedAtSeconds: number) {
+    if (sequence <= entry.lastAppliedReadbackSequence) {
+      return;
+    }
+
     const next = new Float32Array(copy);
     const smokeBursts: Array<{ eventId: string; origin: THREE.Vector3 }> = [];
 
@@ -362,6 +391,8 @@ export async function createThreeWebGpuPreviewController(
     }
 
     entry.particleData.set(next);
+    entry.lastAppliedReadbackSequence = sequence;
+    entry.lastAppliedReadbackAtSeconds = resolvedAtSeconds;
     smokeBursts.forEach((burst) => emitEvent(burst.eventId, burst.origin));
   }
 
@@ -397,24 +428,33 @@ export async function createThreeWebGpuPreviewController(
     pass.dispatchWorkgroups(Math.ceil(entry.config.maxParticleCount / WORKGROUP_SIZE));
     pass.end();
 
-    if (!entry.readbackPending) {
-      encoder.copyBufferToBuffer(entry.gpu.particleBuffer, 0, entry.gpu.readBuffer, 0, entry.particleData.byteLength);
-      entry.readbackPending = true;
+    entry.readbackCooldownSeconds = Math.max(0, entry.readbackCooldownSeconds - deltaTime);
+    const selectedSlot = entry.readbackSlots[entry.nextReadbackSlot];
+    const canScheduleReadback = entry.readbackCooldownSeconds <= 0 && selectedSlot && !selectedSlot.pending;
+
+    if (canScheduleReadback) {
+      const readbackSequence = entry.lastScheduledReadbackSequence + 1;
+      entry.lastScheduledReadbackSequence = readbackSequence;
+      selectedSlot.sequence = readbackSequence;
+      encoder.copyBufferToBuffer(entry.gpu.particleBuffer, 0, selectedSlot.buffer, 0, entry.particleData.byteLength);
+      selectedSlot.pending = true;
+      entry.nextReadbackSlot = (entry.nextReadbackSlot + 1) % entry.readbackSlots.length;
+      entry.readbackCooldownSeconds = PREVIEW_READBACK_INTERVAL_SECONDS;
     }
 
     device.queue.submit([encoder.finish()]);
 
-    if (entry.readbackPending) {
-      entry.gpu.readBuffer.mapAsync(GPU_MAP_MODE.READ).then(() => {
+    if (canScheduleReadback && selectedSlot) {
+      selectedSlot.buffer.mapAsync(GPU_MAP_MODE.READ).then(() => {
         if (disposed) {
           return;
         }
-        const copy = entry.gpu.readBuffer.getMappedRange().slice(0);
-        entry.gpu.readBuffer.unmap();
-        entry.readbackPending = false;
-        processReadback(entry, copy);
+        const copy = selectedSlot.buffer.getMappedRange().slice(0);
+        selectedSlot.buffer.unmap();
+        selectedSlot.pending = false;
+        processReadback(entry, copy, selectedSlot.sequence, performance.now() / 1000);
       }).catch(() => {
-        entry.readbackPending = false;
+        selectedSlot.pending = false;
       });
     }
   }
@@ -486,8 +526,9 @@ export async function createThreeWebGpuPreviewController(
     previewScene.controls.update();
 
     let totalParticles = 0;
+    const nowSeconds = now / 1000;
     for (const entry of entries.values()) {
-      totalParticles += updateSprites(entry);
+      totalParticles += updateSprites(entry, nowSeconds);
     }
     input.onParticleCountChange?.(totalParticles);
 
