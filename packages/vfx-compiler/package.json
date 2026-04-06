@@ -1,0 +1,31 @@
+{
+  "name": "@ggez/vfx-compiler",
+  "version": "0.1.0",
+  "description": "Compiler pipeline for Web Hammer VFX editor documents.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup --config ../../scripts/tsup.package.config.mjs",
+    "prepublishOnly": "bun run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@ggez/vfx-core": "workspace:*",
+    "@ggez/vfx-schema": "workspace:*"
+  }
+}

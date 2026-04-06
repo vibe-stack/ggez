@@ -1,0 +1,113 @@
+@import "tailwindcss";
+@import "@fontsource-variable/geist";
+@import "@xyflow/react/dist/style.css";
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  min-height: 100vh;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top left, rgba(52, 211, 153, 0.08), transparent 28%),
+    radial-gradient(circle at right, rgba(78, 181, 255, 0.09), transparent 24%),
+    linear-gradient(180deg, #0b0e0d 0%, #090a0d 100%);
+  color: #f0f4f2;
+  font-family: "Geist Variable", "Geist", ui-sans-serif, system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(52, 211, 153, 0.24);
+}
+
+.vfx-editor-shell {
+  position: relative;
+  isolation: isolate;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0) 16%),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0, rgba(255, 255, 255, 0.025) 1px, transparent 1px, transparent 72px),
+    linear-gradient(rgba(255, 255, 255, 0.018) 0, rgba(255, 255, 255, 0.018) 1px, transparent 1px, transparent 72px),
+    linear-gradient(180deg, #0c0f0e 0%, #090a0d 100%);
+}
+
+.vfx-flow {
+  background:
+    radial-gradient(circle at top, rgba(52, 211, 153, 0.07), transparent 30%),
+    linear-gradient(180deg, #0c0f0e 0%, #0b0c10 100%);
+}
+
+.vfx-flow .react-flow__pane {
+  cursor: default;
+}
+
+.vfx-flow .react-flow__node {
+  width: 230px;
+  border: 1px solid rgba(52, 211, 153, 0.20);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(18, 28, 24, 0.97) 0%, rgba(14, 17, 20, 0.98) 100%);
+  color: #f0fdf4;
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.34);
+}
+
+.vfx-flow .react-flow__node.selectable.selected,
+.vfx-flow .react-flow__node.dragging {
+  border-color: rgba(52, 211, 153, 0.72);
+  box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.20), 0 18px 32px rgba(0, 0, 0, 0.42);
+}
+
+.vfx-flow .react-flow__handle {
+  width: 8px;
+  height: 8px;
+  border: 1px solid rgba(52, 211, 153, 0.5);
+  background: #101814;
+}
+
+.vfx-flow .react-flow__edge-path {
+  stroke: rgba(52, 211, 153, 0.45);
+  stroke-width: 1.5;
+}
+
+.vfx-flow .react-flow__edge.selected .react-flow__edge-path {
+  stroke: rgba(52, 211, 153, 0.95);
+  stroke-width: 1.8;
+}
+
+.vfx-flow .react-flow__controls,
+.vfx-flow .react-flow__minimap {
+  border: 1px solid rgba(52, 211, 153, 0.15);
+  border-radius: 8px;
+  background: rgba(10, 12, 11, 0.88);
+  overflow: hidden;
+}
+
+.vfx-flow .react-flow__controls-button {
+  border-bottom: 1px solid rgba(52, 211, 153, 0.10);
+  background: rgba(10, 12, 11, 0.96);
+  color: rgba(240, 253, 244, 0.8);
+}

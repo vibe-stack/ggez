@@ -1,0 +1,39 @@
+{
+  "name": "vfx-editor",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist": "^5.2.8",
+    "@ggez/vfx-compiler": "workspace:*",
+    "@ggez/vfx-core": "workspace:*",
+    "@ggez/vfx-editor-core": "workspace:*",
+    "@ggez/vfx-exporter": "workspace:*",
+    "@ggez/vfx-runtime": "workspace:*",
+    "@ggez/vfx-schema": "workspace:*",
+    "@ggez/vfx-three": "workspace:*",
+    "@tailwindcss/vite": "^4.2.2",
+    "@vitejs/plugin-react": "^6.0.1",
+    "@xyflow/react": "^12.10.1",
+    "lucide-react": "^1.7.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "tailwindcss": "^4.2.2",
+    "three": "^0.181.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/three": "^0.181.0",
+    "typescript": "~5.9.3",
+    "vite": "^8.0.1"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "@ggez/vfx-editor-core",
+  "version": "0.1.0",
+  "description": "React-independent editor store and document editing helpers for the Web Hammer VFX editor.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup --config ../../scripts/tsup.package.config.mjs",
+    "prepublishOnly": "bun run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@ggez/anim-utils": "workspace:*",
+    "@ggez/vfx-compiler": "workspace:*",
+    "@ggez/vfx-schema": "workspace:*"
+  }
+}

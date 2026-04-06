@@ -1,0 +1,32 @@
+{
+  "name": "@ggez/vfx-three",
+  "version": "0.1.0",
+  "description": "Three.js WebGPU renderer bridge and cache primitives for Web Hammer VFX.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup --config ../../scripts/tsup.package.config.mjs",
+    "prepublishOnly": "bun run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@ggez/vfx-runtime": "workspace:*",
+    "@ggez/vfx-schema": "workspace:*",
+    "three": "^0.181.1"
+  }
+}
