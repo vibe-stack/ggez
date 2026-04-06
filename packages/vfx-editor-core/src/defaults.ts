@@ -111,28 +111,28 @@ export function createDefaultVfxEffectDocument(): VfxEffectDocument {
         id: "emitter:smoke",
         name: "Smoke Volume",
         simulationDomain: "particle",
-        maxParticleCount: 512,
+        maxParticleCount: 768,
         attributes: {
           density: "float"
         },
         spawnStage: {
           modules: [
-            createModule("module:burst", "SpawnBurst", { count: 40, everyEvent: "" }),
-            createModule("module:rate", "SpawnRate", { rate: 72, maxAlive: 512 }),
-            createModule("module:cone", "SpawnCone", { angleDegrees: 14, radius: 0.26 })
+            createModule("module:burst", "SpawnBurst", { count: 8, everyEvent: "" }),
+            createModule("module:rate", "SpawnRate", { rate: 18, maxAlive: 768 }),
+            createModule("module:cone", "SpawnCone", { angleDegrees: 9, radius: 0.14 })
           ]
         },
         initializeStage: {
           modules: [
-            createModule("module:set-age", "SetAttribute", { attribute: "lifetime", value: 3.2 }),
-            createModule("module:velocity", "VelocityCone", { speedMin: 0.35, speedMax: 1.4, angleDegrees: 16 })
+            createModule("module:set-age", "SetAttribute", { attribute: "lifetime", value: 5.5 }),
+            createModule("module:velocity", "VelocityCone", { speedMin: 0.12, speedMax: 0.48, angleDegrees: 11 })
           ]
         },
         updateStage: {
           modules: [
-            createModule("module:drag", "Drag", { coefficient: 0.82 }),
-            createModule("module:gravity", "GravityForce", { accelerationX: 0, accelerationY: -16, accelerationZ: 0 }),
-            createModule("module:curl", "CurlNoiseForce", { strength: 2.25, frequency: 0.8 }),
+            createModule("module:drag", "Drag", { coefficient: 0.28 }),
+            createModule("module:gravity", "GravityForce", { accelerationX: 0, accelerationY: -7, accelerationZ: 0 }),
+            createModule("module:curl", "CurlNoiseForce", { strength: 1.35, frequency: 0.55 }),
             createModule("module:color", "ColorOverLife", { curve: "smoke-soft" }),
             createModule("module:size", "SizeOverLife", { curve: "smoke-soft" }),
             createModule("module:alpha", "AlphaOverLife", { curve: "smoke-soft" })

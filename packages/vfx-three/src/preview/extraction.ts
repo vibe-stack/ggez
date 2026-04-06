@@ -1,7 +1,7 @@
 import type { CompiledVfxEffect, EmitterDocument, VfxEffectDocument } from "@ggez/vfx-schema";
 import * as THREE from "three";
 import type { EmitterPreviewConfig } from "./types";
-import { MAX_PREVIEW_PARTICLES_PER_EMITTER } from "./types";
+import { MAX_PREVIEW_PARTICLES_PER_EMITTER, MAX_PREVIEW_SMOKE_PARTICLES_PER_EMITTER } from "./types";
 
 function readNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
@@ -148,19 +148,22 @@ export function buildEmitterPreviewConfigs(
       speedMax: readNumber(velocityCone?.config.speedMax, 180) * 0.04,
       drag: readNumber(drag?.config.coefficient, 2.8),
       gravity: readNumber(gravity?.config.accelerationY, 120) * 0.04,
-      upwardDrift: isSmoke ? 1.35 : 0.12,
+      upwardDrift: isSmoke ? 0.92 : 0.12,
       orbitRadius: readNumber(orbit?.config.radius, 0) * 1.4,
       orbitAngularSpeed: readNumber(orbit?.config.angularSpeed, 0),
       curlStrength: readNumber(curl?.config.strength, 0),
       lifetime: readNumber(lifetimeModule?.config.value, 0.42),
-      sizeStart: isSmoke ? 1.35 : 0.16,
-      sizeEnd: isSmoke ? 5.4 : 0.045,
+      sizeStart: isSmoke ? 0.42 : 0.16,
+      sizeEnd: isSmoke ? 2.6 : 0.045,
       sizeCurve: typeof sizeOverLife?.config.curve === "string" ? sizeOverLife.config.curve : undefined,
       alphaCurve: typeof alphaOverLife?.config.curve === "string" ? alphaOverLife.config.curve : undefined,
       colorCurve: typeof colorOverLife?.config.curve === "string" ? colorOverLife.config.curve : undefined,
       color: readHexColor(document, emitter),
       additive: firstRenderer?.material.blendMode !== "alpha",
-      maxParticleCount: Math.min(compiledEmitter?.capacity ?? emitter.maxParticleCount, MAX_PREVIEW_PARTICLES_PER_EMITTER),
+      maxParticleCount: Math.min(
+        compiledEmitter?.capacity ?? emitter.maxParticleCount,
+        isSmoke ? MAX_PREVIEW_SMOKE_PARTICLES_PER_EMITTER : MAX_PREVIEW_PARTICLES_PER_EMITTER
+      ),
       isSmoke,
       texturePreset: readTexturePreset(emitter)
     };

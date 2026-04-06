@@ -34,7 +34,7 @@ function drawSmokeCell(ctx: CanvasRenderingContext2D, originX: number, originY: 
   ctx.fillRect(originX, originY, tileSize, tileSize);
 }
 
-export function makePreviewSpriteTexture(preset: string): SpriteTextureDefinition {
+export function makePreviewSpriteCanvas(preset: string): HTMLCanvasElement {
   const atlasGrid = preset === "smoke" ? 2 : 1;
   const size = atlasGrid === 2 ? 256 : 128;
   const canvas = document.createElement("canvas");
@@ -110,6 +110,12 @@ export function makePreviewSpriteTexture(preset: string): SpriteTextureDefinitio
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, size, size);
   }
+
+  return canvas;
+}
+
+export function makePreviewSpriteTexture(preset: string): SpriteTextureDefinition {
+  const canvas = makePreviewSpriteCanvas(preset);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.needsUpdate = true;

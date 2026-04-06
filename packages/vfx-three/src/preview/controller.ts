@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { buildEmitterPreviewConfigs, resolveActiveEmitterIds } from "./extraction";
 import { evaluatePreviewAlpha, evaluatePreviewColor, evaluatePreviewSize } from "./evaluation";
 import { createPreviewThreeScene } from "./scene";
+import { createPreviewGpuSmokeRenderer } from "./smoke-renderer";
 import { createPreviewSprite, makePreviewSpriteTexture } from "./textures";
 import {
   GPU_BUFFER_USAGE,
@@ -28,14 +29,11 @@ struct Particle {
 }
 
 struct SimParams {
-  deltaTime : f32,
-  drag : f32,
-  gravity : f32,
-  upwardDrift : f32,
-  orbitRadius : f32,
-  orbitAngularSpeed : f32,
-  curlStrength : f32,
-  maxParticles : u32,
+  sim0 : vec4f,
+  sim1 : vec4f,
+  spawn0 : vec4f,
+  spawn1 : vec4f,
+  spawnMeta : vec4u,
 }
 
 @group(0) @binding(0) var<storage, read_write> particles : array<Particle>;
@@ -45,11 +43,56 @@ fn maxf(a: f32, b: f32) -> f32 {
   return select(b, a, a > b);
 }
 
+fn hash01(value: u32) -> f32 {
+  let state = value * 747796405u + 2891336453u;
+  let word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+  let result = (word >> 22u) ^ word;
+  return f32(result & 0x00ffffffu) / 16777215.0;
+}
+
+fn signedHash(value: u32) -> f32 {
+  return hash01(value) * 2.0 - 1.0;
+}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   let index = gid.x;
-  if (index >= params.maxParticles) {
+  if (index >= params.spawnMeta.z) {
     return;
+  }
+
+  if (params.spawnMeta.y > 0u) {
+    let spawnDistance = (index + params.spawnMeta.z - params.spawnMeta.x) % params.spawnMeta.z;
+    if (spawnDistance < params.spawnMeta.y) {
+      let baseSeed = index ^ params.spawnMeta.x ^ u32(params.sim1.w * 4096.0 + 1.0);
+      let angle = 1.57079632679 + signedHash(baseSeed ^ 0x9e3779b9u) * params.spawn0.x;
+      let azimuth = hash01(baseSeed ^ 0x85ebca6bu) * 6.28318530718;
+      let speed = params.spawn0.y + hash01(baseSeed ^ 0xc2b2ae35u) * max(0.0, params.spawn0.z - params.spawn0.y);
+      let radius = params.spawn0.w * hash01(baseSeed ^ 0x27d4eb2fu);
+      let radialAngle = hash01(baseSeed ^ 0x165667b1u) * 6.28318530718;
+      let spawnOffset = vec3f(cos(radialAngle) * radius, signedHash(baseSeed ^ 0xd3a2646cu) * 0.06, sin(radialAngle) * radius);
+      let cosA = cos(angle);
+      let sinA = sin(angle);
+      let velocity = vec3f(
+        cosA * cos(azimuth) * speed,
+        sinA * speed + params.sim0.w * 0.12,
+        cosA * sin(azimuth) * speed
+      );
+      let lifetime = params.spawn1.x * (0.82 + hash01(baseSeed ^ 0xa24baed4u) * 0.42);
+      let sizeStart = params.spawn1.y * (0.76 + hash01(baseSeed ^ 0x9fb21c65u) * 0.36);
+      let frame = floor(hash01(baseSeed ^ 0xe6546b64u) * 4.0);
+      let rotation = hash01(baseSeed ^ 0x94d049bbu) * 6.28318530718;
+      let rotationSpeed = 0.22 * (0.6 + hash01(baseSeed ^ 0xed558ccdu) * 0.8) * select(-1.0, 1.0, hash01(baseSeed ^ 0x4c1bf5dcu) > 0.5);
+
+      var spawned : Particle;
+      spawned.position = vec4f(spawnOffset, 1.0);
+      spawned.velocity = vec4f(velocity, 0.0);
+      spawned.timing = vec4f(0.0, lifetime, sizeStart, params.spawn1.z);
+      spawned.extra = vec4f(rotation, rotationSpeed, 1.0, frame);
+      spawned.misc = vec4f(hash01(baseSeed ^ 0x7f4a7c15u) * 1000.0, 0.0, 0.0, 0.0);
+      particles[index] = spawned;
+      return;
+    }
   }
 
   var particle = particles[index];
@@ -57,7 +100,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     return;
   }
 
-  let dt = params.deltaTime;
+  let dt = params.sim0.x;
   var age = particle.timing.x + dt;
   if (age >= particle.timing.y) {
     particle.timing.x = age;
@@ -69,29 +112,29 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   var position = particle.position.xyz;
   var velocity = particle.velocity.xyz;
 
-  if (params.orbitRadius > 0.0 || abs(params.orbitAngularSpeed) > 0.0001) {
+  if (params.sim1.x > 0.0 || abs(params.sim1.y) > 0.0001) {
     let dx = position.x;
     let dz = position.z;
     let radius = maxf(0.0001, sqrt(dx * dx + dz * dz));
     let tangentX = -dz / radius;
     let tangentZ = dx / radius;
-    let targetRadius = maxf(params.orbitRadius, 0.08);
+    let targetRadius = maxf(params.sim1.x, 0.08);
     let radialError = radius - targetRadius;
-    let orbitForce = params.orbitAngularSpeed * maxf(params.orbitRadius, 0.12) * 0.85;
+    let orbitForce = params.sim1.y * maxf(params.sim1.x, 0.12) * 0.85;
     velocity.x = velocity.x + (tangentX * orbitForce - (dx / radius) * radialError * 3.2) * dt;
     velocity.z = velocity.z + (tangentZ * orbitForce - (dz / radius) * radialError * 3.2) * dt;
   }
 
-  if (params.curlStrength > 0.0) {
+  if (params.sim1.z > 0.0) {
     let phase = particle.misc.x + age * 3.2;
-    velocity.x = velocity.x + sin(phase + position.z * 2.5) * params.curlStrength * 0.02 * dt;
-    velocity.y = velocity.y + cos(phase * 0.65 + position.x * 1.6) * params.curlStrength * 0.012 * dt;
-    velocity.z = velocity.z + sin(phase * 1.17 + position.y * 1.8) * params.curlStrength * 0.02 * dt;
+    velocity.x = velocity.x + sin(phase + position.z * 2.5) * params.sim1.z * 0.02 * dt;
+    velocity.y = velocity.y + cos(phase * 0.65 + position.x * 1.6) * params.sim1.z * 0.012 * dt;
+    velocity.z = velocity.z + sin(phase * 1.17 + position.y * 1.8) * params.sim1.z * 0.02 * dt;
   }
 
-  let dragFactor = maxf(0.0, 1.0 - params.drag * dt);
+  let dragFactor = maxf(0.0, 1.0 - params.sim0.y * dt);
   velocity = velocity * dragFactor;
-  velocity.y = velocity.y - params.gravity * dt + params.upwardDrift * dt;
+  velocity.y = velocity.y - params.sim0.z * dt + params.sim0.w * dt;
   position = position + velocity * dt;
 
   particle.position = vec4f(position, 1.0);
@@ -149,6 +192,7 @@ export async function createThreeWebGpuPreviewController(
   }
 
   const previewScene = createPreviewThreeScene({ mount: input.mount, renderer: input.renderer });
+  const smokeRenderer = await createPreviewGpuSmokeRenderer({ device, renderer: input.renderer });
   const shaderModule = device.createShaderModule({ code: COMPUTE_SHADER_CODE, label: "vfx-preview-sim" });
   const computePipeline = await device.createComputePipelineAsync({
     label: "vfx-preview-sim-pipeline",
@@ -177,6 +221,9 @@ export async function createThreeWebGpuPreviewController(
       previewScene.scene.remove(sprite);
       sprite.material.dispose();
     });
+    if (entry.smokeRender) {
+      smokeRenderer.destroyEmitterResources(entry.smokeRender);
+    }
     entry.texture.dispose();
     entry.gpu.particleBuffer.destroy();
     entry.gpu.readBuffers.forEach((buffer) => buffer.destroy());
@@ -188,13 +235,8 @@ export async function createThreeWebGpuPreviewController(
     entries.clear();
 
     for (const config of configs) {
-      const texture = makePreviewSpriteTexture(config.texturePreset).texture;
-      const sprites: THREE.Sprite[] = [];
-      for (let index = 0; index < config.maxParticleCount; index += 1) {
-        const sprite = createPreviewSprite(texture, config.additive);
-        previewScene.scene.add(sprite);
-        sprites.push(sprite);
-      }
+      const renderMode = config.isSmoke ? "smoke-gpu" : "sprite-fallback";
+      const requiresReadback = !config.isSmoke || config.deathEventIds.length > 0;
 
       const particleData = new Float32Array(config.maxParticleCount * PARTICLE_FLOATS);
       const particleBuffer = device.createBuffer({
@@ -202,18 +244,32 @@ export async function createThreeWebGpuPreviewController(
         size: particleData.byteLength,
         usage: GPU_BUFFER_USAGE.STORAGE | GPU_BUFFER_USAGE.COPY_SRC | GPU_BUFFER_USAGE.COPY_DST
       });
-      const readbackSlots = Array.from({ length: PREVIEW_READBACK_BUFFER_COUNT }, (_, index) => ({
-        buffer: device.createBuffer({
-          label: `vfx-preview-read-${config.emitterId}-${index}`,
-          size: particleData.byteLength,
-          usage: GPU_BUFFER_USAGE.COPY_DST | GPU_BUFFER_USAGE.MAP_READ
-        }),
-        pending: false,
-        sequence: 0
-      }));
+      const texture = renderMode === "sprite-fallback"
+        ? makePreviewSpriteTexture(config.texturePreset).texture
+        : new THREE.Texture();
+      const sprites: THREE.Sprite[] = [];
+      if (renderMode === "sprite-fallback") {
+        for (let index = 0; index < config.maxParticleCount; index += 1) {
+          const sprite = createPreviewSprite(texture, config.additive);
+          previewScene.scene.add(sprite);
+          sprites.push(sprite);
+        }
+      }
+
+      const readbackSlots = requiresReadback
+        ? Array.from({ length: PREVIEW_READBACK_BUFFER_COUNT }, (_, index) => ({
+            buffer: device.createBuffer({
+              label: `vfx-preview-read-${config.emitterId}-${index}`,
+              size: particleData.byteLength,
+              usage: GPU_BUFFER_USAGE.COPY_DST | GPU_BUFFER_USAGE.MAP_READ
+            }),
+            pending: false,
+            sequence: 0
+          }))
+        : [];
       const uniformBuffer = device.createBuffer({
         label: `vfx-preview-uniform-${config.emitterId}`,
-        size: 32,
+        size: 80,
         usage: GPU_BUFFER_USAGE.UNIFORM | GPU_BUFFER_USAGE.COPY_DST
       });
       const bindGroup = device.createBindGroup({
@@ -230,6 +286,12 @@ export async function createThreeWebGpuPreviewController(
         gpu: { bindGroup, particleBuffer, readBuffers: readbackSlots.map((slot) => slot.buffer), uniformBuffer },
         particleData,
         previousAlive: new Uint8Array(config.maxParticleCount),
+        renderMode,
+        requiresReadback,
+        nextSpawnSlot: 0,
+        smokeSpawnCursor: 0,
+        smokeStartupRemaining: config.startupBurstCount,
+        smokeRender: renderMode === "smoke-gpu" ? smokeRenderer.createEmitterResources(config, particleBuffer) : undefined,
         sprites,
         texture,
         readbackCooldownSeconds: 0,
@@ -244,6 +306,15 @@ export async function createThreeWebGpuPreviewController(
   }
 
   function getFreeParticleSlots(entry: EmitterPreviewEntry, desiredCount: number) {
+    if (entry.renderMode === "smoke-gpu" && !entry.requiresReadback) {
+      const slots: number[] = [];
+      for (let index = 0; index < desiredCount; index += 1) {
+        slots.push(entry.nextSpawnSlot);
+        entry.nextSpawnSlot = (entry.nextSpawnSlot + 1) % entry.config.maxParticleCount;
+      }
+      return slots;
+    }
+
     const result: number[] = [];
     for (let index = 0; index < entry.config.maxParticleCount && result.length < desiredCount; index += 1) {
       const offset = index * PARTICLE_FLOATS + PARTICLE_INDEX.alive;
@@ -308,6 +379,9 @@ export async function createThreeWebGpuPreviewController(
       entry.accumulator = 0;
       entry.readbackCooldownSeconds = 0;
       entry.nextReadbackSlot = 0;
+      entry.nextSpawnSlot = 0;
+      entry.smokeSpawnCursor = 0;
+      entry.smokeStartupRemaining = entry.config.startupBurstCount;
       entry.lastScheduledReadbackSequence = 0;
       entry.lastAppliedReadbackSequence = 0;
       entry.lastAppliedReadbackAtSeconds = 0;
@@ -396,8 +470,8 @@ export async function createThreeWebGpuPreviewController(
     smokeBursts.forEach((burst) => emitEvent(burst.eventId, burst.origin));
   }
 
-  function dispatchCompute(entry: EmitterPreviewEntry, deltaTime: number) {
-    const params = new ArrayBuffer(32);
+  function dispatchCompute(entry: EmitterPreviewEntry, deltaTime: number, spawnStart = 0, spawnCount = 0, nowSeconds = 0) {
+    const params = new ArrayBuffer(80);
     const floatView = new Float32Array(params);
     const uintView = new Uint32Array(params);
     floatView[0] = deltaTime;
@@ -407,7 +481,19 @@ export async function createThreeWebGpuPreviewController(
     floatView[4] = entry.config.orbitRadius;
     floatView[5] = entry.config.orbitAngularSpeed;
     floatView[6] = entry.config.curlStrength;
-    uintView[7] = entry.config.maxParticleCount;
+    floatView[7] = nowSeconds;
+    floatView[8] = entry.config.spreadRadians;
+    floatView[9] = entry.config.speedMin;
+    floatView[10] = entry.config.speedMax;
+    floatView[11] = entry.config.spawnRadius;
+    floatView[12] = entry.config.lifetime;
+    floatView[13] = entry.config.sizeStart;
+    floatView[14] = entry.config.sizeEnd;
+    floatView[15] = 0;
+    uintView[16] = spawnStart;
+    uintView[17] = spawnCount;
+    uintView[18] = entry.config.maxParticleCount;
+    uintView[19] = entry.renderMode === "smoke-gpu" ? 1 : 0;
     device.queue.writeBuffer(entry.gpu.uniformBuffer, 0, params);
 
     if (entry.dirty) {
@@ -427,6 +513,11 @@ export async function createThreeWebGpuPreviewController(
     pass.setBindGroup(0, entry.gpu.bindGroup);
     pass.dispatchWorkgroups(Math.ceil(entry.config.maxParticleCount / WORKGROUP_SIZE));
     pass.end();
+
+    if (!entry.requiresReadback) {
+      device.queue.submit([encoder.finish()]);
+      return;
+    }
 
     entry.readbackCooldownSeconds = Math.max(0, entry.readbackCooldownSeconds - deltaTime);
     const selectedSlot = entry.readbackSlots[entry.nextReadbackSlot];
@@ -513,13 +604,34 @@ export async function createThreeWebGpuPreviewController(
 
     if (currentState?.isPlaying !== false) {
       for (const entry of entries.values()) {
-        entry.accumulator += entry.config.rate * deltaTime;
-        const spawnCount = Math.floor(entry.accumulator);
-        entry.accumulator -= spawnCount;
-        if (spawnCount > 0) {
-          spawnIntoEmitter(entry, spawnCount);
+        if (entry.renderMode === "smoke-gpu" && !entry.requiresReadback) {
+          const sustainableRate = Math.min(
+            entry.config.rate,
+            (entry.config.maxParticleCount / Math.max(entry.config.lifetime, 0.001)) * 0.82
+          );
+          entry.accumulator += sustainableRate * deltaTime;
+          let scheduledSpawnCount = Math.floor(entry.accumulator);
+          entry.accumulator -= scheduledSpawnCount;
+
+          if (entry.smokeStartupRemaining > 0) {
+            const startupChunk = Math.min(entry.smokeStartupRemaining, 10);
+            scheduledSpawnCount += startupChunk;
+            entry.smokeStartupRemaining -= startupChunk;
+          }
+
+          const resolvedSpawnCount = Math.min(scheduledSpawnCount, entry.config.maxParticleCount);
+          const spawnStart = entry.smokeSpawnCursor;
+          entry.smokeSpawnCursor = (entry.smokeSpawnCursor + resolvedSpawnCount) % entry.config.maxParticleCount;
+          dispatchCompute(entry, deltaTime, spawnStart, resolvedSpawnCount, now / 1000);
+        } else {
+          entry.accumulator += entry.config.rate * deltaTime;
+          const spawnCount = Math.floor(entry.accumulator);
+          entry.accumulator -= spawnCount;
+          if (spawnCount > 0) {
+            spawnIntoEmitter(entry, spawnCount);
+          }
+          dispatchCompute(entry, deltaTime, 0, 0, now / 1000);
         }
-        dispatchCompute(entry, deltaTime);
       }
     }
 
@@ -527,12 +639,25 @@ export async function createThreeWebGpuPreviewController(
 
     let totalParticles = 0;
     const nowSeconds = now / 1000;
+    const smokeEntries: Array<{ config: EmitterPreviewConfig; smokeRender: NonNullable<EmitterPreviewEntry["smokeRender"]> }> = [];
     for (const entry of entries.values()) {
-      totalParticles += updateSprites(entry, nowSeconds);
+      if (entry.renderMode === "smoke-gpu" && entry.smokeRender) {
+        smokeEntries.push({ config: entry.config, smokeRender: entry.smokeRender });
+        let approximateAlive = 0;
+        for (let index = 0; index < entry.config.maxParticleCount; index += 1) {
+          if (entry.particleData[index * PARTICLE_FLOATS + PARTICLE_INDEX.alive] > 0.5) {
+            approximateAlive += 1;
+          }
+        }
+        totalParticles += approximateAlive;
+      } else {
+        totalParticles += updateSprites(entry, nowSeconds);
+      }
     }
     input.onParticleCountChange?.(totalParticles);
 
     input.renderer.render(previewScene.scene, previewScene.camera);
+    smokeRenderer.render(previewScene.camera, smokeEntries);
   }
 
   rafId = window.requestAnimationFrame(tick);
@@ -550,6 +675,7 @@ export async function createThreeWebGpuPreviewController(
       resizeObserver.disconnect();
       previewScene.dispose();
       entries.forEach((entry) => destroyEntry(entry));
+      smokeRenderer.dispose();
     }
   };
 }
