@@ -171,6 +171,11 @@ export function createPreviewSpriteTextureFromSource(source: PreviewTextureSourc
       : new THREE.Texture(source.source as THREE.Texture["image"]);
   texture.needsUpdate = true;
   texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
   return { texture };
 }
 

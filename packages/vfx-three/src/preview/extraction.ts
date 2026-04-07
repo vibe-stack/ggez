@@ -57,25 +57,12 @@ export function resolveActiveEmitterIds(document: VfxEffectDocument): Set<string
 
 function readHexColor(document: VfxEffectDocument, emitter: EmitterDocument): THREE.Color {
   const renderer = emitter.renderers.find((entry) => entry.enabled);
-  const candidateIds = emitter.renderers.flatMap((rendererEntry) => {
-    const ids: string[] = [];
-    if (typeof rendererEntry.parameterBindings.tint === "string") {
-      ids.push(rendererEntry.parameterBindings.tint);
-    }
-    Object.values(rendererEntry.parameterBindings).forEach((value) => {
-      if (typeof value === "string" && value.startsWith("param:")) {
-        ids.push(value);
-      }
-    });
-    return ids;
-  });
+  const tintBinding = typeof renderer?.parameterBindings.tint === "string" ? renderer.parameterBindings.tint : undefined;
+  const parameter = tintBinding
+    ? document.parameters.find((entry) => entry.id === tintBinding && entry.type === "color")
+    : undefined;
 
-  const boundColor = candidateIds.find((id) => document.parameters.some((parameter) => parameter.id === id && parameter.type === "color"));
-  const parameter = boundColor
-    ? document.parameters.find((entry) => entry.id === boundColor && entry.type === "color")
-    : document.parameters.find((entry) => entry.type === "color");
-
-  const fallbackHex = renderer?.template === "SpriteSmokeMaterial" ? "#8d98a6" : "#ffd6a2";
+  const fallbackHex = renderer?.template === "SpriteSmokeMaterial" ? "#8d98a6" : "#ffffff";
   const hex = typeof parameter?.defaultValue === "string" ? parameter.defaultValue : fallbackHex;
 
   try {

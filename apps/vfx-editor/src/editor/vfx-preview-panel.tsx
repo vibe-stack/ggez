@@ -61,12 +61,17 @@ function readOptionalNumber(value: unknown) {
 }
 
 function readHexColor(document: VfxEffectDocument, emitter: EmitterDocument): [number, number, number] {
-  const boundColor = emitter.renderers.flatMap((renderer) => Object.values(renderer.parameterBindings))[0];
-  const parameter = boundColor
-    ? document.parameters.find((entry) => entry.id === boundColor && entry.type === "color")
-    : document.parameters.find((entry) => entry.type === "color");
+  const renderer = emitter.renderers.find((entry) => entry.enabled);
+  const tintBinding = typeof renderer?.parameterBindings.tint === "string" ? renderer.parameterBindings.tint : undefined;
+  const parameter = tintBinding
+    ? document.parameters.find((entry) => entry.id === tintBinding && entry.type === "color")
+    : undefined;
 
-  const value = typeof parameter?.defaultValue === "string" ? parameter.defaultValue : "#34d399";
+  const value = typeof parameter?.defaultValue === "string"
+    ? parameter.defaultValue
+    : renderer?.template === "SpriteSmokeMaterial"
+      ? "#8d98a6"
+      : "#ffffff";
   const hex = value.replace("#", "");
   const normalized = hex.length === 3 ? hex.split("").map((segment) => `${segment}${segment}`).join("") : hex.padEnd(6, "0").slice(0, 6);
   const int = Number.parseInt(normalized, 16);
@@ -163,8 +168,8 @@ function spawnParticle(config: EmitterPreviewConfig, origin: { x: number; y: num
     age: 0,
     lifetime: config.lifetime * (0.85 + Math.random() * 0.4),
     size: config.sizeStart * sizeJitter,
-    rotation: Math.random() * Math.PI * 2,
-    angularVelocity: (Math.random() * 2 - 1) * 4.5,
+    rotation: 0,
+    angularVelocity: 0,
     alpha: 1,
     color: config.color,
     additive: config.additive,

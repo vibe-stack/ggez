@@ -91,8 +91,8 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
       let lifetime = params.spawn1.x * (0.82 + hash01(baseSeed ^ 0xa24baed4u) * 0.42);
       let sizeStart = params.spawn1.y * (0.76 + hash01(baseSeed ^ 0x9fb21c65u) * 0.36);
       let frame = select(0.0, floor(hash01(baseSeed ^ 0xe6546b64u) * frameCount), params.spawnMeta.w > 0u);
-      let rotation = hash01(baseSeed ^ 0x94d049bbu) * 6.28318530718;
-      let rotationSpeed = 0.22 * (0.6 + hash01(baseSeed ^ 0xed558ccdu) * 0.8) * select(-1.0, 1.0, hash01(baseSeed ^ 0x4c1bf5dcu) > 0.5);
+      let rotation = 0.0;
+      let rotationSpeed = 0.0;
 
       var spawned : Particle;
       spawned.position = vec4f(spawnOffset, 1.0);
@@ -190,11 +190,8 @@ function spawnParticleData(cfg: EmitterPreviewConfig, target: Float32Array, part
   target[offset + PARTICLE_INDEX.lifetime] = cfg.lifetime * (0.8 + Math.random() * 0.5);
   target[offset + PARTICLE_INDEX.sizeStart] = cfg.sizeStart * (0.75 + Math.random() * 0.5);
   target[offset + PARTICLE_INDEX.sizeEnd] = cfg.sizeEnd;
-  target[offset + PARTICLE_INDEX.rotation] = Math.random() * Math.PI * 2;
-  target[offset + PARTICLE_INDEX.rotationSpeed] =
-    (cfg.isSmoke ? 0.22 : isFlame ? 0.12 : isSpark ? 0.48 : 1.7) *
-    (0.6 + Math.random() * 0.8) *
-    (Math.random() < 0.5 ? -1 : 1);
+  target[offset + PARTICLE_INDEX.rotation] = 0;
+  target[offset + PARTICLE_INDEX.rotationSpeed] = 0;
   target[offset + PARTICLE_INDEX.alive] = 1;
   target[offset + PARTICLE_INDEX.frame] =
     cfg.isSmoke && cfg.flipbook.enabled && cfg.flipbook.rows * cfg.flipbook.cols > 1

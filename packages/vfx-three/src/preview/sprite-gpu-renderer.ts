@@ -192,10 +192,14 @@ fn fragmentMain(input : VertexOutput) -> @location(0) vec4f {
   let rows = max(emitter.settings1.x, 1.0);
   let cellX = input.frame % cols;
   let cellY = floor(input.frame / cols);
-  let atlasUv = (input.uv + vec2f(cellX, cellY)) / vec2f(cols, rows);
-  let sampleAlpha = textureSample(spriteAtlas, spriteSampler, atlasUv).r;
-  let alpha = clamp(sampleAlpha * input.alpha * emitter.tint.a, 0.0, 1.0);
-  return vec4f(input.color * alpha, alpha);
+  let atlasScale = vec2f(1.0 / cols, 1.0 / rows);
+  let atlasOrigin = vec2f(cellX, cellY) * atlasScale;
+  let halfTexel = vec2f(0.5, 0.5) / vec2f(textureDimensions(spriteAtlas));
+  let atlasUv = atlasOrigin + halfTexel + input.uv * max(atlasScale - halfTexel * 2.0, vec2f(0.0, 0.0));
+  let sampleColor = textureSample(spriteAtlas, spriteSampler, atlasUv);
+  let alpha = clamp(sampleColor.a * input.alpha * emitter.tint.a, 0.0, 1.0);
+  let color = input.color * sampleColor.rgb;
+  return vec4f(color * alpha, alpha);
 }
 `;
 
