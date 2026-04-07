@@ -122,7 +122,8 @@ export function createBlankVfxEffectDocument(): VfxEffectDocument {
       loop: true,
       durationSeconds: 4,
       attachMode: "isolated",
-      playbackRate: 1
+      playbackRate: 1,
+      backgroundColor: "#080e0c"
     },
     metadata: {
       createdAt: nowIso(),
@@ -529,7 +530,8 @@ export function createCampfireVfxEffectDocument(): VfxEffectDocument {
       loop: true,
       durationSeconds: 4,
       attachMode: "isolated",
-      playbackRate: 1
+      playbackRate: 1,
+      backgroundColor: "#080e0c"
     },
     metadata: {
       createdAt: nowIso(),

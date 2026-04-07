@@ -18,6 +18,7 @@ export function ThreePreviewPanel(props: {
   const { document, compileResult, selectedEmitterId, onUpdatePreviewSettings } = props;
   const mountRef = useRef<HTMLDivElement | null>(null);
   const controllerRef = useRef<ThreeWebGpuPreviewController | null>(null);
+  const rendererRef = useRef<WebGPURenderer | null>(null);
   const [isPlaying, setIsPlaying] = useState(true);
   const [soloSelected, setSoloSelected] = useState(false);
   const [particleCount, setParticleCount] = useState(0);
@@ -50,7 +51,8 @@ export function ThreePreviewPanel(props: {
     }
 
     let cancelled = false;
-    const renderer = new WebGPURenderer({ antialias: true, alpha: true });
+    const renderer = new WebGPURenderer({ antialias: true, alpha: false });
+    rendererRef.current = renderer;
 
     renderer
       .init()
@@ -61,7 +63,8 @@ export function ThreePreviewPanel(props: {
         }
 
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-        renderer.setClearColor(0x000000, 0);
+        renderer.setClearColor(document.preview.backgroundColor, 1);
+        renderer.domElement.style.backgroundColor = document.preview.backgroundColor;
         mount.appendChild(renderer.domElement);
 
         return createThreeWebGpuPreviewController({
@@ -95,6 +98,7 @@ export function ThreePreviewPanel(props: {
       cancelled = true;
       controllerRef.current?.dispose();
       controllerRef.current = null;
+      rendererRef.current = null;
       if (mount.contains(renderer.domElement)) {
         mount.removeChild(renderer.domElement);
       }
@@ -107,6 +111,15 @@ export function ThreePreviewPanel(props: {
   useEffect(() => {
     controllerRef.current?.update(previewState);
   }, [previewState]);
+
+  useEffect(() => {
+    const renderer = rendererRef.current;
+    if (!renderer) {
+      return;
+    }
+    renderer.setClearColor(document.preview.backgroundColor, 1);
+    renderer.domElement.style.backgroundColor = document.preview.backgroundColor;
+  }, [document.preview.backgroundColor]);
 
   const events = document.events;
   const selectedEvent = events.find((event) => event.id === selectedEventId) ?? null;
@@ -214,6 +227,16 @@ export function ThreePreviewPanel(props: {
           />
         </label>
 
+        <label className="inline-flex items-center gap-1 text-[11px] text-zinc-500">
+          <span>Bg</span>
+          <input
+            type="color"
+            className="h-6.5 w-8 rounded border border-white/10 bg-black/30 p-0.5 outline-none transition hover:border-white/20 focus:border-white/20"
+            value={document.preview.backgroundColor}
+            onChange={(event) => onUpdatePreviewSettings({ backgroundColor: event.target.value })}
+          />
+        </label>
+
         <span className="ml-auto text-[11px] text-zinc-600">{particleCount}</span>
       </div>
 
@@ -253,7 +276,11 @@ export function ThreePreviewPanel(props: {
         {` · renderable in preview: ${summary.renderableCount}`}
       </div>
 
-      <div ref={mountRef} className="relative min-h-0 flex-1 overflow-hidden rounded-b-xl bg-[#080e0c]">
+      <div
+        ref={mountRef}
+        className="relative min-h-0 flex-1 overflow-hidden rounded-b-xl"
+        style={{ backgroundColor: document.preview.backgroundColor }}
+      >
         {runtimeError && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-8 text-center text-sm text-rose-300/80">
             {runtimeError}

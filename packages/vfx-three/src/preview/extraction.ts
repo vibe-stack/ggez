@@ -21,6 +21,20 @@ function readInitializeSetAttributeNumber(emitter: EmitterDocument, attribute: s
   return readOptionalNumber(module?.config.value);
 }
 
+function resolveSizeOverLifeRatio(curve: string | undefined, defaultStart: number, defaultEnd: number) {
+  const defaultRatio = Math.max(0.01, defaultEnd / Math.max(defaultStart, 0.0001));
+  if (curve === "flash-expand") {
+    return Math.max(defaultRatio, 2.25);
+  }
+  if (curve === "smoke-soft") {
+    return Math.max(defaultRatio, 1.8);
+  }
+  if (curve === "spark-decay") {
+    return Math.min(defaultRatio, 0.4);
+  }
+  return defaultRatio;
+}
+
 export function resolveActiveEmitterIds(document: VfxEffectDocument): Set<string> | null {
   const { graph } = document;
   const outputNodes = graph.nodes.filter((node) => node.kind === "output");
@@ -159,11 +173,14 @@ export function buildEmitterPreviewConfigs(
     const hasVelocityCone = Boolean(velocityCone);
     const defaultSizeStart = isSmoke ? 0.42 : isFlame ? 0.18 : isSpark ? 0.06 : 0.16;
     const defaultSizeEnd = isSmoke ? 2.6 : isFlame ? 0.92 : isSpark ? 0.02 : 0.045;
+    const sizeCurve = typeof sizeOverLife?.config.curve === "string" ? sizeOverLife.config.curve : undefined;
+    const sizeOverLifeScale = Math.max(0.01, readNumber(sizeOverLife?.config.bias, 1));
+    const sizeOverLifeRatio = resolveSizeOverLifeRatio(sizeCurve, defaultSizeStart, defaultSizeEnd) * sizeOverLifeScale;
     const authoredPreviewSize = authoredSize !== undefined ? Math.max(0.001, authoredSize * 0.01) : undefined;
     const sizeStart = authoredPreviewSize ?? defaultSizeStart;
     const sizeEnd = authoredPreviewSize !== undefined
-      ? (sizeOverLife ? sizeStart * (defaultSizeEnd / Math.max(defaultSizeStart, 0.0001)) : sizeStart)
-      : defaultSizeEnd;
+      ? (sizeOverLife ? sizeStart * sizeOverLifeRatio : sizeStart)
+      : (sizeOverLife ? sizeStart * sizeOverLifeRatio : defaultSizeEnd);
 
     return {
       emitterId: emitter.id,
@@ -190,7 +207,7 @@ export function buildEmitterPreviewConfigs(
       lifetime: lifetime ?? 0.42,
       sizeStart,
       sizeEnd,
-      sizeCurve: typeof sizeOverLife?.config.curve === "string" ? sizeOverLife.config.curve : undefined,
+      sizeCurve,
       alphaCurve: typeof alphaOverLife?.config.curve === "string" ? alphaOverLife.config.curve : undefined,
       colorCurve: typeof colorOverLife?.config.curve === "string" ? colorOverLife.config.curve : undefined,
       color: readHexColor(document, emitter),

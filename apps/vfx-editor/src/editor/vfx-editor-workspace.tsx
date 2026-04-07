@@ -337,7 +337,9 @@ function ModuleConfigFields(props: {
               ))}
             </select>
           </PropRow>
-          <PropRow label="Bias"><DragInput value={Number(config.bias ?? 1)} onChange={num("bias", 1)} step={0.05} precision={2} /></PropRow>
+          <PropRow label={kind === "SizeOverLife" ? "End scale" : "Bias"}>
+            <DragInput value={Number(config.bias ?? 1)} onChange={num("bias", 1)} step={0.05} min={0.01} precision={2} />
+          </PropRow>
         </>
       )}
 

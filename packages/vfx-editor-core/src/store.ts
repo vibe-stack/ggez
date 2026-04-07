@@ -442,7 +442,8 @@ export function createVfxEditorStore(initialDocument = createDefaultVfxEffectDoc
         nextPreview.attachMode === state.document.preview.attachMode &&
         nextPreview.durationSeconds === state.document.preview.durationSeconds &&
         nextPreview.loop === state.document.preview.loop &&
-        nextPreview.playbackRate === state.document.preview.playbackRate
+        nextPreview.playbackRate === state.document.preview.playbackRate &&
+        nextPreview.backgroundColor === state.document.preview.backgroundColor
       ) {
         return;
       }

@@ -45,7 +45,7 @@ struct VertexOutput {
   @location(1) color : vec3f,
   @location(2) alpha : f32,
   @location(3) life : f32,
-  @location(4) frame : f32,
+  @location(4) @interpolate(flat) frame : u32,
   @location(5) seed : f32,
 }
 
@@ -64,22 +64,22 @@ fn wrapFrame(value: f32, frameCount: f32) -> f32 {
   return value - floor(value / frameCount) * frameCount;
 }
 
-fn resolveFlipbookFrame(particle: Particle) -> f32 {
+fn resolveFlipbookFrame(particle: Particle) -> u32 {
   let cols = max(emitter.params0.x, 1.0);
   let rows = max(emitter.params0.y, 1.0);
   let frameCount = max(cols * rows, 1.0);
   let fps = max(emitter.params0.z, 0.0);
   let baseFrame = clamp(particle.extra.w, 0.0, frameCount - 1.0);
   if (frameCount <= 1.0 || fps <= 0.0) {
-    return baseFrame;
+    return u32(baseFrame);
   }
 
   let timeBasis = select(emitter.params1.y, particle.timing.x, emitter.params1.x > 0.5);
   let rawFrame = baseFrame + max(timeBasis, 0.0) * fps;
   if (emitter.params0.w > 0.5) {
-    return floor(wrapFrame(rawFrame, frameCount));
+    return u32(floor(wrapFrame(rawFrame, frameCount)));
   }
-  return floor(min(rawFrame, frameCount - 1.0));
+  return u32(floor(min(rawFrame, frameCount - 1.0)));
 }
 
 fn quadCorner(vertexIndex: u32) -> vec2f {
@@ -115,7 +115,7 @@ fn vertexMain(@builtin(vertex_index) vertexIndex : u32, @builtin(instance_index)
     output.color = vec3f(0.0, 0.0, 0.0);
     output.alpha = 0.0;
     output.life = 0.0;
-    output.frame = 0.0;
+    output.frame = 0u;
     output.seed = 0.0;
     return output;
   }
@@ -155,10 +155,10 @@ fn vertexMain(@builtin(vertex_index) vertexIndex : u32, @builtin(instance_index)
 
 @fragment
 fn fragmentMain(input : VertexOutput) -> SmokeFragmentOutput {
-  let cols = max(emitter.params0.x, 1.0);
-  let rows = max(emitter.params0.y, 1.0);
+  let cols = u32(max(emitter.params0.x, 1.0));
+  let rows = u32(max(emitter.params0.y, 1.0));
   let cellX = input.frame % cols;
-  let cellY = floor(input.frame / cols);
+  let cellY = input.frame / cols;
 
   let centeredUv = input.uv * 2.0 - vec2f(1.0, 1.0);
   let radial = clamp(1.0 - length(centeredUv), 0.0, 1.0);
@@ -168,9 +168,9 @@ fn fragmentMain(input : VertexOutput) -> SmokeFragmentOutput {
     cos(swirl * 1.13 + centeredUv.x * 5.0)
   ) * (0.055 * (1.0 - input.life * 0.75));
 
-  let atlasSize = vec2f(cols, rows);
-  let atlasUvA = (input.uv + vec2f(cellX, cellY)) / atlasSize;
-  let atlasUvB = ((input.uv * 0.86 + vec2f(0.07, 0.05)) + vec2f(cellX, cellY)) / atlasSize;
+  let atlasSize = vec2f(f32(cols), f32(rows));
+  let atlasUvA = (input.uv + vec2f(f32(cellX), f32(cellY))) / atlasSize;
+  let atlasUvB = ((input.uv * 0.86 + vec2f(0.07, 0.05)) + vec2f(f32(cellX), f32(cellY))) / atlasSize;
   let sampleA = textureSample(smokeAtlas, smokeSampler, atlasUvA + warp / atlasSize).r;
   let sampleB = textureSample(smokeAtlas, smokeSampler, atlasUvB - warp * 0.55 / atlasSize).r;
   let density = max(sampleA, sampleB * 0.82) * radial * radial;

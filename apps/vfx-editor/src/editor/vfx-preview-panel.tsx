@@ -60,6 +60,20 @@ function readOptionalNumber(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function resolveSizeOverLifeRatio(curve: string | undefined, defaultStart: number, defaultEnd: number) {
+  const defaultRatio = Math.max(0.01, defaultEnd / Math.max(defaultStart, 0.0001));
+  if (curve === "flash-expand") {
+    return Math.max(defaultRatio, 2.25);
+  }
+  if (curve === "smoke-soft") {
+    return Math.max(defaultRatio, 1.8);
+  }
+  if (curve === "spark-decay") {
+    return Math.min(defaultRatio, 0.4);
+  }
+  return defaultRatio;
+}
+
 function readHexColor(document: VfxEffectDocument, emitter: EmitterDocument): [number, number, number] {
   const renderer = emitter.renderers.find((entry) => entry.enabled);
   const tintBinding = typeof renderer?.parameterBindings.tint === "string" ? renderer.parameterBindings.tint : undefined;
@@ -120,11 +134,14 @@ function buildEmitterPreviewConfigs(
     const particleType = firstRenderer?.kind === "mesh" ? "mesh" : "sprite";
     const defaultSizeStart = particleType === "mesh" ? 9 : firstRenderer?.template === "SpriteSmokeMaterial" ? 22 : 16;
     const defaultSizeEnd = particleType === "mesh" ? 2 : firstRenderer?.template === "SpriteSmokeMaterial" ? 42 : 8;
+    const sizeCurve = typeof sizeOverLife?.config.curve === "string" ? sizeOverLife.config.curve : undefined;
+    const sizeOverLifeScale = Math.max(0.01, readNumber(sizeOverLife?.config.bias, 1));
+    const sizeOverLifeRatio = resolveSizeOverLifeRatio(sizeCurve, defaultSizeStart, defaultSizeEnd) * sizeOverLifeScale;
     const authoredSize = readOptionalNumber(sizeModule?.config.value);
     const sizeStart = authoredSize ?? defaultSizeStart;
     const sizeEnd = authoredSize !== undefined
-      ? (sizeOverLife ? sizeStart * (defaultSizeEnd / Math.max(defaultSizeStart, 0.0001)) : sizeStart)
-      : defaultSizeEnd;
+      ? (sizeOverLife ? sizeStart * sizeOverLifeRatio : sizeStart)
+      : (sizeOverLife ? sizeStart * sizeOverLifeRatio : defaultSizeEnd);
 
     return {
       emitterId: emitter.id,

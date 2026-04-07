@@ -292,7 +292,8 @@ export const previewSettingsSchema = z.object({
   loop: z.boolean().default(true),
   durationSeconds: z.number().positive().default(4),
   attachMode: z.enum(["character", "isolated", "world"]).default("isolated"),
-  playbackRate: z.number().positive().default(1)
+  playbackRate: z.number().positive().default(1),
+  backgroundColor: z.string().default("#080e0c")
 });
 
 export const fallbackRuleSchema = z.object({

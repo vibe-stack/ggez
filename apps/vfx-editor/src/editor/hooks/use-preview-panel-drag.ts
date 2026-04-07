@@ -9,7 +9,7 @@ export type UsePreviewPanelDragResult = {
 };
 
 export function usePreviewPanelDrag(workspaceRef: React.RefObject<HTMLDivElement | null>): UsePreviewPanelDragResult {
-  const [previewRect, setPreviewRect] = useState<PreviewRect>({ x: 24, y: 24, width: 480, height: 420 });
+  const [previewRect, setPreviewRect] = useState<PreviewRect>({ x: 0, y: 120, width: 480, height: 420 });
   const dragRef = useRef<{
     mode: "move" | "resize";
     pointerX: number;

@@ -44,7 +44,7 @@ struct VertexOutput {
   @location(0) uv : vec2f,
   @location(1) color : vec3f,
   @location(2) alpha : f32,
-  @location(3) frame : f32,
+  @location(3) @interpolate(flat) frame : u32,
 }
 
 @group(0) @binding(0) var<storage, read> particles : array<Particle>;
@@ -128,22 +128,22 @@ fn wrapFrame(value: f32, frameCount: f32) -> f32 {
   return value - floor(value / frameCount) * frameCount;
 }
 
-fn resolveFlipbookFrame(particle: Particle) -> f32 {
+fn resolveFlipbookFrame(particle: Particle) -> u32 {
   let cols = max(emitter.settings0.x, 1.0);
   let rows = max(emitter.settings1.x, 1.0);
   let frameCount = max(cols * rows, 1.0);
   let fps = max(emitter.settings1.y, 0.0);
   let baseFrame = clamp(particle.extra.w, 0.0, frameCount - 1.0);
   if (frameCount <= 1.0 || fps <= 0.0) {
-    return baseFrame;
+    return u32(baseFrame);
   }
 
   let timeBasis = select(emitter.settings2.y, particle.timing.x, emitter.settings1.w > 0.5);
   let rawFrame = baseFrame + max(timeBasis, 0.0) * fps;
   if (emitter.settings1.z > 0.5) {
-    return floor(wrapFrame(rawFrame, frameCount));
+    return u32(floor(wrapFrame(rawFrame, frameCount)));
   }
-  return floor(min(rawFrame, frameCount - 1.0));
+  return u32(floor(min(rawFrame, frameCount - 1.0)));
 }
 
 @vertex
@@ -156,7 +156,7 @@ fn vertexMain(@builtin(vertex_index) vertexIndex : u32, @builtin(instance_index)
     output.uv = vec2f(0.0, 0.0);
     output.color = vec3f(0.0, 0.0, 0.0);
     output.alpha = 0.0;
-    output.frame = 0.0;
+    output.frame = 0u;
     return output;
   }
 
@@ -188,12 +188,12 @@ fn vertexMain(@builtin(vertex_index) vertexIndex : u32, @builtin(instance_index)
 
 @fragment
 fn fragmentMain(input : VertexOutput) -> @location(0) vec4f {
-  let cols = max(emitter.settings0.x, 1.0);
-  let rows = max(emitter.settings1.x, 1.0);
+  let cols = u32(max(emitter.settings0.x, 1.0));
+  let rows = u32(max(emitter.settings1.x, 1.0));
   let cellX = input.frame % cols;
-  let cellY = floor(input.frame / cols);
-  let atlasScale = vec2f(1.0 / cols, 1.0 / rows);
-  let atlasOrigin = vec2f(cellX, cellY) * atlasScale;
+  let cellY = input.frame / cols;
+  let atlasScale = vec2f(1.0 / f32(cols), 1.0 / f32(rows));
+  let atlasOrigin = vec2f(f32(cellX), f32(cellY)) * atlasScale;
   let halfTexel = vec2f(0.5, 0.5) / vec2f(textureDimensions(spriteAtlas));
   let atlasUv = atlasOrigin + halfTexel + input.uv * max(atlasScale - halfTexel * 2.0, vec2f(0.0, 0.0));
   let sampleColor = textureSample(spriteAtlas, spriteSampler, atlasUv);
@@ -303,10 +303,11 @@ export async function createPreviewGpuSpriteRenderer(input: {
     );
 
     const textureView = texture.createView();
+    const useNearestSampling = config.flipbook.enabled && (config.flipbook.rows > 1 || config.flipbook.cols > 1);
     const sampler = input.device.createSampler({
-      magFilter: "linear",
-      minFilter: "linear",
-      mipmapFilter: "linear",
+      magFilter: useNearestSampling ? "nearest" : "linear",
+      minFilter: useNearestSampling ? "nearest" : "linear",
+      mipmapFilter: useNearestSampling ? "nearest" : "linear",
       addressModeU: "clamp-to-edge",
       addressModeV: "clamp-to-edge"
     });
