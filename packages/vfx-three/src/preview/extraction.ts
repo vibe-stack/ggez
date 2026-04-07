@@ -3,8 +3,22 @@ import * as THREE from "three";
 import type { EmitterPreviewConfig } from "./types";
 import { MAX_PREVIEW_PARTICLES_PER_EMITTER, MAX_PREVIEW_SMOKE_PARTICLES_PER_EMITTER } from "./types";
 
+const PREVIEW_VELOCITY_SCALE = 0.04;
+const PREVIEW_GRAVITY_SCALE = 0.1;
+
 function readNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function readOptionalNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readInitializeSetAttributeNumber(emitter: EmitterDocument, attribute: string): number | undefined {
+  const module = emitter.initializeStage.modules.find(
+    (entry) => entry.kind === "SetAttribute" && entry.config.attribute === attribute
+  );
+  return readOptionalNumber(module?.config.value);
 }
 
 export function resolveActiveEmitterIds(document: VfxEffectDocument): Set<string> | null {
@@ -143,9 +157,8 @@ export function buildEmitterPreviewConfigs(
     const sizeOverLife = emitter.updateStage.modules.find((module) => module.kind === "SizeOverLife");
     const alphaOverLife = emitter.updateStage.modules.find((module) => module.kind === "AlphaOverLife");
     const colorOverLife = emitter.updateStage.modules.find((module) => module.kind === "ColorOverLife");
-    const lifetimeModule = emitter.initializeStage.modules.find(
-      (module) => module.kind === "SetAttribute" && module.config.attribute === "lifetime"
-    );
+    const lifetime = readInitializeSetAttributeNumber(emitter, "lifetime");
+    const authoredSize = readInitializeSetAttributeNumber(emitter, "size");
     const deathEventIds = emitter.deathStage.modules
       .filter((module) => module.kind === "SendEvent")
       .map((module) => module.config.eventId)
@@ -156,9 +169,14 @@ export function buildEmitterPreviewConfigs(
     const flipbook = readFlipbookSettings(emitter, textureId);
     const isFlame = textureId === "flame";
     const isSpark = textureId === "spark" || textureId === "star";
-    const sizeStart = isSmoke ? 0.42 : isFlame ? 0.18 : isSpark ? 0.06 : 0.16;
-    const sizeEnd = isSmoke ? 2.6 : isFlame ? 0.92 : isSpark ? 0.02 : 0.045;
-    const upwardDrift = isSmoke ? 0.92 : isFlame ? 0.58 : isSpark ? 0.22 : 0.12;
+    const hasVelocityCone = Boolean(velocityCone);
+    const defaultSizeStart = isSmoke ? 0.42 : isFlame ? 0.18 : isSpark ? 0.06 : 0.16;
+    const defaultSizeEnd = isSmoke ? 2.6 : isFlame ? 0.92 : isSpark ? 0.02 : 0.045;
+    const authoredPreviewSize = authoredSize !== undefined ? Math.max(0.001, authoredSize * 0.01) : undefined;
+    const sizeStart = authoredPreviewSize ?? defaultSizeStart;
+    const sizeEnd = authoredPreviewSize !== undefined
+      ? (sizeOverLife ? sizeStart * (defaultSizeEnd / Math.max(defaultSizeStart, 0.0001)) : sizeStart)
+      : defaultSizeEnd;
 
     return {
       emitterId: emitter.id,
@@ -168,15 +186,21 @@ export function buildEmitterPreviewConfigs(
       rate: Math.max(0, rate),
       spreadRadians: (readNumber(spreadDegrees, 16) * Math.PI) / 180,
       spawnRadius: readNumber(spawnCone?.config.radius, isSmoke ? 0.08 : 0.22) * 6,
-      speedMin: readNumber(velocityCone?.config.speedMin, 60) * 0.04,
-      speedMax: readNumber(velocityCone?.config.speedMax, 180) * 0.04,
+      spawnOffsetX: readNumber(spawnCone?.config.offsetX, 0) * 6,
+      spawnOffsetY: readNumber(spawnCone?.config.offsetY, 0) * 6,
+      spawnOffsetZ: readNumber(spawnCone?.config.offsetZ, 0) * 6,
+      spawnRandomX: readNumber(spawnCone?.config.randomX, 0) * 6,
+      spawnRandomY: readNumber(spawnCone?.config.randomY, 0) * 6,
+      spawnRandomZ: readNumber(spawnCone?.config.randomZ, 0) * 6,
+      speedMin: readNumber(velocityCone?.config.speedMin, 0) * PREVIEW_VELOCITY_SCALE,
+      speedMax: readNumber(velocityCone?.config.speedMax, hasVelocityCone ? readNumber(velocityCone?.config.speedMin, 0) : 0) * PREVIEW_VELOCITY_SCALE,
       drag: readNumber(drag?.config.coefficient, 2.8),
-      gravity: readNumber(gravity?.config.accelerationY, 120) * 0.04,
-      upwardDrift,
+      gravity: readNumber(gravity?.config.accelerationY, 0) * PREVIEW_GRAVITY_SCALE,
+      upwardDrift: 0,
       orbitRadius: readNumber(orbit?.config.radius, 0) * 1.4,
       orbitAngularSpeed: readNumber(orbit?.config.angularSpeed, 0),
       curlStrength: readNumber(curl?.config.strength, 0),
-      lifetime: readNumber(lifetimeModule?.config.value, 0.42),
+      lifetime: lifetime ?? 0.42,
       sizeStart,
       sizeEnd,
       sizeCurve: typeof sizeOverLife?.config.curve === "string" ? sizeOverLife.config.curve : undefined,

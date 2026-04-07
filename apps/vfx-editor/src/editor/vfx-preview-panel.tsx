@@ -36,6 +36,12 @@ type EmitterPreviewConfig = {
   rate: number;
   sizeEnd: number;
   sizeStart: number;
+  spawnOffsetX: number;
+  spawnOffsetY: number;
+  spawnOffsetZ: number;
+  spawnRandomX: number;
+  spawnRandomY: number;
+  spawnRandomZ: number;
   speedMax: number;
   speedMin: number;
   spreadRadians: number;
@@ -48,6 +54,10 @@ function clamp(value: number, min: number, max: number) {
 
 function readNumber(value: unknown, fallback: number) {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function readOptionalNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function readHexColor(document: VfxEffectDocument, emitter: EmitterDocument): [number, number, number] {
@@ -87,31 +97,48 @@ function buildEmitterPreviewConfigs(
     const rate = emitter.spawnStage.modules
       .filter((module) => module.kind === "SpawnRate")
       .reduce((sum, module) => sum + readNumber(module.config.rate, 0), 0);
-    const spreadDegrees =
-      emitter.spawnStage.modules.find((module) => module.kind === "SpawnCone")?.config.angleDegrees;
+    const spawnCone = emitter.spawnStage.modules.find((module) => module.kind === "SpawnCone");
+    const spreadDegrees = spawnCone?.config.angleDegrees;
     const velocityCone = emitter.initializeStage.modules.find((module) => module.kind === "VelocityCone");
     const drag = emitter.updateStage.modules.find((module) => module.kind === "Drag");
     const gravity = emitter.updateStage.modules.find((module) => module.kind === "GravityForce");
+    const sizeOverLife = emitter.updateStage.modules.find((module) => module.kind === "SizeOverLife");
     const lifetimeModule = emitter.initializeStage.modules.find(
       (module) => module.kind === "SetAttribute" && module.config.attribute === "lifetime"
+    );
+    const sizeModule = emitter.initializeStage.modules.find(
+      (module) => module.kind === "SetAttribute" && module.config.attribute === "size"
     );
     const firstRenderer = emitter.renderers.find((renderer) => renderer.enabled);
     const trail = emitter.renderers.some((renderer) => renderer.kind === "ribbon");
     const distortion = emitter.renderers.some((renderer) => renderer.kind === "distortion");
     const particleType = firstRenderer?.kind === "mesh" ? "mesh" : "sprite";
+    const defaultSizeStart = particleType === "mesh" ? 9 : firstRenderer?.template === "SpriteSmokeMaterial" ? 22 : 16;
+    const defaultSizeEnd = particleType === "mesh" ? 2 : firstRenderer?.template === "SpriteSmokeMaterial" ? 42 : 8;
+    const authoredSize = readOptionalNumber(sizeModule?.config.value);
+    const sizeStart = authoredSize ?? defaultSizeStart;
+    const sizeEnd = authoredSize !== undefined
+      ? (sizeOverLife ? sizeStart * (defaultSizeEnd / Math.max(defaultSizeStart, 0.0001)) : sizeStart)
+      : defaultSizeEnd;
 
     return {
       emitterId: emitter.id,
       burstCount: Math.max(0, Math.round(burstCount)),
       rate: Math.max(0, rate),
       spreadRadians: (readNumber(spreadDegrees, 16) * Math.PI) / 180,
-      speedMin: readNumber(velocityCone?.config.speedMin, 60),
-      speedMax: readNumber(velocityCone?.config.speedMax, 180),
+      spawnOffsetX: readNumber(spawnCone?.config.offsetX, 0) * 24,
+      spawnOffsetY: readNumber(spawnCone?.config.offsetY, 0) * 24,
+      spawnOffsetZ: readNumber(spawnCone?.config.offsetZ, 0),
+      spawnRandomX: readNumber(spawnCone?.config.randomX, 0) * 24,
+      spawnRandomY: readNumber(spawnCone?.config.randomY, 0) * 24,
+      spawnRandomZ: readNumber(spawnCone?.config.randomZ, 0),
+      speedMin: readNumber(velocityCone?.config.speedMin, 0),
+      speedMax: readNumber(velocityCone?.config.speedMax, velocityCone ? readNumber(velocityCone?.config.speedMin, 0) : 0),
       drag: readNumber(drag?.config.coefficient, 2.8),
-      gravity: readNumber(gravity?.config.accelerationY, 120),
+      gravity: readNumber(gravity?.config.accelerationY, 0),
       lifetime: readNumber(lifetimeModule?.config.value, 0.42),
-      sizeStart: particleType === "mesh" ? 9 : firstRenderer?.template === "SpriteSmokeMaterial" ? 22 : 16,
-      sizeEnd: particleType === "mesh" ? 2 : firstRenderer?.template === "SpriteSmokeMaterial" ? 42 : 8,
+      sizeStart,
+      sizeEnd,
       color: readHexColor(document, emitter),
       additive: firstRenderer?.material.blendMode !== "alpha",
       distortion,
@@ -129,8 +156,8 @@ function spawnParticle(config: EmitterPreviewConfig, origin: { x: number; y: num
 
   return {
     emitterId: config.emitterId,
-    x: origin.x + (Math.random() * 2 - 1) * 6,
-    y: origin.y + (Math.random() * 2 - 1) * 6,
+    x: origin.x + config.spawnOffsetX + (Math.random() * 2 - 1) * config.spawnRandomX,
+    y: origin.y + config.spawnOffsetY + (Math.random() * 2 - 1) * config.spawnRandomY,
     vx: Math.cos(angle) * speed,
     vy: Math.sin(angle) * speed,
     age: 0,

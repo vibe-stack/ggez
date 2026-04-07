@@ -48,7 +48,16 @@ export function getDefaultModuleConfig(kind: ModuleInstance["kind"]): Record<str
     case "SpawnBurst":
       return { count: 24, everyEvent: "" };
     case "SpawnCone":
-      return { angleDegrees: 16, radius: 0.1 };
+      return {
+        angleDegrees: 16,
+        radius: 0.1,
+        offsetX: 0,
+        offsetY: 0,
+        offsetZ: 0,
+        randomX: 0,
+        randomY: 0,
+        randomZ: 0
+      };
     case "SpawnFromBone":
       return { boneId: "" };
     case "SpawnFromMeshSurface":
@@ -78,7 +87,52 @@ function createModule(id: string, kind: ModuleInstance["kind"], config: Record<s
   };
 }
 
-export function createDefaultVfxEffectDocument(): VfxEffectDocument {
+export function createBlankVfxEffectDocument(): VfxEffectDocument {
+  return {
+    version: 1,
+    id: "effect:blank",
+    name: "Blank Effect",
+    graph: {
+      id: "graph:main",
+      name: "Main",
+      nodes: [
+        { ...createNodeBase("node:output", "output", "Effect Output", 320, 120) }
+      ],
+      edges: []
+    },
+    parameters: [],
+    events: [],
+    emitters: [],
+    dataInterfaces: [],
+    subgraphs: [],
+    scalability: {
+      tier: "high",
+      maxActiveInstances: 16,
+      preferredTierByDeviceClass: {},
+      fallbacks: []
+    },
+    budgets: {
+      maxParticles: 4096,
+      maxSpawnPerFrame: 128,
+      allowSorting: true,
+      allowRibbons: true,
+      allowCollision: true
+    },
+    preview: {
+      loop: true,
+      durationSeconds: 4,
+      attachMode: "isolated",
+      playbackRate: 1
+    },
+    metadata: {
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+      tags: ["blank"]
+    }
+  };
+}
+
+export function createCampfireVfxEffectDocument(): VfxEffectDocument {
   return {
     version: 1,
     id: "effect:campfire",
@@ -483,4 +537,8 @@ export function createDefaultVfxEffectDocument(): VfxEffectDocument {
       tags: ["campfire", "fire", "smoke", "embers"]
     }
   };
+}
+
+export function createDefaultVfxEffectDocument(): VfxEffectDocument {
+  return createBlankVfxEffectDocument();
 }

@@ -34,6 +34,8 @@ struct SimParams {
   sim1 : vec4f,
   spawn0 : vec4f,
   spawn1 : vec4f,
+  spawnOffset : vec4f,
+  spawnRandom : vec4f,
   spawnMeta : vec4u,
 }
 
@@ -72,11 +74,13 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
       let radius = params.spawn0.w * hash01(baseSeed ^ 0x27d4eb2fu);
       let radialAngle = hash01(baseSeed ^ 0x165667b1u) * 6.28318530718;
       let frameCount = max(params.spawn1.w, 1.0);
-      var spawnOffset = vec3f(cos(radialAngle) * radius, signedHash(baseSeed ^ 0xd3a2646cu) * 0.06, sin(radialAngle) * radius);
-      if (params.spawnMeta.w > 0u) {
-        spawnOffset.y = spawnOffset.y + 0.18;
-        spawnOffset.z = spawnOffset.z - 0.22;
-      }
+      var spawnOffset = params.spawnOffset.xyz;
+      spawnOffset = spawnOffset + vec3f(cos(radialAngle) * radius, 0.0, sin(radialAngle) * radius);
+      spawnOffset = spawnOffset + vec3f(
+        signedHash(baseSeed ^ 0xd3a2646cu) * params.spawnRandom.x,
+        signedHash(baseSeed ^ 0x8d12eac7u) * params.spawnRandom.y,
+        signedHash(baseSeed ^ 0x4f1bbcddu) * params.spawnRandom.z
+      );
       let cosA = cos(angle);
       let sinA = sin(angle);
       let velocity = vec3f(
@@ -171,9 +175,12 @@ function spawnParticleData(cfg: EmitterPreviewConfig, target: Float32Array, part
   const tangentialSpeed = ringRadius > 0 ? Math.max(speed * 0.4, cfg.orbitAngularSpeed * Math.max(ringJitter, 0.12)) : 0;
   const radialSpeed = ringRadius > 0 ? (Math.random() * 2 - 1) * speed * 0.16 : 0;
 
-  target[offset + PARTICLE_INDEX.positionX] = origin.x + (ringRadius > 0 ? radialX * ringJitter : (Math.random() - 0.5) * 0.12);
-  target[offset + PARTICLE_INDEX.positionY] = origin.y + (Math.random() - 0.5) * (cfg.isSmoke ? 0.08 : isFlame ? 0.035 : 0.12);
-  target[offset + PARTICLE_INDEX.positionZ] = origin.z + (ringRadius > 0 ? radialZ * ringJitter : (Math.random() - 0.5) * 0.12);
+  target[offset + PARTICLE_INDEX.positionX] =
+    origin.x + cfg.spawnOffsetX + (ringRadius > 0 ? radialX * ringJitter : 0) + (Math.random() * 2 - 1) * cfg.spawnRandomX;
+  target[offset + PARTICLE_INDEX.positionY] =
+    origin.y + cfg.spawnOffsetY + (Math.random() * 2 - 1) * cfg.spawnRandomY;
+  target[offset + PARTICLE_INDEX.positionZ] =
+    origin.z + cfg.spawnOffsetZ + (ringRadius > 0 ? radialZ * ringJitter : 0) + (Math.random() * 2 - 1) * cfg.spawnRandomZ;
   target[offset + PARTICLE_INDEX.velocityX] =
     cosA * Math.cos(azimuth) * speed * (ringRadius > 0 ? 0.18 : 1) + tangentX * tangentialSpeed + radialX * radialSpeed;
   target[offset + PARTICLE_INDEX.velocityY] = sinA * speed * (ringRadius > 0 ? 0.14 : 1) + cfg.upwardDrift * 0.12;
@@ -297,7 +304,7 @@ export async function createThreeWebGpuPreviewController(
         : [];
       const uniformBuffer = device.createBuffer({
         label: `vfx-preview-uniform-${config.emitterId}`,
-        size: 80,
+        size: 112,
         usage: GPU_BUFFER_USAGE.UNIFORM | GPU_BUFFER_USAGE.COPY_DST
       });
       const bindGroup = device.createBindGroup({
@@ -507,7 +514,7 @@ export async function createThreeWebGpuPreviewController(
   }
 
   function dispatchCompute(entry: EmitterPreviewEntry, deltaTime: number, spawnStart = 0, spawnCount = 0, nowSeconds = 0) {
-    const params = new ArrayBuffer(80);
+    const params = new ArrayBuffer(112);
     const floatView = new Float32Array(params);
     const uintView = new Uint32Array(params);
     floatView[0] = deltaTime;
@@ -526,10 +533,18 @@ export async function createThreeWebGpuPreviewController(
     floatView[13] = entry.config.sizeStart;
     floatView[14] = entry.config.sizeEnd;
     floatView[15] = Math.max(1, entry.config.flipbook.rows * entry.config.flipbook.cols);
-    uintView[16] = spawnStart;
-    uintView[17] = spawnCount;
-    uintView[18] = entry.config.maxParticleCount;
-    uintView[19] = entry.renderMode === "smoke-gpu" ? 1 : 0;
+    floatView[16] = entry.config.spawnOffsetX;
+    floatView[17] = entry.config.spawnOffsetY;
+    floatView[18] = entry.config.spawnOffsetZ;
+    floatView[19] = 0;
+    floatView[20] = entry.config.spawnRandomX;
+    floatView[21] = entry.config.spawnRandomY;
+    floatView[22] = entry.config.spawnRandomZ;
+    floatView[23] = 0;
+    uintView[24] = spawnStart;
+    uintView[25] = spawnCount;
+    uintView[26] = entry.config.maxParticleCount;
+    uintView[27] = entry.renderMode === "smoke-gpu" ? 1 : 0;
     device.queue.writeBuffer(entry.gpu.uniformBuffer, 0, params);
 
     if (entry.dirty) {
@@ -600,6 +615,12 @@ export async function createThreeWebGpuPreviewController(
       drag: config.drag,
       gravity: config.gravity,
       upwardDrift: config.upwardDrift,
+      spawnOffsetX: config.spawnOffsetX,
+      spawnOffsetY: config.spawnOffsetY,
+      spawnOffsetZ: config.spawnOffsetZ,
+      spawnRandomX: config.spawnRandomX,
+      spawnRandomY: config.spawnRandomY,
+      spawnRandomZ: config.spawnRandomZ,
       orbitRadius: config.orbitRadius,
       orbitAngularSpeed: config.orbitAngularSpeed,
       curlStrength: config.curlStrength,

@@ -41,6 +41,12 @@ export type EmitterPreviewConfig = {
   rate: number;
   spreadRadians: number;
   spawnRadius: number;
+  spawnOffsetX: number;
+  spawnOffsetY: number;
+  spawnOffsetZ: number;
+  spawnRandomX: number;
+  spawnRandomY: number;
+  spawnRandomZ: number;
   speedMin: number;
   speedMax: number;
   drag: number;

@@ -1,6 +1,6 @@
 import type { ChangeEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
-import { getDefaultModuleConfig, type VfxEditorStore } from "@ggez/vfx-editor-core";
+import { createBlankVfxEffectDocument, createCampfireVfxEffectDocument, getDefaultModuleConfig, type VfxEditorStore } from "@ggez/vfx-editor-core";
 import { BUILTIN_ATTRIBUTE_TYPES, MODULE_DESCRIPTORS } from "@ggez/vfx-core";
 import { createVfxArtifact, serializeVfxArtifact } from "@ggez/vfx-exporter";
 import type { EffectGraphNode, EmitterDocument, ModuleInstance, RendererFlipbookSettings, RendererSlot, VfxEventDefinition, VfxParameter } from "@ggez/vfx-schema";
@@ -55,7 +55,13 @@ const FLIPBOOK_PLAYBACK_OPTIONS: Array<{ value: RendererFlipbookSettings["playba
   { value: "scene-time", label: "Scene time" }
 ];
 
+const DOCUMENT_TEMPLATES: Array<{ id: DocumentTemplateId; label: string; create: () => ReturnType<typeof createBlankVfxEffectDocument> }> = [
+  { id: "blank", label: "Blank", create: createBlankVfxEffectDocument },
+  { id: "campfire", label: "Campfire", create: createCampfireVfxEffectDocument }
+];
+
 type StageKey = "deathStage" | "initializeStage" | "spawnStage" | "updateStage";
+type DocumentTemplateId = "blank" | "campfire";
 
 function getStageKey(stage: StageName): StageKey {
   return stage === "spawn" ? "spawnStage" : stage === "initialize" ? "initializeStage" : stage === "update" ? "updateStage" : "deathStage";
@@ -170,6 +176,7 @@ function ModuleJsonEditor(props: {
 
 function ModuleConfigFields(props: {
   attributeOptions: string[];
+  attributeTypeMap: Record<string, string>;
   module: ModuleInstance;
   onUpdate(nextModule: ModuleInstance): void;
 }) {
@@ -190,6 +197,12 @@ function ModuleConfigFields(props: {
   }
 
   const { kind } = props.module;
+  const selectedAttribute = typeof config.attribute === "string" ? config.attribute : "";
+  const selectedAttributeType = props.attributeTypeMap[selectedAttribute];
+  const isScalarNumericAttribute =
+    selectedAttributeType === "float" || selectedAttributeType === "int" || selectedAttributeType === "uint";
+  const currentValue = config.value;
+  const isNumericValue = typeof currentValue === "number" && Number.isFinite(currentValue);
 
   return (
     <>
@@ -239,6 +252,12 @@ function ModuleConfigFields(props: {
         <>
           <PropRow label="Angle (degrees)"><DragInput value={Number(config.angleDegrees ?? 16)} onChange={num("angleDegrees")} step={1} min={0} precision={1} /></PropRow>
           <PropRow label="Radius"><DragInput value={Number(config.radius ?? 0.1)} onChange={num("radius")} step={0.01} min={0} precision={3} /></PropRow>
+          <PropRow label="Offset X"><DragInput value={Number(config.offsetX ?? 0)} onChange={num("offsetX")} step={0.01} precision={3} /></PropRow>
+          <PropRow label="Offset Y"><DragInput value={Number(config.offsetY ?? 0)} onChange={num("offsetY")} step={0.01} precision={3} /></PropRow>
+          <PropRow label="Offset Z"><DragInput value={Number(config.offsetZ ?? 0)} onChange={num("offsetZ")} step={0.01} precision={3} /></PropRow>
+          <PropRow label="Random X"><DragInput value={Number(config.randomX ?? 0)} onChange={num("randomX")} step={0.01} min={0} precision={3} /></PropRow>
+          <PropRow label="Random Y"><DragInput value={Number(config.randomY ?? 0)} onChange={num("randomY")} step={0.01} min={0} precision={3} /></PropRow>
+          <PropRow label="Random Z"><DragInput value={Number(config.randomZ ?? 0)} onChange={num("randomZ")} step={0.01} min={0} precision={3} /></PropRow>
         </>
       )}
 
@@ -252,7 +271,25 @@ function ModuleConfigFields(props: {
             </select>
           </PropRow>
           <PropRow label="Value">
-            <input className={TEXT_INPUT_CLASS} value={String(config.value ?? "")} placeholder="0.42" onChange={loose("value")} />
+            {isScalarNumericAttribute || isNumericValue ? (
+              <DragInput
+                value={typeof currentValue === "number" ? currentValue : 0}
+                onChange={(value) =>
+                  props.onUpdate({
+                    ...props.module,
+                    config: {
+                      ...props.module.config,
+                      value: selectedAttributeType === "int" || selectedAttributeType === "uint" ? Math.round(value) : value
+                    }
+                  })
+                }
+                step={selectedAttributeType === "int" || selectedAttributeType === "uint" ? 1 : 0.01}
+                precision={selectedAttributeType === "int" || selectedAttributeType === "uint" ? 0 : 3}
+                min={selectedAttributeType === "uint" ? 0 : undefined}
+              />
+            ) : (
+              <input className={TEXT_INPUT_CLASS} value={String(config.value ?? "")} placeholder="0.42" onChange={loose("value")} />
+            )}
           </PropRow>
         </>
       )}
@@ -869,6 +906,7 @@ function InspectorPanel(props: {
   selectedGraphNode: EffectGraphNode | null;
   emitter: EmitterDocument | null;
   attributeOptions: string[];
+  attributeTypeMap: Record<string, string>;
   selectedModuleId: string | null;
   onUpdateStageModule(stage: StageName, moduleId: string, next: ModuleInstance): void;
   onRemoveStageModule(stage: StageName, moduleId: string): void;
@@ -978,6 +1016,7 @@ function InspectorPanel(props: {
                 {/* Module config fields */}
                 <ModuleConfigFields
                   attributeOptions={props.attributeOptions}
+                  attributeTypeMap={props.attributeTypeMap}
                   module={module}
                   onUpdate={(next) => props.onUpdateStageModule(stage, module.id, next)}
                 />
@@ -1062,11 +1101,19 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("inspector");
   const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
   const [copilotOpen, setCopilotOpen] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<DocumentTemplateId>("blank");
   const state = useEditorStoreValue(props.store, () => props.store.getState(), ["document", "selection", "compile", "emitters"]);
   const selectedEmitter = state.document.emitters.find((e) => e.id === state.selection.selectedEmitterId) ?? state.document.emitters[0];
   const { previewRect, beginPreviewInteraction, updatePreviewBounds } = usePreviewPanelDrag(workspaceRef);
   const { copilotPosition, beginCopilotDrag, updateCopilotBounds } = useCopilotPanelDrag(workspaceRef, copilotPanelRef, copilotOpen);
   const copilot = useCopilot(props.store);
+  const attributeTypeMap = useMemo(
+    () => ({
+      ...BUILTIN_ATTRIBUTE_TYPES,
+      ...(selectedEmitter?.attributes ?? {})
+    }),
+    [selectedEmitter?.attributes]
+  );
   const attributeOptions = selectedEmitter
     ? [...new Set([...Object.keys(BUILTIN_ATTRIBUTE_TYPES), ...Object.keys(selectedEmitter.attributes)])].sort((a, b) => a.localeCompare(b))
     : Object.keys(BUILTIN_ATTRIBUTE_TYPES);
@@ -1128,6 +1175,17 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
   function handleFireParameterInPreview(_parameterId: string) {
     // Trigger a burst to simulate a trigger parameter firing in the preview
     // The preview panel already handles this via its own burst version
+  }
+
+  function handleLoadTemplate(templateId: DocumentTemplateId) {
+    const template = DOCUMENT_TEMPLATES.find((entry) => entry.id === templateId);
+    if (!template) return;
+    props.store.setDocument(template.create());
+    props.store.selectGraphNodes([]);
+    props.store.selectEmitter(undefined);
+    setSelectedEdgeIds([]);
+    setSelectedModuleId(null);
+    setInspectorTab("inspector");
   }
 
   function handleAddEmitter() {
@@ -1346,6 +1404,27 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
         >
           Compile
         </button>
+        <div className="ml-2 flex items-center gap-2">
+          <span className="text-[10px] uppercase tracking-[0.18em] text-zinc-600">Template</span>
+          <select
+            className="h-8 rounded-full border border-white/10 bg-white/4 px-3 text-xs text-zinc-200 outline-none transition hover:border-white/20"
+            value={selectedTemplateId}
+            onChange={(event) => setSelectedTemplateId(event.target.value as DocumentTemplateId)}
+          >
+            {DOCUMENT_TEMPLATES.map((template) => (
+              <option key={template.id} value={template.id}>
+                {template.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:border-emerald-300/25 hover:text-emerald-100"
+            onClick={() => handleLoadTemplate(selectedTemplateId)}
+          >
+            Load
+          </button>
+        </div>
         <button
           type="button"
           className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
@@ -1477,6 +1556,7 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
               selectedGraphNode={selectedGraphNode}
               emitter={selectedEmitter ?? null}
               attributeOptions={attributeOptions}
+              attributeTypeMap={attributeTypeMap}
               selectedModuleId={selectedModuleId}
               onUpdateStageModule={handleUpdateStageModule}
               onRemoveStageModule={handleRemoveStageModule}

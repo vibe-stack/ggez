@@ -172,7 +172,16 @@ export function createVfxEditorStore(initialDocument = createDefaultVfxEffectDoc
     setDocument(document) {
       commit(() => {
         state.document = structuredClone(document);
-      }, ["document", "graph", "emitters"]);
+        const graphNodeIds = new Set(state.document.graph.nodes.map((node) => node.id));
+        const selectedEmitterId = state.document.emitters.some((emitter) => emitter.id === state.selection.selectedEmitterId)
+          ? state.selection.selectedEmitterId
+          : state.document.emitters[0]?.id;
+        state.selection = {
+          ...state.selection,
+          graphNodeIds: state.selection.graphNodeIds.filter((nodeId) => graphNodeIds.has(nodeId)),
+          selectedEmitterId
+        };
+      }, ["document", "graph", "emitters", "selection"]);
     },
     selectGraphNodes(nodeIds) {
       if (areStringArraysEqual(state.selection.graphNodeIds, nodeIds)) {
