@@ -81,35 +81,273 @@ function createModule(id: string, kind: ModuleInstance["kind"], config: Record<s
 export function createDefaultVfxEffectDocument(): VfxEffectDocument {
   return {
     version: 1,
-    id: "effect:red-smoke-plume",
-    name: "Red Smoke Plume",
+    id: "effect:campfire",
+    name: "Campfire",
     graph: {
       id: "graph:main",
       name: "Main",
       nodes: [
-        { ...createNodeBase("node:parameter:color", "parameter", "Smoke Tint", -120, -60), parameterId: "param:tint" },
-        { ...createNodeBase("node:emitter:smoke", "emitter", "Smoke Volume", 180, 20), emitterId: "emitter:smoke" },
-        { ...createNodeBase("node:output", "output", "Effect Output", 500, 20) }
+        { ...createNodeBase("node:parameter:flame-core", "parameter", "Core Flame Tint", -220, -150), parameterId: "param:flame-core" },
+        { ...createNodeBase("node:parameter:flame-outer", "parameter", "Outer Flame Tint", -220, -50), parameterId: "param:flame-outer" },
+        { ...createNodeBase("node:parameter:ember", "parameter", "Ember Tint", -220, 50), parameterId: "param:ember" },
+        { ...createNodeBase("node:parameter:smoke", "parameter", "Smoke Tint", -220, 150), parameterId: "param:smoke" },
+        { ...createNodeBase("node:emitter:flame-core", "emitter", "Flame Core", 60, -150), emitterId: "emitter:flame-core" },
+        { ...createNodeBase("node:emitter:flame-outer", "emitter", "Flame Shell", 60, -40), emitterId: "emitter:flame-outer" },
+        { ...createNodeBase("node:emitter:embers", "emitter", "Embers", 60, 70), emitterId: "emitter:embers" },
+        { ...createNodeBase("node:emitter:smoke", "emitter", "Smoke", 60, 180), emitterId: "emitter:smoke" },
+        { ...createNodeBase("node:output", "output", "Effect Output", 420, 20) }
       ],
       edges: [
-        { id: "edge:param-smoke", sourceNodeId: "node:parameter:color", targetNodeId: "node:emitter:smoke", label: "parameter" },
+        { id: "edge:param-core", sourceNodeId: "node:parameter:flame-core", targetNodeId: "node:emitter:flame-core", label: "parameter" },
+        { id: "edge:param-outer", sourceNodeId: "node:parameter:flame-outer", targetNodeId: "node:emitter:flame-outer", label: "parameter" },
+        { id: "edge:param-ember", sourceNodeId: "node:parameter:ember", targetNodeId: "node:emitter:embers", label: "parameter" },
+        { id: "edge:param-smoke", sourceNodeId: "node:parameter:smoke", targetNodeId: "node:emitter:smoke", label: "parameter" },
+        { id: "edge:core-output", sourceNodeId: "node:emitter:flame-core", targetNodeId: "node:output", label: "render" },
+        { id: "edge:outer-output", sourceNodeId: "node:emitter:flame-outer", targetNodeId: "node:output", label: "render" },
+        { id: "edge:embers-output", sourceNodeId: "node:emitter:embers", targetNodeId: "node:output", label: "render" },
         { id: "edge:smoke-output", sourceNodeId: "node:emitter:smoke", targetNodeId: "node:output", label: "render" }
       ]
     },
     parameters: [
       {
-        id: "param:tint",
+        id: "param:flame-core",
+        name: "Core Flame Tint",
+        type: "color",
+        defaultValue: "#ffd56a",
+        exposed: true
+      },
+      {
+        id: "param:flame-outer",
+        name: "Outer Flame Tint",
+        type: "color",
+        defaultValue: "#ff5a24",
+        exposed: true
+      },
+      {
+        id: "param:ember",
+        name: "Ember Tint",
+        type: "color",
+        defaultValue: "#fff7e8",
+        exposed: true
+      },
+      {
+        id: "param:smoke",
         name: "Smoke Tint",
         type: "color",
-        defaultValue: "#ff0000",
+        defaultValue: "#5d5a53",
         exposed: true
       }
     ],
     events: [],
     emitters: [
       {
+        id: "emitter:flame-core",
+        name: "Flame Core",
+        simulationDomain: "particle",
+        // Dense core: rapid refresh keeps the hot column visually solid
+        maxParticleCount: 220,
+        attributes: {
+          heat: "float"
+        },
+        spawnStage: {
+          modules: [
+            createModule("module:core-burst", "SpawnBurst", { count: 22, everyEvent: "" }),
+            createModule("module:core-rate", "SpawnRate", { rate: 60, maxAlive: 220 }),
+            // Very tight base — fire originates at a point
+            createModule("module:core-cone", "SpawnCone", { angleDegrees: 5, radius: 0.018 })
+          ]
+        },
+        initializeStage: {
+          modules: [
+            // Short lifetime: 0.5 s forces rapid turnover and keeps the flame column from hanging
+            createModule("module:core-life", "SetAttribute", { attribute: "lifetime", value: 0.52 }),
+            // Real flame rises quickly (2–5 m/s); strong initial impulse is bled away by drag below
+            createModule("module:core-velocity", "VelocityCone", { speedMin: 2.2, speedMax: 5.0, angleDegrees: 4 })
+          ]
+        },
+        updateStage: {
+          modules: [
+            // High drag => velocity decays exponentially → classic "flame slows as it rises" silhouette
+            createModule("module:core-drag", "Drag", { coefficient: 4.5 }),
+            // Slight net downward pull (buoyancy mostly cancels gravity in real fire)
+            createModule("module:core-gravity", "GravityForce", { accelerationX: 0, accelerationY: -1.2, accelerationZ: 0 }),
+            // Strong, high-frequency curl for organic flicker and roll
+            createModule("module:core-curl", "CurlNoiseForce", { strength: 0.65, frequency: 1.4 }),
+            createModule("module:core-color", "ColorOverLife", { curve: "flame-hot" }),
+            // Blooms outward as it rises then pinches at tip
+            createModule("module:core-size", "SizeOverLife", { curve: "flame-bloom" }),
+            createModule("module:core-alpha", "AlphaOverLife", { curve: "flame-core-fade" })
+          ]
+        },
+        deathStage: {
+          modules: [createModule("module:core-kill-age", "KillByAge")]
+        },
+        eventHandlers: [],
+        renderers: [
+          {
+            id: "renderer:flame-core",
+            name: "Flame Core Renderer",
+            kind: "sprite",
+            template: "SpriteAdditiveMaterial",
+            enabled: true,
+            material: {
+              blendMode: "additive",
+              lightingMode: "unlit",
+              softParticles: false,
+              depthFade: false,
+              flipbook: false,
+              distortion: false,
+              emissive: true,
+              facingMode: "full",
+              sortMode: "none"
+            },
+            parameterBindings: {
+              tint: "param:flame-core",
+              _texture: "flame"
+            }
+          }
+        ],
+        sourceBindings: [],
+        dataInterfaces: []
+      },
+      {
+        id: "emitter:flame-outer",
+        name: "Flame Shell",
+        simulationDomain: "particle",
+        // Outer envelope: wider, softer, more turbulent than the core
+        maxParticleCount: 260,
+        attributes: {
+          heat: "float"
+        },
+        spawnStage: {
+          modules: [
+            createModule("module:outer-burst", "SpawnBurst", { count: 14, everyEvent: "" }),
+            createModule("module:outer-rate", "SpawnRate", { rate: 42, maxAlive: 260 }),
+            // Slightly wider base ring around the core
+            createModule("module:outer-cone", "SpawnCone", { angleDegrees: 13, radius: 0.055 })
+          ]
+        },
+        initializeStage: {
+          modules: [
+            // Slightly longer than core so the envelope lingers after the flash
+            createModule("module:outer-life", "SetAttribute", { attribute: "lifetime", value: 0.72 }),
+            createModule("module:outer-velocity", "VelocityCone", { speedMin: 1.4, speedMax: 3.4, angleDegrees: 10 })
+          ]
+        },
+        updateStage: {
+          modules: [
+            createModule("module:outer-drag", "Drag", { coefficient: 3.8 }),
+            createModule("module:outer-gravity", "GravityForce", { accelerationX: 0, accelerationY: -0.9, accelerationZ: 0 }),
+            // Stronger curl + lower frequency = large slow roiling on the outside
+            createModule("module:outer-curl", "CurlNoiseForce", { strength: 0.95, frequency: 0.95 }),
+            createModule("module:outer-color", "ColorOverLife", { curve: "flame-orange" }),
+            // Outer particles bloom wider and fade sooner — gives the hazy fringe
+            createModule("module:outer-size", "SizeOverLife", { curve: "flame-bloom-wide" }),
+            createModule("module:outer-alpha", "AlphaOverLife", { curve: "flame-outer-fade" })
+          ]
+        },
+        deathStage: {
+          modules: [createModule("module:outer-kill-age", "KillByAge")]
+        },
+        eventHandlers: [],
+        renderers: [
+          {
+            id: "renderer:flame-outer",
+            name: "Flame Shell Renderer",
+            kind: "sprite",
+            template: "SpriteAdditiveMaterial",
+            enabled: true,
+            material: {
+              blendMode: "additive",
+              lightingMode: "unlit",
+              softParticles: false,
+              depthFade: false,
+              flipbook: false,
+              distortion: false,
+              emissive: true,
+              facingMode: "full",
+              sortMode: "none"
+            },
+            parameterBindings: {
+              tint: "param:flame-outer",
+              _texture: "flame"
+            }
+          }
+        ],
+        sourceBindings: [],
+        dataInterfaces: []
+      },
+      {
+        id: "emitter:embers",
+        name: "Embers",
+        simulationDomain: "particle",
+        // Fewer embers but each one traces a believable ballistic arc
+        maxParticleCount: 55,
+        attributes: {
+          spark: "float"
+        },
+        spawnStage: {
+          modules: [
+            createModule("module:ember-burst", "SpawnBurst", { count: 3, everyEvent: "" }),
+            // Occasional sparks — campfires don't spray embers constantly
+            createModule("module:ember-rate", "SpawnRate", { rate: 4.5, maxAlive: 55 }),
+            // Wide cone: embers fly out at all angles from the fuel bed
+            createModule("module:ember-cone", "SpawnCone", { angleDegrees: 55, radius: 0.05 })
+          ]
+        },
+        initializeStage: {
+          modules: [
+            // Long life: embers arc high, tumble, and cool before dying
+            createModule("module:ember-life", "SetAttribute", { attribute: "lifetime", value: 2.6 }),
+            // High initial speed; gravity will carve the arc
+            createModule("module:ember-velocity", "VelocityCone", { speedMin: 3.5, speedMax: 8.0, angleDegrees: 40 })
+          ]
+        },
+        updateStage: {
+          modules: [
+            // Light drag — sparks are tiny but buoyancy provides a little lift
+            createModule("module:ember-drag", "Drag", { coefficient: 0.55 }),
+            // Near real-world gravity so the parabolic arc looks correct
+            createModule("module:ember-gravity", "GravityForce", { accelerationX: 0, accelerationY: -9.4, accelerationZ: 0 }),
+            // Tiny high-frequency wiggle — embers tumble erratically in the thermal column
+            createModule("module:ember-curl", "CurlNoiseForce", { strength: 0.08, frequency: 3.2 }),
+            createModule("module:ember-alpha", "AlphaOverLife", { curve: "ember-glow-fade" })
+          ]
+        },
+        deathStage: {
+          modules: [createModule("module:ember-kill-age", "KillByAge")]
+        },
+        eventHandlers: [],
+        renderers: [
+          {
+            id: "renderer:embers",
+            name: "Ember Renderer",
+            kind: "sprite",
+            template: "SpriteAdditiveMaterial",
+            enabled: true,
+            material: {
+              blendMode: "additive",
+              lightingMode: "unlit",
+              softParticles: false,
+              depthFade: false,
+              flipbook: false,
+              distortion: false,
+              emissive: true,
+              facingMode: "full",
+              sortMode: "none"
+            },
+            parameterBindings: {
+              tint: "param:ember",
+              _texture: "spark"
+            }
+          }
+        ],
+        sourceBindings: [],
+        dataInterfaces: []
+      },
+      {
         id: "emitter:smoke",
-        name: "Smoke Volume",
+        name: "Smoke",
         simulationDomain: "particle",
         maxParticleCount: 768,
         attributes: {
@@ -117,37 +355,35 @@ export function createDefaultVfxEffectDocument(): VfxEffectDocument {
         },
         spawnStage: {
           modules: [
-            createModule("module:burst", "SpawnBurst", { count: 8, everyEvent: "" }),
-            createModule("module:rate", "SpawnRate", { rate: 18, maxAlive: 768 }),
-            createModule("module:cone", "SpawnCone", { angleDegrees: 9, radius: 0.14 })
+            createModule("module:smoke-burst", "SpawnBurst", { count: 4, everyEvent: "" }),
+            createModule("module:smoke-rate", "SpawnRate", { rate: 8.5, maxAlive: 768 }),
+            createModule("module:smoke-cone", "SpawnCone", { angleDegrees: 7, radius: 0.09 })
           ]
         },
         initializeStage: {
           modules: [
-            createModule("module:set-age", "SetAttribute", { attribute: "lifetime", value: 5.5 }),
-            createModule("module:velocity", "VelocityCone", { speedMin: 0.12, speedMax: 0.48, angleDegrees: 11 })
+            createModule("module:smoke-life", "SetAttribute", { attribute: "lifetime", value: 6.6 }),
+            createModule("module:smoke-velocity", "VelocityCone", { speedMin: 0.08, speedMax: 0.26, angleDegrees: 9 })
           ]
         },
         updateStage: {
           modules: [
-            createModule("module:drag", "Drag", { coefficient: 0.28 }),
-            createModule("module:gravity", "GravityForce", { accelerationX: 0, accelerationY: -7, accelerationZ: 0 }),
-            createModule("module:curl", "CurlNoiseForce", { strength: 1.35, frequency: 0.55 }),
-            createModule("module:color", "ColorOverLife", { curve: "smoke-soft" }),
-            createModule("module:size", "SizeOverLife", { curve: "smoke-soft" }),
-            createModule("module:alpha", "AlphaOverLife", { curve: "smoke-soft" })
+            createModule("module:smoke-drag", "Drag", { coefficient: 0.18 }),
+            createModule("module:smoke-gravity", "GravityForce", { accelerationX: 0, accelerationY: -4, accelerationZ: 0 }),
+            createModule("module:smoke-curl", "CurlNoiseForce", { strength: 0.65, frequency: 0.38 }),
+            createModule("module:smoke-color", "ColorOverLife", { curve: "smoke-soft" }),
+            createModule("module:smoke-size", "SizeOverLife", { curve: "smoke-soft" }),
+            createModule("module:smoke-alpha", "AlphaOverLife", { curve: "smoke-soft" })
           ]
         },
         deathStage: {
-          modules: [
-            createModule("module:kill-age", "KillByAge")
-          ]
+          modules: [createModule("module:smoke-kill-age", "KillByAge")]
         },
         eventHandlers: [],
         renderers: [
           {
             id: "renderer:smoke",
-            name: "Smoke Sprites",
+            name: "Smoke Renderer",
             kind: "sprite",
             template: "SpriteSmokeMaterial",
             enabled: true,
@@ -163,7 +399,7 @@ export function createDefaultVfxEffectDocument(): VfxEffectDocument {
               sortMode: "back-to-front"
             },
             parameterBindings: {
-              tint: "param:tint",
+              tint: "param:smoke",
               _texture: "smoke"
             }
           }
@@ -199,20 +435,20 @@ export function createDefaultVfxEffectDocument(): VfxEffectDocument {
     budgets: {
       maxParticles: 4096,
       maxSpawnPerFrame: 128,
-      allowSorting: false,
+      allowSorting: true,
       allowRibbons: true,
       allowCollision: true
     },
     preview: {
       loop: true,
-      durationSeconds: 6,
+      durationSeconds: 4,
       attachMode: "isolated",
       playbackRate: 1
     },
     metadata: {
       createdAt: nowIso(),
       updatedAt: nowIso(),
-      tags: ["smoke", "red", "volumetric"]
+      tags: ["campfire", "fire", "smoke", "embers"]
     }
   };
 }

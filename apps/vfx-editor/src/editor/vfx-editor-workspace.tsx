@@ -1449,6 +1449,7 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
               document={state.document}
               compileResult={state.compileResult}
               selectedEmitterId={selectedEmitter?.id}
+              onUpdatePreviewSettings={(preview) => props.store.updatePreviewSettings(preview)}
             />
           </div>
           <button

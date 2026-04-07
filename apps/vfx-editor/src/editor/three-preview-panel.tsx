@@ -13,8 +13,9 @@ export function ThreePreviewPanel(props: {
   document: VfxEffectDocument;
   compileResult?: CompiledVfxEffect;
   selectedEmitterId?: string;
+  onUpdatePreviewSettings(preview: Partial<VfxEffectDocument["preview"]>): void;
 }) {
-  const { document, compileResult, selectedEmitterId } = props;
+  const { document, compileResult, selectedEmitterId, onUpdatePreviewSettings } = props;
   const mountRef = useRef<HTMLDivElement | null>(null);
   const controllerRef = useRef<ThreeWebGpuPreviewController | null>(null);
   const [isPlaying, setIsPlaying] = useState(true);
@@ -167,6 +168,50 @@ export function ThreePreviewPanel(props: {
             onChange={(event) => setSoloSelected(event.target.checked)}
           />
           <span>Solo</span>
+        </label>
+
+        <label className="inline-flex items-center gap-1 text-[11px] text-zinc-500">
+          <input
+            type="checkbox"
+            className="accent-emerald-400"
+            checked={document.preview.loop}
+            onChange={(event) => onUpdatePreviewSettings({ loop: event.target.checked })}
+          />
+          <span>Loop</span>
+        </label>
+
+        <label className="inline-flex items-center gap-1 text-[11px] text-zinc-500">
+          <span>Dur</span>
+          <input
+            type="number"
+            min={0.1}
+            step={0.1}
+            className="h-6.5 w-14 rounded-lg border border-white/10 bg-black/30 px-1.5 text-[11px] text-zinc-300 outline-none transition hover:border-white/20 focus:border-white/20"
+            value={document.preview.durationSeconds}
+            onChange={(event) => {
+              const value = Number(event.target.value);
+              if (Number.isFinite(value) && value > 0) {
+                onUpdatePreviewSettings({ durationSeconds: value });
+              }
+            }}
+          />
+        </label>
+
+        <label className="inline-flex items-center gap-1 text-[11px] text-zinc-500">
+          <span>Rate</span>
+          <input
+            type="number"
+            min={0.1}
+            step={0.1}
+            className="h-6.5 w-14 rounded-lg border border-white/10 bg-black/30 px-1.5 text-[11px] text-zinc-300 outline-none transition hover:border-white/20 focus:border-white/20"
+            value={document.preview.playbackRate}
+            onChange={(event) => {
+              const value = Number(event.target.value);
+              if (Number.isFinite(value) && value > 0) {
+                onUpdatePreviewSettings({ playbackRate: value });
+              }
+            }}
+          />
         </label>
 
         <span className="ml-auto text-[11px] text-zinc-600">{particleCount}</span>

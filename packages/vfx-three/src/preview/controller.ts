@@ -3,6 +3,7 @@ import { buildEmitterPreviewConfigs, resolveActiveEmitterIds } from "./extractio
 import { evaluatePreviewAlpha, evaluatePreviewColor, evaluatePreviewSize } from "./evaluation";
 import { createPreviewThreeScene } from "./scene";
 import { createPreviewGpuSmokeRenderer } from "./smoke-renderer";
+import { createPreviewGpuSpriteRenderer } from "./sprite-gpu-renderer";
 import { createPreviewSprite, makePreviewSpriteTexture } from "./textures";
 import {
   GPU_BUFFER_USAGE,
@@ -70,7 +71,11 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
       let speed = params.spawn0.y + hash01(baseSeed ^ 0xc2b2ae35u) * max(0.0, params.spawn0.z - params.spawn0.y);
       let radius = params.spawn0.w * hash01(baseSeed ^ 0x27d4eb2fu);
       let radialAngle = hash01(baseSeed ^ 0x165667b1u) * 6.28318530718;
-      let spawnOffset = vec3f(cos(radialAngle) * radius, signedHash(baseSeed ^ 0xd3a2646cu) * 0.06, sin(radialAngle) * radius);
+      var spawnOffset = vec3f(cos(radialAngle) * radius, signedHash(baseSeed ^ 0xd3a2646cu) * 0.06, sin(radialAngle) * radius);
+      if (params.spawnMeta.w > 0u) {
+        spawnOffset.y = spawnOffset.y + 0.18;
+        spawnOffset.z = spawnOffset.z - 0.22;
+      }
       let cosA = cos(angle);
       let sinA = sin(angle);
       let velocity = vec3f(
@@ -148,6 +153,8 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
 
 function spawnParticleData(cfg: EmitterPreviewConfig, target: Float32Array, particleIndex: number, origin = new THREE.Vector3()) {
   const offset = particleIndex * PARTICLE_FLOATS;
+  const isFlame = cfg.texturePreset === "flame";
+  const isSpark = cfg.texturePreset === "spark" || cfg.texturePreset === "star";
   const angle = Math.PI * 0.5 + (Math.random() * 2 - 1) * cfg.spreadRadians;
   const azimuth = Math.random() * Math.PI * 2;
   const speed = cfg.speedMin + Math.random() * Math.max(0, cfg.speedMax - cfg.speedMin);
@@ -164,7 +171,7 @@ function spawnParticleData(cfg: EmitterPreviewConfig, target: Float32Array, part
   const radialSpeed = ringRadius > 0 ? (Math.random() * 2 - 1) * speed * 0.16 : 0;
 
   target[offset + PARTICLE_INDEX.positionX] = origin.x + (ringRadius > 0 ? radialX * ringJitter : (Math.random() - 0.5) * 0.12);
-  target[offset + PARTICLE_INDEX.positionY] = origin.y + (Math.random() - 0.5) * (cfg.isSmoke ? 0.08 : 0.12);
+  target[offset + PARTICLE_INDEX.positionY] = origin.y + (Math.random() - 0.5) * (cfg.isSmoke ? 0.08 : isFlame ? 0.035 : 0.12);
   target[offset + PARTICLE_INDEX.positionZ] = origin.z + (ringRadius > 0 ? radialZ * ringJitter : (Math.random() - 0.5) * 0.12);
   target[offset + PARTICLE_INDEX.velocityX] =
     cosA * Math.cos(azimuth) * speed * (ringRadius > 0 ? 0.18 : 1) + tangentX * tangentialSpeed + radialX * radialSpeed;
@@ -177,7 +184,9 @@ function spawnParticleData(cfg: EmitterPreviewConfig, target: Float32Array, part
   target[offset + PARTICLE_INDEX.sizeEnd] = cfg.sizeEnd;
   target[offset + PARTICLE_INDEX.rotation] = Math.random() * Math.PI * 2;
   target[offset + PARTICLE_INDEX.rotationSpeed] =
-    (cfg.isSmoke ? 0.22 : 1.7) * (0.6 + Math.random() * 0.8) * (Math.random() < 0.5 ? -1 : 1);
+    (cfg.isSmoke ? 0.22 : isFlame ? 0.12 : isSpark ? 0.48 : 1.7) *
+    (0.6 + Math.random() * 0.8) *
+    (Math.random() < 0.5 ? -1 : 1);
   target[offset + PARTICLE_INDEX.alive] = 1;
   target[offset + PARTICLE_INDEX.frame] = cfg.texturePreset === "smoke" ? Math.floor(Math.random() * 4) : 0;
   target[offset + PARTICLE_INDEX.seed] = Math.random() * 1000;
@@ -187,12 +196,18 @@ export async function createThreeWebGpuPreviewController(
   input: CreateThreeWebGpuPreviewControllerInput
 ): Promise<ThreeWebGpuPreviewController> {
   const device = ((input.renderer as unknown as { backend?: { device?: any } }).backend?.device);
+  const context = input.renderer.domElement.getContext("webgpu") as any;
   if (!device) {
     throw new Error("Failed to access the underlying WebGPU device from the provided Three WebGPURenderer.");
   }
+  if (!context) {
+    throw new Error("Failed to access the canvas WebGPU context from the provided Three WebGPURenderer.");
+  }
 
   const previewScene = createPreviewThreeScene({ mount: input.mount, renderer: input.renderer });
+  (input.renderer as any).autoClear = false;
   const smokeRenderer = await createPreviewGpuSmokeRenderer({ device, renderer: input.renderer });
+  const spriteGpuRenderer = await createPreviewGpuSpriteRenderer({ device, renderer: input.renderer });
   const shaderModule = device.createShaderModule({ code: COMPUTE_SHADER_CODE, label: "vfx-preview-sim" });
   const computePipeline = await device.createComputePipelineAsync({
     label: "vfx-preview-sim-pipeline",
@@ -210,6 +225,7 @@ export async function createThreeWebGpuPreviewController(
   let previousResetVersion = -1;
   let previousFireVersion = -1;
   let previousConfigKey = "";
+  let elapsedPreviewSeconds = 0;
   const entries = new Map<string, EmitterPreviewEntry>();
 
   previewScene.resize();
@@ -224,6 +240,9 @@ export async function createThreeWebGpuPreviewController(
     if (entry.smokeRender) {
       smokeRenderer.destroyEmitterResources(entry.smokeRender);
     }
+    if (entry.spriteGpuRender) {
+      spriteGpuRenderer.destroyEmitterResources(entry.spriteGpuRender);
+    }
     entry.texture.dispose();
     entry.gpu.particleBuffer.destroy();
     entry.gpu.readBuffers.forEach((buffer) => buffer.destroy());
@@ -235,8 +254,8 @@ export async function createThreeWebGpuPreviewController(
     entries.clear();
 
     for (const config of configs) {
-      const renderMode = config.isSmoke ? "smoke-gpu" : "sprite-fallback";
-      const requiresReadback = !config.isSmoke || config.deathEventIds.length > 0;
+      const renderMode = config.isSmoke ? "smoke-gpu" : "sprite-gpu";
+      const requiresReadback = config.deathEventIds.length > 0;
 
       const particleData = new Float32Array(config.maxParticleCount * PARTICLE_FLOATS);
       const particleBuffer = device.createBuffer({
@@ -244,17 +263,8 @@ export async function createThreeWebGpuPreviewController(
         size: particleData.byteLength,
         usage: GPU_BUFFER_USAGE.STORAGE | GPU_BUFFER_USAGE.COPY_SRC | GPU_BUFFER_USAGE.COPY_DST
       });
-      const texture = renderMode === "sprite-fallback"
-        ? makePreviewSpriteTexture(config.texturePreset).texture
-        : new THREE.Texture();
+      const texture = new THREE.Texture();
       const sprites: THREE.Sprite[] = [];
-      if (renderMode === "sprite-fallback") {
-        for (let index = 0; index < config.maxParticleCount; index += 1) {
-          const sprite = createPreviewSprite(texture, config.additive);
-          previewScene.scene.add(sprite);
-          sprites.push(sprite);
-        }
-      }
 
       const readbackSlots = requiresReadback
         ? Array.from({ length: PREVIEW_READBACK_BUFFER_COUNT }, (_, index) => ({
@@ -292,6 +302,7 @@ export async function createThreeWebGpuPreviewController(
         smokeSpawnCursor: 0,
         smokeStartupRemaining: config.startupBurstCount,
         smokeRender: renderMode === "smoke-gpu" ? smokeRenderer.createEmitterResources(config, particleBuffer) : undefined,
+        spriteGpuRender: renderMode === "sprite-gpu" ? spriteGpuRenderer.createEmitterResources(config, particleBuffer) : undefined,
         sprites,
         texture,
         readbackCooldownSeconds: 0,
@@ -306,7 +317,7 @@ export async function createThreeWebGpuPreviewController(
   }
 
   function getFreeParticleSlots(entry: EmitterPreviewEntry, desiredCount: number) {
-    if (entry.renderMode === "smoke-gpu" && !entry.requiresReadback) {
+    if ((entry.renderMode === "smoke-gpu" || entry.renderMode === "sprite-gpu") && !entry.requiresReadback) {
       const slots: number[] = [];
       for (let index = 0; index < desiredCount; index += 1) {
         slots.push(entry.nextSpawnSlot);
@@ -365,14 +376,19 @@ export async function createThreeWebGpuPreviewController(
     }
 
     for (const entry of entries.values()) {
-      if (entry.config.startupBurstCount > 0) {
-        spawnIntoEmitter(entry, entry.config.startupBurstCount);
+      if (entry.renderMode !== "sprite-fallback" && !entry.requiresReadback) {
+        entry.smokeStartupRemaining += entry.config.startupBurstCount;
+      } else {
+        if (entry.config.startupBurstCount > 0) {
+          spawnIntoEmitter(entry, entry.config.startupBurstCount);
+        }
+        entry.config.eventBursts.forEach((burst) => emitEvent(burst.eventId));
       }
-      entry.config.eventBursts.forEach((burst) => emitEvent(burst.eventId));
     }
   }
 
   function resetSimulation() {
+    elapsedPreviewSeconds = 0;
     for (const entry of entries.values()) {
       entry.particleData.fill(0);
       entry.previousAlive.fill(0);
@@ -599,12 +615,21 @@ export async function createThreeWebGpuPreviewController(
     }
 
     rafId = window.requestAnimationFrame(tick);
-    const deltaTime = Math.min(0.05, (now - lastTime) / 1000);
+    const rawDeltaTime = Math.min(0.05, (now - lastTime) / 1000);
     lastTime = now;
+    const playbackRate = Math.max(0.001, currentState?.document.preview.playbackRate ?? 1);
+    const deltaTime = rawDeltaTime * playbackRate;
 
     if (currentState?.isPlaying !== false) {
+      elapsedPreviewSeconds += deltaTime;
+      const previewDurationSeconds = currentState?.document.preview.durationSeconds ?? 0;
+      const shouldLoop = currentState?.document.preview.loop === true && previewDurationSeconds > 0;
+      if (shouldLoop && elapsedPreviewSeconds >= previewDurationSeconds) {
+        resetSimulation();
+      }
+
       for (const entry of entries.values()) {
-        if (entry.renderMode === "smoke-gpu" && !entry.requiresReadback) {
+        if (entry.renderMode !== "sprite-fallback" && !entry.requiresReadback) {
           const sustainableRate = Math.min(
             entry.config.rate,
             (entry.config.maxParticleCount / Math.max(entry.config.lifetime, 0.001)) * 0.82
@@ -640,24 +665,26 @@ export async function createThreeWebGpuPreviewController(
     let totalParticles = 0;
     const nowSeconds = now / 1000;
     const smokeEntries: Array<{ config: EmitterPreviewConfig; smokeRender: NonNullable<EmitterPreviewEntry["smokeRender"]> }> = [];
+    const spriteGpuEntries: Array<{ config: EmitterPreviewConfig; spriteGpuRender: NonNullable<EmitterPreviewEntry["spriteGpuRender"]>; instanceCount: number }> = [];
     for (const entry of entries.values()) {
       if (entry.renderMode === "smoke-gpu" && entry.smokeRender) {
         smokeEntries.push({ config: entry.config, smokeRender: entry.smokeRender });
-        let approximateAlive = 0;
-        for (let index = 0; index < entry.config.maxParticleCount; index += 1) {
-          if (entry.particleData[index * PARTICLE_FLOATS + PARTICLE_INDEX.alive] > 0.5) {
-            approximateAlive += 1;
-          }
-        }
-        totalParticles += approximateAlive;
+        totalParticles += Math.min(entry.config.maxParticleCount, Math.round(entry.config.rate * entry.config.lifetime + entry.config.startupBurstCount));
+      } else if (entry.renderMode === "sprite-gpu" && entry.spriteGpuRender) {
+        const instanceCount = entry.config.maxParticleCount;
+        spriteGpuEntries.push({ config: entry.config, spriteGpuRender: entry.spriteGpuRender, instanceCount });
+        totalParticles += Math.min(entry.config.maxParticleCount, Math.round(entry.config.rate * entry.config.lifetime + entry.config.startupBurstCount));
       } else {
         totalParticles += updateSprites(entry, nowSeconds);
       }
     }
     input.onParticleCountChange?.(totalParticles);
 
+    (input.renderer as any).clear?.();
     input.renderer.render(previewScene.scene, previewScene.camera);
-    smokeRenderer.render(previewScene.camera, smokeEntries);
+    const targetView = context.getCurrentTexture().createView();
+    smokeRenderer.render(previewScene.camera, targetView, smokeEntries);
+    spriteGpuRenderer.render(previewScene.camera, targetView, spriteGpuEntries);
   }
 
   rafId = window.requestAnimationFrame(tick);
@@ -676,6 +703,7 @@ export async function createThreeWebGpuPreviewController(
       previewScene.dispose();
       entries.forEach((entry) => destroyEntry(entry));
       smokeRenderer.dispose();
+      spriteGpuRenderer.dispose();
     }
   };
 }

@@ -74,6 +74,15 @@ export type SmokeRenderResources = {
   sampler: any;
 };
 
+export type SpriteGpuRenderResources = {
+  bindGroup: any;
+  emitterUniformBuffer: any;
+  texture: any;
+  textureView: any;
+  sampler: any;
+  blendMode: "additive" | "alpha";
+};
+
 export type EmitterGpuResources = {
   bindGroup: any;
   particleBuffer: any;
@@ -93,12 +102,13 @@ export type EmitterPreviewEntry = {
   gpu: EmitterGpuResources;
   particleData: Float32Array;
   previousAlive: Uint8Array;
-  renderMode: "smoke-gpu" | "sprite-fallback";
+  renderMode: "smoke-gpu" | "sprite-gpu" | "sprite-fallback";
   requiresReadback: boolean;
   nextSpawnSlot: number;
   smokeSpawnCursor: number;
   smokeStartupRemaining: number;
   smokeRender?: SmokeRenderResources;
+  spriteGpuRender?: SpriteGpuRenderResources;
   sprites: THREE.Sprite[];
   texture: THREE.Texture;
   readbackCooldownSeconds: number;

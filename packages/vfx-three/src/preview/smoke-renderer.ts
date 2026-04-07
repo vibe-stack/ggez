@@ -6,7 +6,11 @@ import { SMOKE_ATLAS_GRID, type EmitterPreviewConfig, type SmokeRenderResources 
 type PreviewGpuSmokeRenderer = {
   createEmitterResources(config: EmitterPreviewConfig, particleBuffer: any): SmokeRenderResources;
   destroyEmitterResources(resources: SmokeRenderResources): void;
-  render(camera: THREE.PerspectiveCamera, entries: Array<{ config: EmitterPreviewConfig; smokeRender: SmokeRenderResources }>): void;
+  render(
+    camera: THREE.PerspectiveCamera,
+    targetView: any,
+    entries: Array<{ config: EmitterPreviewConfig; smokeRender: SmokeRenderResources }>
+  ): void;
   dispose(): void;
 };
 
@@ -431,7 +435,11 @@ export async function createPreviewGpuSmokeRenderer(input: {
     resources.emitterUniformBuffer.destroy();
   }
 
-  function render(camera: THREE.PerspectiveCamera, entries: Array<{ config: EmitterPreviewConfig; smokeRender: SmokeRenderResources }>) {
+  function render(
+    camera: THREE.PerspectiveCamera,
+    targetView: any,
+    entries: Array<{ config: EmitterPreviewConfig; smokeRender: SmokeRenderResources }>
+  ) {
     if (entries.length === 0) {
       return;
     }
@@ -446,7 +454,6 @@ export async function createPreviewGpuSmokeRenderer(input: {
     cameraUniforms.set([matrix[4] ?? 0, matrix[5] ?? 1, matrix[6] ?? 0, 0], 20);
     input.device.queue.writeBuffer(cameraUniformBuffer, 0, cameraUniforms);
 
-    const currentTextureView = context.getCurrentTexture().createView();
     const encoder = input.device.createCommandEncoder({ label: "vfx-preview-smoke-render-pass" });
     const pass = encoder.beginRenderPass({
       colorAttachments: [
@@ -475,7 +482,7 @@ export async function createPreviewGpuSmokeRenderer(input: {
     const compositePass = encoder.beginRenderPass({
       colorAttachments: [
         {
-          view: currentTextureView,
+          view: targetView,
           loadOp: "load",
           storeOp: "store"
         }

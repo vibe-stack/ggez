@@ -135,6 +135,12 @@ export function buildEmitterPreviewConfigs(
       .filter((value): value is string => typeof value === "string" && value.length > 0);
     const firstRenderer = emitter.renderers.find((renderer) => renderer.enabled);
     const isSmoke = firstRenderer?.template === "SpriteSmokeMaterial";
+    const texturePreset = readTexturePreset(emitter);
+    const isFlame = texturePreset === "flame";
+    const isSpark = texturePreset === "spark" || texturePreset === "star";
+    const sizeStart = isSmoke ? 0.42 : isFlame ? 0.18 : isSpark ? 0.06 : 0.16;
+    const sizeEnd = isSmoke ? 2.6 : isFlame ? 0.92 : isSpark ? 0.02 : 0.045;
+    const upwardDrift = isSmoke ? 0.92 : isFlame ? 0.58 : isSpark ? 0.22 : 0.12;
 
     return {
       emitterId: emitter.id,
@@ -148,13 +154,13 @@ export function buildEmitterPreviewConfigs(
       speedMax: readNumber(velocityCone?.config.speedMax, 180) * 0.04,
       drag: readNumber(drag?.config.coefficient, 2.8),
       gravity: readNumber(gravity?.config.accelerationY, 120) * 0.04,
-      upwardDrift: isSmoke ? 0.92 : 0.12,
+      upwardDrift,
       orbitRadius: readNumber(orbit?.config.radius, 0) * 1.4,
       orbitAngularSpeed: readNumber(orbit?.config.angularSpeed, 0),
       curlStrength: readNumber(curl?.config.strength, 0),
       lifetime: readNumber(lifetimeModule?.config.value, 0.42),
-      sizeStart: isSmoke ? 0.42 : 0.16,
-      sizeEnd: isSmoke ? 2.6 : 0.045,
+      sizeStart,
+      sizeEnd,
       sizeCurve: typeof sizeOverLife?.config.curve === "string" ? sizeOverLife.config.curve : undefined,
       alphaCurve: typeof alphaOverLife?.config.curve === "string" ? alphaOverLife.config.curve : undefined,
       colorCurve: typeof colorOverLife?.config.curve === "string" ? colorOverLife.config.curve : undefined,
@@ -165,7 +171,7 @@ export function buildEmitterPreviewConfigs(
         isSmoke ? MAX_PREVIEW_SMOKE_PARTICLES_PER_EMITTER : MAX_PREVIEW_PARTICLES_PER_EMITTER
       ),
       isSmoke,
-      texturePreset: readTexturePreset(emitter)
+      texturePreset
     };
   });
 }
