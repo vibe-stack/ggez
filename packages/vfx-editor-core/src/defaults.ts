@@ -201,6 +201,14 @@ export function createDefaultVfxEffectDocument(): VfxEffectDocument {
               facingMode: "full",
               sortMode: "none"
             },
+            flipbookSettings: {
+              enabled: false,
+              rows: 1,
+              cols: 1,
+              fps: 12,
+              looping: true,
+              playbackMode: "particle-age"
+            },
             parameterBindings: {
               tint: "param:flame-core",
               _texture: "flame"
@@ -267,6 +275,14 @@ export function createDefaultVfxEffectDocument(): VfxEffectDocument {
               emissive: true,
               facingMode: "full",
               sortMode: "none"
+            },
+            flipbookSettings: {
+              enabled: false,
+              rows: 1,
+              cols: 1,
+              fps: 12,
+              looping: true,
+              playbackMode: "particle-age"
             },
             parameterBindings: {
               tint: "param:flame-outer",
@@ -336,6 +352,14 @@ export function createDefaultVfxEffectDocument(): VfxEffectDocument {
               facingMode: "full",
               sortMode: "none"
             },
+            flipbookSettings: {
+              enabled: false,
+              rows: 1,
+              cols: 1,
+              fps: 12,
+              looping: true,
+              playbackMode: "particle-age"
+            },
             parameterBindings: {
               tint: "param:ember",
               _texture: "spark"
@@ -397,6 +421,14 @@ export function createDefaultVfxEffectDocument(): VfxEffectDocument {
               emissive: false,
               facingMode: "full",
               sortMode: "back-to-front"
+            },
+            flipbookSettings: {
+              enabled: true,
+              rows: 2,
+              cols: 2,
+              fps: 5,
+              looping: true,
+              playbackMode: "particle-age"
             },
             parameterBindings: {
               tint: "param:smoke",

@@ -258,6 +258,7 @@ export const COPILOT_TOOL_DECLARATIONS: CopilotToolDeclaration[] = [
         kind: { type: "string", enum: ["beam", "distortion", "mesh", "ribbon", "sprite"] },
         enabled: { type: "boolean" },
         material: { type: "object" },
+        flipbookSettings: { type: "object" },
         parameterBindings: { type: "object", additionalProperties: { type: "string" } },
         replaceParameterBindings: { type: "boolean" }
       },

@@ -4,7 +4,7 @@ import { evaluatePreviewAlpha, evaluatePreviewColor, evaluatePreviewSize } from 
 import { createPreviewThreeScene } from "./scene";
 import { createPreviewGpuSmokeRenderer } from "./smoke-renderer";
 import { createPreviewGpuSpriteRenderer } from "./sprite-gpu-renderer";
-import { createPreviewSprite, makePreviewSpriteTexture } from "./textures";
+import { createPreviewSprite, createPreviewSpriteTextureFromSource, loadPreviewTextureSource } from "./textures";
 import {
   GPU_BUFFER_USAGE,
   GPU_MAP_MODE,
@@ -71,6 +71,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
       let speed = params.spawn0.y + hash01(baseSeed ^ 0xc2b2ae35u) * max(0.0, params.spawn0.z - params.spawn0.y);
       let radius = params.spawn0.w * hash01(baseSeed ^ 0x27d4eb2fu);
       let radialAngle = hash01(baseSeed ^ 0x165667b1u) * 6.28318530718;
+      let frameCount = max(params.spawn1.w, 1.0);
       var spawnOffset = vec3f(cos(radialAngle) * radius, signedHash(baseSeed ^ 0xd3a2646cu) * 0.06, sin(radialAngle) * radius);
       if (params.spawnMeta.w > 0u) {
         spawnOffset.y = spawnOffset.y + 0.18;
@@ -85,7 +86,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
       );
       let lifetime = params.spawn1.x * (0.82 + hash01(baseSeed ^ 0xa24baed4u) * 0.42);
       let sizeStart = params.spawn1.y * (0.76 + hash01(baseSeed ^ 0x9fb21c65u) * 0.36);
-      let frame = floor(hash01(baseSeed ^ 0xe6546b64u) * 4.0);
+      let frame = select(0.0, floor(hash01(baseSeed ^ 0xe6546b64u) * frameCount), params.spawnMeta.w > 0u);
       let rotation = hash01(baseSeed ^ 0x94d049bbu) * 6.28318530718;
       let rotationSpeed = 0.22 * (0.6 + hash01(baseSeed ^ 0xed558ccdu) * 0.8) * select(-1.0, 1.0, hash01(baseSeed ^ 0x4c1bf5dcu) > 0.5);
 
@@ -153,8 +154,8 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
 
 function spawnParticleData(cfg: EmitterPreviewConfig, target: Float32Array, particleIndex: number, origin = new THREE.Vector3()) {
   const offset = particleIndex * PARTICLE_FLOATS;
-  const isFlame = cfg.texturePreset === "flame";
-  const isSpark = cfg.texturePreset === "spark" || cfg.texturePreset === "star";
+  const isFlame = cfg.textureId === "flame";
+  const isSpark = cfg.textureId === "spark" || cfg.textureId === "star";
   const angle = Math.PI * 0.5 + (Math.random() * 2 - 1) * cfg.spreadRadians;
   const azimuth = Math.random() * Math.PI * 2;
   const speed = cfg.speedMin + Math.random() * Math.max(0, cfg.speedMax - cfg.speedMin);
@@ -188,7 +189,10 @@ function spawnParticleData(cfg: EmitterPreviewConfig, target: Float32Array, part
     (0.6 + Math.random() * 0.8) *
     (Math.random() < 0.5 ? -1 : 1);
   target[offset + PARTICLE_INDEX.alive] = 1;
-  target[offset + PARTICLE_INDEX.frame] = cfg.texturePreset === "smoke" ? Math.floor(Math.random() * 4) : 0;
+  target[offset + PARTICLE_INDEX.frame] =
+    cfg.isSmoke && cfg.flipbook.enabled && cfg.flipbook.rows * cfg.flipbook.cols > 1
+      ? Math.floor(Math.random() * Math.max(1, cfg.flipbook.rows * cfg.flipbook.cols))
+      : 0;
   target[offset + PARTICLE_INDEX.seed] = Math.random() * 1000;
 }
 
@@ -226,6 +230,7 @@ export async function createThreeWebGpuPreviewController(
   let previousFireVersion = -1;
   let previousConfigKey = "";
   let elapsedPreviewSeconds = 0;
+  let rebuildVersion = 0;
   const entries = new Map<string, EmitterPreviewEntry>();
 
   previewScene.resize();
@@ -249,11 +254,24 @@ export async function createThreeWebGpuPreviewController(
     entry.gpu.uniformBuffer.destroy();
   }
 
-  function rebuildEntries(configs: EmitterPreviewConfig[]) {
+  async function rebuildEntries(configs: EmitterPreviewConfig[]) {
+    const nextRebuildVersion = rebuildVersion + 1;
+    rebuildVersion = nextRebuildVersion;
+    const resolvedTextures = await Promise.all(
+      configs.map(async (config) => ({
+        config,
+        textureSource: await loadPreviewTextureSource(config.textureId)
+      }))
+    );
+
+    if (disposed || rebuildVersion !== nextRebuildVersion) {
+      return;
+    }
+
     entries.forEach((entry) => destroyEntry(entry));
     entries.clear();
 
-    for (const config of configs) {
+    for (const { config, textureSource } of resolvedTextures) {
       const renderMode = config.isSmoke ? "smoke-gpu" : "sprite-gpu";
       const requiresReadback = config.deathEventIds.length > 0;
 
@@ -263,7 +281,7 @@ export async function createThreeWebGpuPreviewController(
         size: particleData.byteLength,
         usage: GPU_BUFFER_USAGE.STORAGE | GPU_BUFFER_USAGE.COPY_SRC | GPU_BUFFER_USAGE.COPY_DST
       });
-      const texture = new THREE.Texture();
+      const texture = createPreviewSpriteTextureFromSource(textureSource).texture;
       const sprites: THREE.Sprite[] = [];
 
       const readbackSlots = requiresReadback
@@ -301,8 +319,8 @@ export async function createThreeWebGpuPreviewController(
         nextSpawnSlot: 0,
         smokeSpawnCursor: 0,
         smokeStartupRemaining: config.startupBurstCount,
-        smokeRender: renderMode === "smoke-gpu" ? smokeRenderer.createEmitterResources(config, particleBuffer) : undefined,
-        spriteGpuRender: renderMode === "sprite-gpu" ? spriteGpuRenderer.createEmitterResources(config, particleBuffer) : undefined,
+        smokeRender: renderMode === "smoke-gpu" ? smokeRenderer.createEmitterResources(config, particleBuffer, textureSource) : undefined,
+        spriteGpuRender: renderMode === "sprite-gpu" ? spriteGpuRenderer.createEmitterResources(config, particleBuffer, textureSource) : undefined,
         sprites,
         texture,
         readbackCooldownSeconds: 0,
@@ -314,6 +332,8 @@ export async function createThreeWebGpuPreviewController(
         dirty: true
       });
     }
+
+    resetSimulation();
   }
 
   function getFreeParticleSlots(entry: EmitterPreviewEntry, desiredCount: number) {
@@ -505,7 +525,7 @@ export async function createThreeWebGpuPreviewController(
     floatView[12] = entry.config.lifetime;
     floatView[13] = entry.config.sizeStart;
     floatView[14] = entry.config.sizeEnd;
-    floatView[15] = 0;
+    floatView[15] = Math.max(1, entry.config.flipbook.rows * entry.config.flipbook.cols);
     uintView[16] = spawnStart;
     uintView[17] = spawnCount;
     uintView[18] = entry.config.maxParticleCount;
@@ -588,14 +608,14 @@ export async function createThreeWebGpuPreviewController(
       sizeEnd: config.sizeEnd,
       additive: config.additive,
       color: config.color.getHexString(),
-      texturePreset: config.texturePreset,
+      textureId: config.textureId,
+      flipbook: config.flipbook,
       maxParticleCount: config.maxParticleCount
     })));
 
     if (configKey !== previousConfigKey) {
       previousConfigKey = configKey;
-      rebuildEntries(configs);
-      resetSimulation();
+      void rebuildEntries(configs);
     }
 
     if ((next.resetVersion ?? 0) !== previousResetVersion) {
@@ -683,8 +703,8 @@ export async function createThreeWebGpuPreviewController(
     (input.renderer as any).clear?.();
     input.renderer.render(previewScene.scene, previewScene.camera);
     const targetView = context.getCurrentTexture().createView();
-    smokeRenderer.render(previewScene.camera, targetView, smokeEntries);
-    spriteGpuRenderer.render(previewScene.camera, targetView, spriteGpuEntries);
+    smokeRenderer.render(previewScene.camera, targetView, smokeEntries, nowSeconds);
+    spriteGpuRenderer.render(previewScene.camera, targetView, spriteGpuEntries, nowSeconds);
   }
 
   rafId = window.requestAnimationFrame(tick);

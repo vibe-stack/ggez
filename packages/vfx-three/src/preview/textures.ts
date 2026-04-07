@@ -1,5 +1,8 @@
 import * as THREE from "three";
-import type { SpriteTextureDefinition } from "./types";
+import type { PreviewTextureSource, SpriteTextureDefinition } from "./types";
+
+const BUILTIN_PREVIEW_TEXTURES = new Set(["circle-soft", "circle-hard", "ring", "spark", "smoke", "star", "flame", "beam"]);
+const previewTextureSourceCache = new Map<string, Promise<PreviewTextureSource>>();
 
 function drawSmokeCell(ctx: CanvasRenderingContext2D, originX: number, originY: number, tileSize: number, variant: number) {
   const blobCount = 6 + variant;
@@ -114,13 +117,70 @@ export function makePreviewSpriteCanvas(preset: string): HTMLCanvasElement {
   return canvas;
 }
 
-export function makePreviewSpriteTexture(preset: string): SpriteTextureDefinition {
-  const canvas = makePreviewSpriteCanvas(preset);
+export function isBuiltInPreviewTexture(textureId: string) {
+  return BUILTIN_PREVIEW_TEXTURES.has(textureId);
+}
 
-  const texture = new THREE.CanvasTexture(canvas);
+function loadImageElement(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.decoding = "async";
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error(`Failed to load preview texture "${src}".`));
+    image.src = src;
+    if (image.complete && image.naturalWidth > 0) {
+      resolve(image);
+    }
+  });
+}
+
+export function loadPreviewTextureSource(textureId: string): Promise<PreviewTextureSource> {
+  const cached = previewTextureSourceCache.get(textureId);
+  if (cached) {
+    return cached;
+  }
+
+  const pending = (async () => {
+    if (isBuiltInPreviewTexture(textureId)) {
+      const canvas = makePreviewSpriteCanvas(textureId);
+      return {
+        key: textureId,
+        source: canvas,
+        width: canvas.width,
+        height: canvas.height
+      };
+    }
+
+    const image = await loadImageElement(textureId);
+    return {
+      key: textureId,
+      source: image,
+      width: Math.max(1, image.naturalWidth || image.width),
+      height: Math.max(1, image.naturalHeight || image.height)
+    };
+  })();
+
+  previewTextureSourceCache.set(textureId, pending);
+  return pending;
+}
+
+export function createPreviewSpriteTextureFromSource(source: PreviewTextureSource): SpriteTextureDefinition {
+  const texture =
+    source.source instanceof HTMLCanvasElement
+      ? new THREE.CanvasTexture(source.source)
+      : new THREE.Texture(source.source as THREE.Texture["image"]);
   texture.needsUpdate = true;
   texture.colorSpace = THREE.SRGBColorSpace;
   return { texture };
+}
+
+export function makePreviewSpriteTexture(preset: string): SpriteTextureDefinition {
+  return createPreviewSpriteTextureFromSource({
+    key: preset,
+    source: makePreviewSpriteCanvas(preset),
+    width: preset === "smoke" ? 256 : 128,
+    height: preset === "smoke" ? 256 : 128
+  });
 }
 
 export function createPreviewSprite(texture: THREE.Texture, additive: boolean) {

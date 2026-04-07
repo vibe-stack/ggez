@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { getDefaultModuleConfig, type VfxEditorStore } from "@ggez/vfx-editor-core";
 import { BUILTIN_ATTRIBUTE_TYPES, MODULE_DESCRIPTORS } from "@ggez/vfx-core";
 import { createVfxArtifact, serializeVfxArtifact } from "@ggez/vfx-exporter";
-import type { EffectGraphNode, EmitterDocument, ModuleInstance, RendererSlot, VfxEventDefinition, VfxParameter } from "@ggez/vfx-schema";
+import type { EffectGraphNode, EmitterDocument, ModuleInstance, RendererFlipbookSettings, RendererSlot, VfxEventDefinition, VfxParameter } from "@ggez/vfx-schema";
 import { createThreeWebGpuVfxBackend, MVP_RENDERER_TEMPLATES } from "@ggez/vfx-three";
 import { ArrowDownRight, Bot, Cable, Check, ChevronDown, ChevronRight, Flame, GripHorizontal, ImageIcon, Orbit, Plus, Sparkles, Trash2, Upload } from "lucide-react";
 import { GraphCanvas } from "./graph-canvas";
@@ -50,6 +50,11 @@ const DEFAULT_TEXTURES: TextureAsset[] = [
   { id: "beam",          label: "Beam line",        gradient: "linear-gradient(to bottom, transparent, #fff 30%, #fff 70%, transparent)" },
 ];
 
+const FLIPBOOK_PLAYBACK_OPTIONS: Array<{ value: RendererFlipbookSettings["playbackMode"]; label: string }> = [
+  { value: "particle-age", label: "Particle age" },
+  { value: "scene-time", label: "Scene time" }
+];
+
 type StageKey = "deathStage" | "initializeStage" | "spawnStage" | "updateStage";
 
 function getStageKey(stage: StageName): StageKey {
@@ -69,6 +74,18 @@ function parseLooseValue(value: string): unknown {
 
 function prettyJson(value: unknown) {
   return JSON.stringify(value, null, 2);
+}
+
+function createDefaultFlipbookSettings(templateId: RendererSlot["template"], textureId?: string): RendererFlipbookSettings {
+  const useSmokeAtlas = templateId === "SpriteSmokeMaterial" || textureId === "smoke";
+  return {
+    enabled: useSmokeAtlas,
+    rows: useSmokeAtlas ? 2 : 1,
+    cols: useSmokeAtlas ? 2 : 1,
+    fps: useSmokeAtlas ? 5 : 12,
+    looping: true,
+    playbackMode: "particle-age"
+  };
 }
 
 // ── Shared field components ────────────────────────────────────────────────
@@ -364,7 +381,7 @@ function TexturePicker(props: {
     if (!file) return;
     const url = URL.createObjectURL(file);
     const label = file.name.replace(/\.[^.]+$/, "");
-    const id = `upload:${Date.now()}`;
+    const id = url;
     const asset: TextureAsset = { id, label, gradient: `url(${url})` };
     setUploadedTextures((prev) => [...prev, asset]);
     props.onSelect(id);
@@ -419,6 +436,7 @@ function RendererSection(props: {
   onAddRenderer(templateId: string): void;
   onCycleBlendMode(rendererId: string): void;
   onSetRendererTexture(rendererId: string, textureUrl: string): void;
+  onUpdateRendererFlipbook(rendererId: string, patch: Partial<RendererFlipbookSettings>): void;
 }) {
   const [open, setOpen] = useState(true);
   const [activeRendererId, setActiveRendererId] = useState<string | null>(
@@ -428,6 +446,7 @@ function RendererSection(props: {
 
   const activeRenderer = emitter.renderers.find((r) => r.id === activeRendererId) ?? emitter.renderers[0];
   const activeTextureId = activeRenderer?.parameterBindings["_texture"] ?? undefined;
+  const activeFlipbook = activeRenderer?.flipbookSettings ?? createDefaultFlipbookSettings(activeRenderer?.template ?? "SpriteAdditiveMaterial", activeTextureId);
 
   return (
     <div className="border-t border-white/6">
@@ -533,6 +552,84 @@ function RendererSection(props: {
               if (renderer) props.onSetRendererTexture(renderer.id, url);
             }}
           />
+
+          {activeRenderer && (
+            <div className="space-y-2 rounded-xl border border-white/8 bg-black/10 p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-zinc-500">Flipbook</span>
+                <button
+                  type="button"
+                  className={`rounded-md border px-2 py-0.5 text-[10px] transition ${
+                    activeFlipbook.enabled
+                      ? "border-emerald-300/30 bg-emerald-400/10 text-emerald-200"
+                      : "border-white/10 text-zinc-500 hover:border-white/20 hover:text-zinc-300"
+                  }`}
+                  onClick={() => props.onUpdateRendererFlipbook(activeRenderer.id, { enabled: !activeFlipbook.enabled })}
+                >
+                  {activeFlipbook.enabled ? "Enabled" : "Disabled"}
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <div className="mb-1 text-[10px] text-zinc-600">Rows</div>
+                  <DragInput
+                    value={activeFlipbook.rows}
+                    onChange={(value) => props.onUpdateRendererFlipbook(activeRenderer.id, { rows: Math.max(1, Math.round(value)) })}
+                    step={1}
+                    min={1}
+                    precision={0}
+                  />
+                </div>
+                <div>
+                  <div className="mb-1 text-[10px] text-zinc-600">Cols</div>
+                  <DragInput
+                    value={activeFlipbook.cols}
+                    onChange={(value) => props.onUpdateRendererFlipbook(activeRenderer.id, { cols: Math.max(1, Math.round(value)) })}
+                    step={1}
+                    min={1}
+                    precision={0}
+                  />
+                </div>
+                <div>
+                  <div className="mb-1 text-[10px] text-zinc-600">FPS</div>
+                  <DragInput
+                    value={activeFlipbook.fps}
+                    onChange={(value) => props.onUpdateRendererFlipbook(activeRenderer.id, { fps: Math.max(0.1, value) })}
+                    step={0.5}
+                    min={0.1}
+                    precision={2}
+                  />
+                </div>
+                <div>
+                  <div className="mb-1 text-[10px] text-zinc-600">Playback</div>
+                  <select
+                    className={SELECT_CLASS}
+                    value={activeFlipbook.playbackMode}
+                    onChange={(event) =>
+                      props.onUpdateRendererFlipbook(activeRenderer.id, {
+                        playbackMode: event.target.value as RendererFlipbookSettings["playbackMode"]
+                      })
+                    }
+                  >
+                    {FLIPBOOK_PLAYBACK_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <label className="inline-flex items-center gap-2 text-[10px] text-zinc-500">
+                <input
+                  type="checkbox"
+                  className="accent-emerald-400"
+                  checked={activeFlipbook.looping}
+                  onChange={(event) => props.onUpdateRendererFlipbook(activeRenderer.id, { looping: event.target.checked })}
+                />
+                <span>Loop animation</span>
+              </label>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -779,6 +876,7 @@ function InspectorPanel(props: {
   onAddRenderer(templateId: string): void;
   onCycleBlendMode(rendererId: string): void;
   onSetRendererTexture(rendererId: string, textureUrl: string): void;
+  onUpdateRendererFlipbook(rendererId: string, patch: Partial<RendererFlipbookSettings>): void;
   onUpdateEvent(event: VfxEventDefinition): void;
   onUpdateParameter(parameter: VfxParameter): void;
   onFireParameterInPreview(parameterId: string): void;
@@ -911,6 +1009,7 @@ function InspectorPanel(props: {
         onAddRenderer={props.onAddRenderer}
         onCycleBlendMode={props.onCycleBlendMode}
         onSetRendererTexture={props.onSetRendererTexture}
+        onUpdateRendererFlipbook={props.onUpdateRendererFlipbook}
       />
     </div>
   );
@@ -943,6 +1042,7 @@ function createRendererFromTemplate(templateId: string, index: number): Renderer
       facingMode: kind === "beam" ? "none" : kind === "ribbon" ? "velocity-aligned" : "full",
       sortMode: kind === "mesh" ? "back-to-front" : "none"
     },
+    flipbookSettings: createDefaultFlipbookSettings(templateId as RendererSlot["template"]),
     parameterBindings: {}
   };
 }
@@ -1091,7 +1191,16 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
       return {
         ...emitter,
         renderers: emitter.renderers.map((r, i) =>
-          i === 0 ? { ...r, name: nextRenderer.name, kind: nextRenderer.kind, template: nextRenderer.template, material: nextRenderer.material } : r
+          i === 0
+            ? {
+                ...r,
+                name: nextRenderer.name,
+                kind: nextRenderer.kind,
+                template: nextRenderer.template,
+                material: nextRenderer.material,
+                flipbookSettings: nextRenderer.flipbookSettings
+              }
+            : r
         )
       };
     });
@@ -1122,11 +1231,45 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
     if (!selectedEmitter) return;
     props.store.updateEmitter(selectedEmitter.id, (emitter) => ({
       ...emitter,
-      renderers: emitter.renderers.map((r) =>
-        r.id === rendererId
-          ? { ...r, parameterBindings: { ...r.parameterBindings, "_texture": textureId } }
-          : r
-      )
+      renderers: emitter.renderers.map((r) => {
+        if (r.id !== rendererId) {
+          return r;
+        }
+
+        const shouldPromoteSmokeAtlas = textureId === "smoke" && r.flipbookSettings.rows === 1 && r.flipbookSettings.cols === 1;
+        return {
+          ...r,
+          flipbookSettings: shouldPromoteSmokeAtlas ? createDefaultFlipbookSettings(r.template, textureId) : r.flipbookSettings,
+          parameterBindings: { ...r.parameterBindings, "_texture": textureId }
+        };
+      })
+    }));
+  }
+
+  function handleUpdateRendererFlipbook(rendererId: string, patch: Partial<RendererFlipbookSettings>) {
+    if (!selectedEmitter) return;
+    props.store.updateEmitter(selectedEmitter.id, (emitter) => ({
+      ...emitter,
+      renderers: emitter.renderers.map((renderer) => {
+        if (renderer.id !== rendererId) {
+          return renderer;
+        }
+
+        const flipbookSettings = {
+          ...createDefaultFlipbookSettings(renderer.template, renderer.parameterBindings._texture),
+          ...renderer.flipbookSettings,
+          ...patch
+        };
+
+        return {
+          ...renderer,
+          flipbookSettings,
+          material: {
+            ...renderer.material,
+            flipbook: flipbookSettings.enabled
+          }
+        };
+      })
     }));
   }
 
@@ -1341,6 +1484,7 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
               onAddRenderer={handleAddRenderer}
               onCycleBlendMode={handleCycleBlendMode}
               onSetRendererTexture={handleSetRendererTexture}
+              onUpdateRendererFlipbook={handleUpdateRendererFlipbook}
               onUpdateEvent={handleUpdateEvent}
               onUpdateParameter={handleUpdateParameter}
               onFireParameterInPreview={handleFireParameterInPreview}

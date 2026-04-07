@@ -182,7 +182,9 @@ function compileEmitter(document: VfxEffectDocument, emitter: VfxEffectDocument[
           sortMode: renderer.material.sortMode
         }),
         sortMode: renderer.material.sortMode,
-        estimatedOverdrawRisk: renderer.kind === "sprite" && emitter.maxParticleCount > 4096 ? "high" : "medium"
+        estimatedOverdrawRisk: renderer.kind === "sprite" && emitter.maxParticleCount > 4096 ? "high" : "medium",
+        textureBinding: renderer.parameterBindings._texture,
+        flipbookSettings: renderer.flipbookSettings.enabled ? structuredClone(renderer.flipbookSettings) : undefined
       })),
     sourceBindings: emitter.sourceBindings.map((binding: VfxEffectDocument["emitters"][number]["sourceBindings"][number]) => ({
       id: binding.id,

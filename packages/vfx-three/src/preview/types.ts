@@ -1,4 +1,4 @@
-import type { CompiledVfxEffect, VfxEffectDocument } from "@ggez/vfx-schema";
+import type { CompiledVfxEffect, RendererFlipbookSettings, VfxEffectDocument } from "@ggez/vfx-schema";
 import type * as THREE from "three";
 import type { WebGPURenderer } from "three/webgpu";
 
@@ -59,7 +59,15 @@ export type EmitterPreviewConfig = {
   additive: boolean;
   maxParticleCount: number;
   isSmoke: boolean;
-  texturePreset: string;
+  textureId: string;
+  flipbook: RendererFlipbookSettings;
+};
+
+export type PreviewTextureSource = {
+  key: string;
+  source: CanvasImageSource;
+  width: number;
+  height: number;
 };
 
 export type SpriteTextureDefinition = {

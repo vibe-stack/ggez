@@ -71,7 +71,7 @@ function readHexColor(document: VfxEffectDocument, emitter: EmitterDocument): TH
   }
 }
 
-function readTexturePreset(emitter: EmitterDocument) {
+function readTextureId(emitter: EmitterDocument) {
   const renderer = emitter.renderers.find((entry) => entry.enabled);
   const boundTexture = typeof renderer?.parameterBindings._texture === "string" ? renderer.parameterBindings._texture : undefined;
   if (boundTexture && !boundTexture.startsWith("param:")) {
@@ -91,6 +91,23 @@ function readTexturePreset(emitter: EmitterDocument) {
     default:
       return "circle-soft";
   }
+}
+
+function readFlipbookSettings(emitter: EmitterDocument, textureId: string) {
+  const renderer = emitter.renderers.find((entry) => entry.enabled);
+  const authored = renderer?.flipbookSettings;
+  const defaultSmokeAtlas = textureId === "smoke";
+  const rows = authored?.rows ?? (defaultSmokeAtlas ? 2 : 1);
+  const cols = authored?.cols ?? (defaultSmokeAtlas ? 2 : 1);
+
+  return {
+    enabled: authored?.enabled ?? defaultSmokeAtlas,
+    rows,
+    cols,
+    fps: authored?.fps ?? (defaultSmokeAtlas ? 5 : 12),
+    looping: authored?.looping ?? true,
+    playbackMode: authored?.playbackMode ?? "particle-age"
+  } as const;
 }
 
 export function buildEmitterPreviewConfigs(
@@ -135,9 +152,10 @@ export function buildEmitterPreviewConfigs(
       .filter((value): value is string => typeof value === "string" && value.length > 0);
     const firstRenderer = emitter.renderers.find((renderer) => renderer.enabled);
     const isSmoke = firstRenderer?.template === "SpriteSmokeMaterial";
-    const texturePreset = readTexturePreset(emitter);
-    const isFlame = texturePreset === "flame";
-    const isSpark = texturePreset === "spark" || texturePreset === "star";
+    const textureId = readTextureId(emitter);
+    const flipbook = readFlipbookSettings(emitter, textureId);
+    const isFlame = textureId === "flame";
+    const isSpark = textureId === "spark" || textureId === "star";
     const sizeStart = isSmoke ? 0.42 : isFlame ? 0.18 : isSpark ? 0.06 : 0.16;
     const sizeEnd = isSmoke ? 2.6 : isFlame ? 0.92 : isSpark ? 0.02 : 0.045;
     const upwardDrift = isSmoke ? 0.92 : isFlame ? 0.58 : isSpark ? 0.22 : 0.12;
@@ -171,7 +189,8 @@ export function buildEmitterPreviewConfigs(
         isSmoke ? MAX_PREVIEW_SMOKE_PARTICLES_PER_EMITTER : MAX_PREVIEW_PARTICLES_PER_EMITTER
       ),
       isSmoke,
-      texturePreset
+      textureId,
+      flipbook
     };
   });
 }

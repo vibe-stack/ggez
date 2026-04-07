@@ -154,6 +154,17 @@ export const rendererMaterialSettingsSchema = z.object({
   sortMode: sortModeSchema.default("none")
 });
 
+export const rendererFlipbookPlaybackModeSchema = z.enum(["particle-age", "scene-time"]);
+
+export const rendererFlipbookSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  rows: z.number().int().positive().default(1),
+  cols: z.number().int().positive().default(1),
+  fps: z.number().positive().default(12),
+  looping: z.boolean().default(true),
+  playbackMode: rendererFlipbookPlaybackModeSchema.default("particle-age")
+});
+
 export const rendererSlotSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -161,6 +172,7 @@ export const rendererSlotSchema = z.object({
   template: rendererTemplateSchema,
   enabled: z.boolean().default(true),
   material: rendererMaterialSettingsSchema.default({}),
+  flipbookSettings: rendererFlipbookSettingsSchema.default({}),
   parameterBindings: z.record(z.string(), z.string()).default({})
 });
 
@@ -363,7 +375,9 @@ export const compiledRendererBindingSchema = z.object({
   template: rendererTemplateSchema,
   materialSignature: z.string().min(1),
   sortMode: sortModeSchema,
-  estimatedOverdrawRisk: z.enum(["high", "low", "medium"])
+  estimatedOverdrawRisk: z.enum(["high", "low", "medium"]),
+  textureBinding: z.string().optional(),
+  flipbookSettings: rendererFlipbookSettingsSchema.optional()
 });
 
 export const compiledSourceBindingSchema = z.object({
@@ -458,6 +472,7 @@ export type VfxEventDefinition = z.infer<typeof vfxEventDefinitionSchema>;
 export type ModuleInstance = z.infer<typeof moduleInstanceSchema>;
 export type EmitterDocument = z.infer<typeof emitterDocumentSchema>;
 export type RendererSlot = z.infer<typeof rendererSlotSchema>;
+export type RendererFlipbookSettings = z.infer<typeof rendererFlipbookSettingsSchema>;
 export type DataInterfaceBinding = z.infer<typeof dataInterfaceBindingSchema>;
 export type SourceBinding = z.infer<typeof sourceBindingSchema>;
 export type EffectGraphNode = z.infer<typeof effectGraphNodeSchema>;

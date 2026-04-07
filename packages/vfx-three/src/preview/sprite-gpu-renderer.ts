@@ -1,15 +1,15 @@
 import type { WebGPURenderer } from "three/webgpu";
 import * as THREE from "three";
-import { makePreviewSpriteCanvas } from "./textures";
-import type { EmitterPreviewConfig, SpriteGpuRenderResources } from "./types";
+import type { EmitterPreviewConfig, PreviewTextureSource, SpriteGpuRenderResources } from "./types";
 
 type PreviewGpuSpriteRenderer = {
-  createEmitterResources(config: EmitterPreviewConfig, particleBuffer: any): SpriteGpuRenderResources;
+  createEmitterResources(config: EmitterPreviewConfig, particleBuffer: any, textureSource: PreviewTextureSource): SpriteGpuRenderResources;
   destroyEmitterResources(resources: SpriteGpuRenderResources): void;
   render(
     camera: THREE.PerspectiveCamera,
     targetView: any,
-    entries: Array<{ config: EmitterPreviewConfig; spriteGpuRender: SpriteGpuRenderResources; instanceCount: number }>
+    entries: Array<{ config: EmitterPreviewConfig; spriteGpuRender: SpriteGpuRenderResources; instanceCount: number }>,
+    nowSeconds: number
   ): void;
   dispose(): void;
 };
@@ -44,6 +44,7 @@ struct VertexOutput {
   @location(0) uv : vec2f,
   @location(1) color : vec3f,
   @location(2) alpha : f32,
+  @location(3) frame : f32,
 }
 
 @group(0) @binding(0) var<storage, read> particles : array<Particle>;
@@ -123,6 +124,28 @@ fn evalColor(curve: f32, life: f32, tint: vec3f, isSmoke: f32) -> vec3f {
   return tint;
 }
 
+fn wrapFrame(value: f32, frameCount: f32) -> f32 {
+  return value - floor(value / frameCount) * frameCount;
+}
+
+fn resolveFlipbookFrame(particle: Particle) -> f32 {
+  let cols = max(emitter.settings0.x, 1.0);
+  let rows = max(emitter.settings1.x, 1.0);
+  let frameCount = max(cols * rows, 1.0);
+  let fps = max(emitter.settings1.y, 0.0);
+  let baseFrame = clamp(particle.extra.w, 0.0, frameCount - 1.0);
+  if (frameCount <= 1.0 || fps <= 0.0) {
+    return baseFrame;
+  }
+
+  let timeBasis = select(emitter.settings2.y, particle.timing.x, emitter.settings1.w > 0.5);
+  let rawFrame = baseFrame + max(timeBasis, 0.0) * fps;
+  if (emitter.settings1.z > 0.5) {
+    return floor(wrapFrame(rawFrame, frameCount));
+  }
+  return floor(min(rawFrame, frameCount - 1.0));
+}
+
 @vertex
 fn vertexMain(@builtin(vertex_index) vertexIndex : u32, @builtin(instance_index) instanceIndex : u32) -> VertexOutput {
   let particle = particles[instanceIndex];
@@ -133,6 +156,7 @@ fn vertexMain(@builtin(vertex_index) vertexIndex : u32, @builtin(instance_index)
     output.uv = vec2f(0.0, 0.0);
     output.color = vec3f(0.0, 0.0, 0.0);
     output.alpha = 0.0;
+    output.frame = 0.0;
     return output;
   }
 
@@ -158,16 +182,17 @@ fn vertexMain(@builtin(vertex_index) vertexIndex : u32, @builtin(instance_index)
   output.uv = uv;
   output.color = color;
   output.alpha = alpha;
+  output.frame = resolveFlipbookFrame(particle);
   return output;
 }
 
 @fragment
 fn fragmentMain(input : VertexOutput) -> @location(0) vec4f {
-  let atlasGrid = max(emitter.settings0.x, 1.0);
-  let frame = emitter.settings1.x;
-  let cellX = frame % atlasGrid;
-  let cellY = floor(frame / atlasGrid);
-  let atlasUv = (input.uv + vec2f(cellX, cellY)) / atlasGrid;
+  let cols = max(emitter.settings0.x, 1.0);
+  let rows = max(emitter.settings1.x, 1.0);
+  let cellX = input.frame % cols;
+  let cellY = floor(input.frame / cols);
+  let atlasUv = (input.uv + vec2f(cellX, cellY)) / vec2f(cols, rows);
   let sampleAlpha = textureSample(spriteAtlas, spriteSampler, atlasUv).r;
   let alpha = clamp(sampleAlpha * input.alpha * emitter.tint.a, 0.0, 1.0);
   return vec4f(input.color * alpha, alpha);
@@ -178,6 +203,27 @@ function curveCode(curve: string | undefined) {
   if (curve === "smoke-soft") return 1;
   if (curve === "flame-rise" || curve === "flame-soft" || curve === "flame-warm") return 2;
   return 0;
+}
+
+function writeEmitterUniforms(device: any, buffer: any, config: EmitterPreviewConfig, nowSeconds: number) {
+  const uniforms = new Float32Array(EMITTER_UNIFORM_FLOATS);
+  uniforms[0] = config.color.r;
+  uniforms[1] = config.color.g;
+  uniforms[2] = config.color.b;
+  uniforms[3] = 1;
+  uniforms[4] = Math.max(1, config.flipbook.cols);
+  uniforms[5] = curveCode(config.sizeCurve);
+  uniforms[6] = curveCode(config.alphaCurve);
+  uniforms[7] = curveCode(config.colorCurve);
+  uniforms[8] = Math.max(1, config.flipbook.rows);
+  uniforms[9] = config.flipbook.enabled ? Math.max(0, config.flipbook.fps) : 0;
+  uniforms[10] = config.flipbook.looping ? 1 : 0;
+  uniforms[11] = config.flipbook.playbackMode === "particle-age" ? 1 : 0;
+  uniforms[12] = config.isSmoke ? 1 : 0;
+  uniforms[13] = nowSeconds;
+  uniforms[14] = 0;
+  uniforms[15] = 0;
+  device.queue.writeBuffer(buffer, 0, uniforms);
 }
 
 export async function createPreviewGpuSpriteRenderer(input: {
@@ -239,18 +285,17 @@ export async function createPreviewGpuSpriteRenderer(input: {
     primitive: { topology: "triangle-list", cullMode: "none" }
   });
 
-  function createEmitterResources(config: EmitterPreviewConfig, particleBuffer: any): SpriteGpuRenderResources {
-    const canvas = makePreviewSpriteCanvas(config.texturePreset);
+  function createEmitterResources(config: EmitterPreviewConfig, particleBuffer: any, textureSource: PreviewTextureSource): SpriteGpuRenderResources {
     const texture = input.device.createTexture({
       label: `vfx-preview-sprite-atlas-${config.emitterId}`,
-      size: [canvas.width, canvas.height, 1],
+      size: [textureSource.width, textureSource.height, 1],
       format: "rgba8unorm",
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
     });
     input.device.queue.copyExternalImageToTexture(
-      { source: canvas },
+      { source: textureSource.source },
       { texture },
-      { width: canvas.width, height: canvas.height }
+      { width: textureSource.width, height: textureSource.height }
     );
 
     const textureView = texture.createView();
@@ -267,25 +312,7 @@ export async function createPreviewGpuSpriteRenderer(input: {
       size: EMITTER_UNIFORM_FLOATS * 4,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
-    const atlasGrid = config.texturePreset === "smoke" ? 2 : 1;
-    const uniforms = new Float32Array(EMITTER_UNIFORM_FLOATS);
-    uniforms[0] = config.color.r;
-    uniforms[1] = config.color.g;
-    uniforms[2] = config.color.b;
-    uniforms[3] = 1;
-    uniforms[4] = atlasGrid;
-    uniforms[5] = curveCode(config.sizeCurve);
-    uniforms[6] = curveCode(config.alphaCurve);
-    uniforms[7] = curveCode(config.colorCurve);
-    uniforms[8] = 0;
-    uniforms[9] = 0;
-    uniforms[10] = 0;
-    uniforms[11] = 0;
-    uniforms[12] = config.isSmoke ? 1 : 0;
-    uniforms[13] = 0;
-    uniforms[14] = 0;
-    uniforms[15] = 0;
-    input.device.queue.writeBuffer(emitterUniformBuffer, 0, uniforms);
+    writeEmitterUniforms(input.device, emitterUniformBuffer, config, 0);
 
     const pipeline = config.additive ? additivePipeline : alphaPipeline;
     const bindGroup = input.device.createBindGroup({
@@ -317,7 +344,8 @@ export async function createPreviewGpuSpriteRenderer(input: {
   function render(
     camera: THREE.PerspectiveCamera,
     targetView: any,
-    entries: Array<{ config: EmitterPreviewConfig; spriteGpuRender: SpriteGpuRenderResources; instanceCount: number }>
+    entries: Array<{ config: EmitterPreviewConfig; spriteGpuRender: SpriteGpuRenderResources; instanceCount: number }>,
+    nowSeconds: number
   ) {
     if (entries.length === 0) {
       return;
@@ -338,6 +366,7 @@ export async function createPreviewGpuSpriteRenderer(input: {
 
     let currentBlendMode: "additive" | "alpha" | null = null;
     for (const entry of entries) {
+      writeEmitterUniforms(input.device, entry.spriteGpuRender.emitterUniformBuffer, entry.config, nowSeconds);
       const nextBlendMode = entry.spriteGpuRender.blendMode;
       if (nextBlendMode !== currentBlendMode) {
         pass.setPipeline(nextBlendMode === "additive" ? additivePipeline : alphaPipeline);

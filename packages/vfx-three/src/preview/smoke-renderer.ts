@@ -1,21 +1,21 @@
 import type { WebGPURenderer } from "three/webgpu";
 import * as THREE from "three";
-import { makePreviewSpriteCanvas } from "./textures";
-import { SMOKE_ATLAS_GRID, type EmitterPreviewConfig, type SmokeRenderResources } from "./types";
+import type { EmitterPreviewConfig, PreviewTextureSource, SmokeRenderResources } from "./types";
 
 type PreviewGpuSmokeRenderer = {
-  createEmitterResources(config: EmitterPreviewConfig, particleBuffer: any): SmokeRenderResources;
+  createEmitterResources(config: EmitterPreviewConfig, particleBuffer: any, textureSource: PreviewTextureSource): SmokeRenderResources;
   destroyEmitterResources(resources: SmokeRenderResources): void;
   render(
     camera: THREE.PerspectiveCamera,
     targetView: any,
-    entries: Array<{ config: EmitterPreviewConfig; smokeRender: SmokeRenderResources }>
+    entries: Array<{ config: EmitterPreviewConfig; smokeRender: SmokeRenderResources }>,
+    nowSeconds: number
   ): void;
   dispose(): void;
 };
 
 const CAMERA_UNIFORM_FLOATS = 24;
-const EMITTER_UNIFORM_FLOATS = 8;
+const EMITTER_UNIFORM_FLOATS = 12;
 const COMPOSITE_UNIFORM_FLOATS = 4;
 
 const SMOKE_RENDER_SHADER = /* wgsl */ `
@@ -35,7 +35,8 @@ struct CameraUniforms {
 
 struct EmitterUniforms {
   tint : vec4f,
-  params : vec4f,
+  params0 : vec4f,
+  params1 : vec4f,
 }
 
 struct VertexOutput {
@@ -58,6 +59,28 @@ struct SmokeFragmentOutput {
 @group(0) @binding(2) var<uniform> emitter : EmitterUniforms;
 @group(0) @binding(3) var smokeSampler : sampler;
 @group(0) @binding(4) var smokeAtlas : texture_2d<f32>;
+
+fn wrapFrame(value: f32, frameCount: f32) -> f32 {
+  return value - floor(value / frameCount) * frameCount;
+}
+
+fn resolveFlipbookFrame(particle: Particle) -> f32 {
+  let cols = max(emitter.params0.x, 1.0);
+  let rows = max(emitter.params0.y, 1.0);
+  let frameCount = max(cols * rows, 1.0);
+  let fps = max(emitter.params0.z, 0.0);
+  let baseFrame = clamp(particle.extra.w, 0.0, frameCount - 1.0);
+  if (frameCount <= 1.0 || fps <= 0.0) {
+    return baseFrame;
+  }
+
+  let timeBasis = select(emitter.params1.y, particle.timing.x, emitter.params1.x > 0.5);
+  let rawFrame = baseFrame + max(timeBasis, 0.0) * fps;
+  if (emitter.params0.w > 0.5) {
+    return floor(wrapFrame(rawFrame, frameCount));
+  }
+  return floor(min(rawFrame, frameCount - 1.0));
+}
 
 fn quadCorner(vertexIndex: u32) -> vec2f {
   switch (vertexIndex) {
@@ -125,18 +148,17 @@ fn vertexMain(@builtin(vertex_index) vertexIndex : u32, @builtin(instance_index)
   output.color = emitter.tint.rgb * brightness;
   output.alpha = alpha;
   output.life = life;
-  output.frame = particle.extra.w;
+  output.frame = resolveFlipbookFrame(particle);
   output.seed = particle.misc.x;
   return output;
 }
 
 @fragment
 fn fragmentMain(input : VertexOutput) -> SmokeFragmentOutput {
-  let atlasGrid = max(emitter.params.x, 1.0);
-  let frameCount = atlasGrid * atlasGrid;
-  let animatedFrame = floor((input.frame + input.life * 5.0 + fract(input.seed * 0.013) * frameCount)) % frameCount;
-  let cellX = animatedFrame % atlasGrid;
-  let cellY = floor(animatedFrame / atlasGrid);
+  let cols = max(emitter.params0.x, 1.0);
+  let rows = max(emitter.params0.y, 1.0);
+  let cellX = input.frame % cols;
+  let cellY = floor(input.frame / cols);
 
   let centeredUv = input.uv * 2.0 - vec2f(1.0, 1.0);
   let radial = clamp(1.0 - length(centeredUv), 0.0, 1.0);
@@ -146,10 +168,11 @@ fn fragmentMain(input : VertexOutput) -> SmokeFragmentOutput {
     cos(swirl * 1.13 + centeredUv.x * 5.0)
   ) * (0.055 * (1.0 - input.life * 0.75));
 
-  let atlasUvA = (input.uv + vec2f(cellX, cellY)) / atlasGrid;
-  let atlasUvB = ((input.uv * 0.86 + vec2f(0.07, 0.05)) + vec2f(cellX, cellY)) / atlasGrid;
-  let sampleA = textureSample(smokeAtlas, smokeSampler, atlasUvA + warp / atlasGrid).r;
-  let sampleB = textureSample(smokeAtlas, smokeSampler, atlasUvB - warp * 0.55 / atlasGrid).r;
+  let atlasSize = vec2f(cols, rows);
+  let atlasUvA = (input.uv + vec2f(cellX, cellY)) / atlasSize;
+  let atlasUvB = ((input.uv * 0.86 + vec2f(0.07, 0.05)) + vec2f(cellX, cellY)) / atlasSize;
+  let sampleA = textureSample(smokeAtlas, smokeSampler, atlasUvA + warp / atlasSize).r;
+  let sampleB = textureSample(smokeAtlas, smokeSampler, atlasUvB - warp * 0.55 / atlasSize).r;
   let density = max(sampleA, sampleB * 0.82) * radial * radial;
   let alpha = clamp(density * input.alpha * emitter.tint.a, 0.0, 1.0);
   let color = input.color * mix(1.08, 0.84, input.life);
@@ -160,6 +183,24 @@ fn fragmentMain(input : VertexOutput) -> SmokeFragmentOutput {
   return output;
 }
 `;
+
+function writeEmitterUniforms(device: any, buffer: any, config: EmitterPreviewConfig, nowSeconds: number) {
+  const tint = config.color.clone();
+  const emitterUniforms = new Float32Array(EMITTER_UNIFORM_FLOATS);
+  emitterUniforms[0] = tint.r;
+  emitterUniforms[1] = tint.g;
+  emitterUniforms[2] = tint.b;
+  emitterUniforms[3] = 1;
+  emitterUniforms[4] = Math.max(1, config.flipbook.cols);
+  emitterUniforms[5] = Math.max(1, config.flipbook.rows);
+  emitterUniforms[6] = config.flipbook.enabled ? Math.max(0, config.flipbook.fps) : 0;
+  emitterUniforms[7] = config.flipbook.looping ? 1 : 0;
+  emitterUniforms[8] = config.flipbook.playbackMode === "particle-age" ? 1 : 0;
+  emitterUniforms[9] = nowSeconds;
+  emitterUniforms[10] = 0;
+  emitterUniforms[11] = 0;
+  device.queue.writeBuffer(buffer, 0, emitterUniforms);
+}
 
 const COMPOSITE_SHADER = /* wgsl */ `
 struct FullscreenOutput {
@@ -369,18 +410,17 @@ export async function createPreviewGpuSmokeRenderer(input: {
     });
   }
 
-  function createEmitterResources(config: EmitterPreviewConfig, particleBuffer: any): SmokeRenderResources {
-    const canvas = makePreviewSpriteCanvas("smoke");
+  function createEmitterResources(config: EmitterPreviewConfig, particleBuffer: any, textureSource: PreviewTextureSource): SmokeRenderResources {
     const gpuTexture = input.device.createTexture({
       label: `vfx-preview-smoke-atlas-${config.emitterId}`,
-      size: [canvas.width, canvas.height, 1],
+      size: [textureSource.width, textureSource.height, 1],
       format: "rgba8unorm",
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
     });
     input.device.queue.copyExternalImageToTexture(
-      { source: canvas },
+      { source: textureSource.source },
       { texture: gpuTexture },
-      { width: canvas.width, height: canvas.height }
+      { width: textureSource.width, height: textureSource.height }
     );
 
     const textureView = gpuTexture.createView();
@@ -397,18 +437,7 @@ export async function createPreviewGpuSmokeRenderer(input: {
       size: EMITTER_UNIFORM_FLOATS * 4,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
-
-    const tint = config.color.clone();
-    const emitterUniforms = new Float32Array(EMITTER_UNIFORM_FLOATS);
-    emitterUniforms[0] = tint.r;
-    emitterUniforms[1] = tint.g;
-    emitterUniforms[2] = tint.b;
-    emitterUniforms[3] = 1;
-    emitterUniforms[4] = SMOKE_ATLAS_GRID;
-    emitterUniforms[5] = 0;
-    emitterUniforms[6] = 0;
-    emitterUniforms[7] = 0;
-    input.device.queue.writeBuffer(emitterUniformBuffer, 0, emitterUniforms);
+    writeEmitterUniforms(input.device, emitterUniformBuffer, config, 0);
 
     const bindGroup = input.device.createBindGroup({
       layout: pipeline.getBindGroupLayout(0),
@@ -438,7 +467,8 @@ export async function createPreviewGpuSmokeRenderer(input: {
   function render(
     camera: THREE.PerspectiveCamera,
     targetView: any,
-    entries: Array<{ config: EmitterPreviewConfig; smokeRender: SmokeRenderResources }>
+    entries: Array<{ config: EmitterPreviewConfig; smokeRender: SmokeRenderResources }>,
+    nowSeconds: number
   ) {
     if (entries.length === 0) {
       return;
@@ -474,6 +504,7 @@ export async function createPreviewGpuSmokeRenderer(input: {
 
     pass.setPipeline(pipeline);
     for (const entry of entries) {
+      writeEmitterUniforms(input.device, entry.smokeRender.emitterUniformBuffer, entry.config, nowSeconds);
       pass.setBindGroup(0, entry.smokeRender.bindGroup);
       pass.draw(6, entry.config.maxParticleCount, 0, 0);
     }

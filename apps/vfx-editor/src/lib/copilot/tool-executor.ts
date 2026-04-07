@@ -5,6 +5,7 @@ import type {
   EmitterDocument,
   EffectGraphNode,
   ModuleInstance,
+  RendererFlipbookSettings,
   RendererSlot,
   SourceBinding,
   VfxEffectDocument,
@@ -296,6 +297,18 @@ function rendererKindFromTemplate(template: RendererSlot["template"]): RendererS
           : "sprite";
 }
 
+function createDefaultFlipbookSettings(template: RendererSlot["template"], textureId?: string): RendererFlipbookSettings {
+  const useSmokeAtlas = template === "SpriteSmokeMaterial" || textureId === "smoke";
+  return {
+    enabled: useSmokeAtlas,
+    rows: useSmokeAtlas ? 2 : 1,
+    cols: useSmokeAtlas ? 2 : 1,
+    fps: useSmokeAtlas ? 5 : 12,
+    looping: true,
+    playbackMode: "particle-age"
+  };
+}
+
 function createRendererFromTemplate(template: RendererSlot["template"], index: number): RendererSlot {
   const kind = rendererKindFromTemplate(template);
 
@@ -316,6 +329,7 @@ function createRendererFromTemplate(template: RendererSlot["template"], index: n
       facingMode: kind === "beam" ? "none" : kind === "ribbon" ? "velocity-aligned" : "full",
       sortMode: kind === "mesh" ? "back-to-front" : "none"
     },
+    flipbookSettings: createDefaultFlipbookSettings(template),
     parameterBindings: {}
   };
 }
@@ -887,6 +901,7 @@ function runTool(store: VfxEditorStore, name: string, args: Args): string {
         const templateBase = template ? createRendererFromTemplate(template, entry.renderers.length) : base;
         const materialPatch = objectArg(args, "material");
         const parameterBindings = stringRecord(args, "parameterBindings");
+        const flipbookSettingsPatch = objectArg(args, "flipbookSettings");
         const nextRenderer: RendererSlot = {
           ...base,
           id: rendererId || base.id,
@@ -898,6 +913,12 @@ function runTool(store: VfxEditorStore, name: string, args: Args): string {
             ...(template ? templateBase.material : base.material),
             ...(materialPatch ?? {})
           },
+          flipbookSettings: flipbookSettingsPatch
+            ? {
+                ...(template ? templateBase.flipbookSettings : base.flipbookSettings),
+                ...flipbookSettingsPatch
+              }
+            : base.flipbookSettings,
           parameterBindings: parameterBindings
             ? (bool(args, "replaceParameterBindings") ? parameterBindings : { ...base.parameterBindings, ...parameterBindings })
             : base.parameterBindings
