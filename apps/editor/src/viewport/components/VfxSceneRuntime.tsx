@@ -143,6 +143,7 @@ export function VfxSceneRuntime({
           const runtime = await createThreeWebGpuPreviewRuntime({
             camera: camera as any,
             onParticleCountChange: undefined,
+            presentationMode: "scene-sprites",
             renderer: gl as any,
             scene: scene as any
           });

@@ -1,8 +1,11 @@
 import * as THREE from "three";
+import { MeshBasicNodeMaterial } from "three/webgpu";
+import { attribute as tslAttribute, uv as tslUv, texture as tslTexture, materialColor as tslMaterialColor } from "three/tsl";
 import { buildEmitterPreviewConfigs, resolveActiveEmitterIds } from "./extraction";
 import { createPreviewGpuSmokeRenderer } from "./smoke-renderer";
 import { createPreviewGpuSpriteRenderer } from "./sprite-gpu-renderer";
-import { loadPreviewTextureSource } from "./textures";
+import { createPreviewSpriteTextureFromSource, loadPreviewTextureSource } from "./textures";
+import { evaluatePreviewAlpha, evaluatePreviewColor, evaluatePreviewSize } from "./evaluation";
 import {
   GPU_BUFFER_USAGE,
   GPU_MAP_MODE,
@@ -23,6 +26,10 @@ import {
 type RuntimeEntry = {
   accumulator: number;
   config: EmitterPreviewConfig;
+  textures: THREE.Texture[];
+  instancedMesh: THREE.InstancedMesh | null;
+  instanceAlphaData: Float32Array;
+  instanceUvTransformData: Float32Array;
   gpu: {
     bindGroup: any;
     particleBuffer: any;
@@ -46,6 +53,15 @@ type RuntimeEntry = {
   lastAppliedReadbackAtSeconds: number;
   dirty: boolean;
 };
+
+// Reusable temporaries for billboard matrix computation (avoids per-frame allocation)
+const _bsPosition = new THREE.Vector3();
+const _bsQuaternion = new THREE.Quaternion();
+const _bsLocalRotQ = new THREE.Quaternion();
+const _bsZAxis = new THREE.Vector3(0, 0, 1);
+const _bsScale = new THREE.Vector3();
+const _bsMatrix = new THREE.Matrix4();
+const _bsDeadMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
 
 const COMPUTE_SHADER_CODE = /* wgsl */ `
 struct Particle {
@@ -241,9 +257,41 @@ function spawnParticleData(cfg: EmitterPreviewConfig, target: Float32Array, part
   target[offset + PARTICLE_INDEX.seed] = Math.random() * 1000;
 }
 
+function wrapFrame(value: number, frameCount: number) {
+  return value - Math.floor(value / frameCount) * frameCount;
+}
+
+function resolveSceneSpriteFlipbookFrame(
+  entry: RuntimeEntry,
+  age: number,
+  lifetime: number,
+  baseFrame: number,
+  nowSeconds: number
+) {
+  const cols = Math.max(entry.config.flipbook.cols, 1);
+  const rows = Math.max(entry.config.flipbook.rows, 1);
+  const frameCount = Math.max(cols * rows, 1);
+  const fps = entry.config.flipbook.enabled ? Math.max(entry.config.flipbook.fps, 0) : 0;
+  const clampedBaseFrame = Math.min(Math.max(baseFrame, 0), frameCount - 1);
+
+  if (frameCount <= 1 || fps <= 0) {
+    return clampedBaseFrame;
+  }
+
+  const timeBasis = entry.config.flipbook.playbackMode === "particle-age" ? age : nowSeconds;
+  const rawFrame = clampedBaseFrame + Math.max(timeBasis, 0) * fps;
+
+  if (entry.config.flipbook.looping) {
+    return Math.floor(wrapFrame(rawFrame, frameCount));
+  }
+
+  return Math.floor(Math.min(rawFrame, frameCount - 1));
+}
+
 export async function createThreeWebGpuPreviewRuntime(
   input: CreateThreeWebGpuPreviewControllerInput
 ): Promise<ThreeWebGpuPreviewRuntime> {
+  const presentationMode = input.presentationMode ?? "overlay-gpu";
   const device = ((input.renderer as unknown as { backend?: { device?: any } }).backend?.device);
   const context = input.renderer.domElement.getContext("webgpu") as any;
   if (!device) {
@@ -280,6 +328,12 @@ export async function createThreeWebGpuPreviewRuntime(
   }
 
   function destroyEntry(entry: RuntimeEntry) {
+    if (entry.instancedMesh) {
+      input.scene.remove(entry.instancedMesh);
+      entry.instancedMesh.geometry.dispose();
+      (entry.instancedMesh.material as THREE.Material).dispose();
+    }
+    entry.textures.forEach((texture) => texture.dispose());
     if (entry.smokeRender) {
       smokeRenderer.destroyEmitterResources(entry.smokeRender);
     }
@@ -317,7 +371,7 @@ export async function createThreeWebGpuPreviewRuntime(
         size: particleData.byteLength,
         usage: GPU_BUFFER_USAGE.STORAGE | GPU_BUFFER_USAGE.COPY_SRC | GPU_BUFFER_USAGE.COPY_DST
       });
-      const readbackSlots = requiresReadback
+      const readbackSlots = (requiresReadback || presentationMode === "scene-sprites")
         ? Array.from({ length: PREVIEW_READBACK_BUFFER_COUNT }, (_, index) => ({
             buffer: device.createBuffer({
               label: `vfx-preview-read-${config.emitterId}-${index}`,
@@ -341,14 +395,65 @@ export async function createThreeWebGpuPreviewRuntime(
         ]
       });
 
+      // Build instanced mesh for scene-sprites mode (1 draw call per emitter vs N draw calls per sprite)
+      let instancedMesh: THREE.InstancedMesh | null = null;
+      const instanceAlphaData = new Float32Array(config.maxParticleCount);
+      const instanceUvTransformData = new Float32Array(config.maxParticleCount * 4);
+      const textures: THREE.Texture[] = [];
+
+      if (presentationMode === "scene-sprites" && textureSource) {
+        const baseTexture = createPreviewSpriteTextureFromSource(textureSource).texture;
+        textures.push(baseTexture);
+
+        // Per-instance UV transform attribute (xy = offset, zw = scale) — default identity
+        for (let i = 0; i < config.maxParticleCount; i++) {
+          instanceUvTransformData[i * 4 + 2] = 1; // scaleX
+          instanceUvTransformData[i * 4 + 3] = 1; // scaleY
+        }
+
+        // Build a node material with per-instance alpha and UV transform
+        const instanceAlphaNode = tslAttribute("instanceAlpha", "float");
+        const uvTransformNode = tslAttribute("instanceUvTransform", "vec4");
+        const transformedUv = tslUv().mul((uvTransformNode as any).zw).add((uvTransformNode as any).xy);
+        const sampledColor = tslTexture(baseTexture, transformedUv);
+        const nodeMaterial = new MeshBasicNodeMaterial({
+          transparent: true,
+          depthWrite: false,
+          depthTest: true,
+          blending: config.additive ? THREE.AdditiveBlending : THREE.NormalBlending
+        });
+        nodeMaterial.colorNode = (sampledColor as any).rgb.mul(tslMaterialColor);
+        nodeMaterial.opacityNode = (sampledColor as any).a.mul(instanceAlphaNode);
+
+        const geometry = new THREE.PlaneGeometry(1, 1);
+        const alphaAttr = new THREE.InstancedBufferAttribute(instanceAlphaData, 1);
+        const uvTransformAttr = new THREE.InstancedBufferAttribute(instanceUvTransformData, 4);
+        geometry.setAttribute("instanceAlpha", alphaAttr);
+        geometry.setAttribute("instanceUvTransform", uvTransformAttr);
+
+        instancedMesh = new THREE.InstancedMesh(geometry, nodeMaterial as unknown as THREE.Material, config.maxParticleCount);
+        instancedMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(config.maxParticleCount * 3), 3);
+        instancedMesh.frustumCulled = false;
+        // Hide all instances initially
+        for (let i = 0; i < config.maxParticleCount; i++) {
+          instancedMesh.setMatrixAt(i, _bsDeadMatrix);
+        }
+        instancedMesh.instanceMatrix.needsUpdate = true;
+        input.scene.add(instancedMesh);
+      }
+
       entries.set(config.emitterId, {
         accumulator: 0,
         config,
+        textures,
+        instancedMesh,
+        instanceAlphaData,
+        instanceUvTransformData,
         gpu: { bindGroup, particleBuffer, readBuffers: readbackSlots.map((slot) => slot.buffer), uniformBuffer },
         particleData,
         previousAlive: new Uint8Array(config.maxParticleCount),
         renderMode,
-        requiresReadback,
+        requiresReadback: requiresReadback || presentationMode === "scene-sprites",
         nextSpawnSlot: 0,
         smokeSpawnCursor: 0,
         smokeStartupRemaining: config.startupBurstCount,
@@ -448,6 +553,91 @@ export async function createThreeWebGpuPreviewRuntime(
     triggerStartupBursts();
   }
 
+  function updateSceneSprites(entry: RuntimeEntry, nowSeconds: number) {
+    const { instancedMesh, instanceAlphaData, instanceUvTransformData } = entry;
+    if (!instancedMesh) {
+      return;
+    }
+
+    const predictionSeconds = Math.min(
+      PREVIEW_READBACK_INTERVAL_SECONDS,
+      Math.max(0, nowSeconds - entry.lastAppliedReadbackAtSeconds)
+    );
+
+    const cols = Math.max(entry.config.flipbook.cols, 1);
+    const rows = Math.max(entry.config.flipbook.rows, 1);
+    const hasFlipbook = entry.config.flipbook.enabled && cols * rows > 1;
+
+    for (let index = 0; index < entry.config.maxParticleCount; index += 1) {
+      const offset = index * PARTICLE_FLOATS;
+      const alive = entry.particleData[offset + PARTICLE_INDEX.alive] > 0.5;
+
+      if (!alive) {
+        instancedMesh.setMatrixAt(index, _bsDeadMatrix);
+        instanceAlphaData[index] = 0;
+        instancedMesh.instanceColor!.setXYZ(index, 0, 0, 0);
+        continue;
+      }
+
+      const age = entry.particleData[offset + PARTICLE_INDEX.age] + predictionSeconds;
+      const lifetime = Math.max(0.0001, entry.particleData[offset + PARTICLE_INDEX.lifetime]);
+      const life = Math.min(age / lifetime, 1);
+      const alpha = evaluatePreviewAlpha(entry.config.alphaCurve, life, entry.config.isSmoke);
+
+      if (alpha <= 0.001) {
+        instancedMesh.setMatrixAt(index, _bsDeadMatrix);
+        instanceAlphaData[index] = 0;
+        instancedMesh.instanceColor!.setXYZ(index, 0, 0, 0);
+        continue;
+      }
+
+      const size = evaluatePreviewSize(
+        entry.config.sizeCurve,
+        life,
+        entry.particleData[offset + PARTICLE_INDEX.sizeStart],
+        entry.particleData[offset + PARTICLE_INDEX.sizeEnd]
+      );
+      const color = evaluatePreviewColor(entry.config.color, entry.config.colorCurve, life, entry.config.isSmoke);
+
+      // Billboard matrix: camera facing + per-particle local Z rotation
+      const rotation = entry.particleData[offset + PARTICLE_INDEX.rotation]
+        + entry.particleData[offset + PARTICLE_INDEX.rotationSpeed] * predictionSeconds;
+      _bsLocalRotQ.setFromAxisAngle(_bsZAxis, rotation);
+      _bsQuaternion.copy(input.camera.quaternion).multiply(_bsLocalRotQ);
+
+      _bsPosition.set(
+        entry.particleData[offset + PARTICLE_INDEX.positionX] + entry.particleData[offset + PARTICLE_INDEX.velocityX] * predictionSeconds,
+        entry.particleData[offset + PARTICLE_INDEX.positionY] + entry.particleData[offset + PARTICLE_INDEX.velocityY] * predictionSeconds,
+        entry.particleData[offset + PARTICLE_INDEX.positionZ] + entry.particleData[offset + PARTICLE_INDEX.velocityZ] * predictionSeconds
+      );
+      _bsScale.setScalar(Math.max(0.001, size));
+      _bsMatrix.compose(_bsPosition, _bsQuaternion, _bsScale);
+      instancedMesh.setMatrixAt(index, _bsMatrix);
+
+      instancedMesh.instanceColor!.setXYZ(index, color.r, color.g, color.b);
+      instanceAlphaData[index] = alpha;
+
+      // Per-instance UV transform for flipbook
+      if (hasFlipbook) {
+        const frame = resolveSceneSpriteFlipbookFrame(entry, age, lifetime,
+          entry.particleData[offset + PARTICLE_INDEX.frame], nowSeconds);
+        const cellX = frame % cols;
+        const cellY = Math.floor(frame / cols);
+        instanceUvTransformData[index * 4 + 0] = cellX / cols;
+        instanceUvTransformData[index * 4 + 1] = 1 - (cellY + 1) / rows;
+        instanceUvTransformData[index * 4 + 2] = 1 / cols;
+        instanceUvTransformData[index * 4 + 3] = 1 / rows;
+      }
+    }
+
+    instancedMesh.instanceMatrix.needsUpdate = true;
+    instancedMesh.instanceColor!.needsUpdate = true;
+    (instancedMesh.geometry.getAttribute("instanceAlpha") as THREE.BufferAttribute).needsUpdate = true;
+    if (hasFlipbook) {
+      (instancedMesh.geometry.getAttribute("instanceUvTransform") as THREE.BufferAttribute).needsUpdate = true;
+    }
+  }
+
   function processReadback(entry: RuntimeEntry, copy: ArrayBuffer, sequence: number, resolvedAtSeconds: number) {
     if (sequence <= entry.lastAppliedReadbackSequence) {
       return;
@@ -476,10 +666,14 @@ export async function createThreeWebGpuPreviewRuntime(
     entry.particleData.set(next);
     entry.lastAppliedReadbackSequence = sequence;
     entry.lastAppliedReadbackAtSeconds = resolvedAtSeconds;
+    if (presentationMode === "scene-sprites") {
+      updateSceneSprites(entry, resolvedAtSeconds);
+    }
     smokeBursts.forEach((burst) => emitEvent(burst.eventId, burst.origin));
   }
 
   function dispatchCompute(entry: RuntimeEntry, deltaTime: number, spawnStart = 0, spawnCount = 0, nowSeconds = 0) {
+    const origin = resolveOrigin();
     const params = new ArrayBuffer(112);
     const floatView = new Float32Array(params);
     const uintView = new Uint32Array(params);
@@ -499,9 +693,9 @@ export async function createThreeWebGpuPreviewRuntime(
     floatView[13] = entry.config.sizeStart;
     floatView[14] = entry.config.sizeEnd;
     floatView[15] = Math.max(1, entry.config.flipbook.rows * entry.config.flipbook.cols);
-    floatView[16] = entry.config.spawnOffsetX;
-    floatView[17] = entry.config.spawnOffsetY;
-    floatView[18] = entry.config.spawnOffsetZ;
+    floatView[16] = origin.x + entry.config.spawnOffsetX;
+    floatView[17] = origin.y + entry.config.spawnOffsetY;
+    floatView[18] = origin.z + entry.config.spawnOffsetZ;
     floatView[19] = 0;
     floatView[20] = entry.config.spawnRandomX;
     floatView[21] = entry.config.spawnRandomY;
@@ -538,7 +732,10 @@ export async function createThreeWebGpuPreviewRuntime(
 
     entry.readbackCooldownSeconds = Math.max(0, entry.readbackCooldownSeconds - deltaTime);
     const selectedSlot = entry.readbackSlots[entry.nextReadbackSlot];
-    const canScheduleReadback = entry.readbackCooldownSeconds <= 0 && selectedSlot && !selectedSlot.pending;
+    const canScheduleReadback =
+      entry.readbackCooldownSeconds <= 0
+      && selectedSlot
+      && !selectedSlot.pending;
 
     if (canScheduleReadback) {
       const readbackSequence = entry.lastScheduledReadbackSequence + 1;
@@ -653,10 +850,14 @@ export async function createThreeWebGpuPreviewRuntime(
         const spawnStart = entry.smokeSpawnCursor;
         entry.smokeSpawnCursor = (entry.smokeSpawnCursor + resolvedSpawnCount) % entry.config.maxParticleCount;
         dispatchCompute(entry, deltaSeconds, spawnStart, resolvedSpawnCount, nowSeconds);
+
+        if (presentationMode === "scene-sprites") {
+          updateSceneSprites(entry, nowSeconds);
+        }
       }
     },
     renderToCurrentTexture(nowSeconds) {
-      if (disposed) {
+      if (disposed || presentationMode === "scene-sprites") {
         return;
       }
 

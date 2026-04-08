@@ -29,6 +29,7 @@ export type CreateThreeWebGpuPreviewControllerInput = {
   renderer: WebGPURenderer;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
+  presentationMode?: "overlay-gpu" | "scene-sprites";
   onParticleCountChange?: (count: number) => void;
   /** Called each frame before rendering — use this to update OrbitControls etc. */
   onBeforeRender?: () => void;
