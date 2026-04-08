@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import { buildEmitterPreviewConfigs, resolveActiveEmitterIds } from "./extraction";
 import { evaluatePreviewAlpha, evaluatePreviewColor, evaluatePreviewSize } from "./evaluation";
-import { createPreviewThreeScene } from "./scene";
 import { createPreviewGpuSmokeRenderer } from "./smoke-renderer";
 import { createPreviewGpuSpriteRenderer } from "./sprite-gpu-renderer";
 import { createPreviewSprite, createPreviewSpriteTextureFromSource, loadPreviewTextureSource } from "./textures";
@@ -212,7 +211,6 @@ export async function createThreeWebGpuPreviewController(
     throw new Error("Failed to access the canvas WebGPU context from the provided Three WebGPURenderer.");
   }
 
-  const previewScene = createPreviewThreeScene({ mount: input.mount, renderer: input.renderer });
   (input.renderer as any).autoClear = false;
   const smokeRenderer = await createPreviewGpuSmokeRenderer({ device, renderer: input.renderer });
   const spriteGpuRenderer = await createPreviewGpuSpriteRenderer({ device, renderer: input.renderer });
@@ -233,18 +231,13 @@ export async function createThreeWebGpuPreviewController(
   let previousResetVersion = -1;
   let previousFireVersion = -1;
   let previousConfigKey = "";
-  let previousBackgroundColor = "";
   let elapsedPreviewSeconds = 0;
   let rebuildVersion = 0;
   const entries = new Map<string, EmitterPreviewEntry>();
 
-  previewScene.resize();
-  const resizeObserver = new ResizeObserver(() => previewScene.resize());
-  resizeObserver.observe(input.mount);
-
   function destroyEntry(entry: EmitterPreviewEntry) {
     entry.sprites.forEach((sprite) => {
-      previewScene.scene.remove(sprite);
+      input.scene.remove(sprite);
       sprite.material.dispose();
     });
     if (entry.smokeRender) {
@@ -601,11 +594,6 @@ export async function createThreeWebGpuPreviewController(
 
   function updateState(next: ThreeWebGpuPreviewState) {
     currentState = next;
-    const backgroundColor = next.document.preview.backgroundColor || "#080e0c";
-    if (backgroundColor !== previousBackgroundColor) {
-      previousBackgroundColor = backgroundColor;
-      previewScene.scene.background = new THREE.Color(backgroundColor);
-    }
     const activeEmitterIds = resolveActiveEmitterIds(next.document);
     const effectiveActiveIds = next.soloSelected && next.selectedEmitterId ? new Set([next.selectedEmitterId]) : activeEmitterIds;
     const configs = buildEmitterPreviewConfigs(next.document, next.compileResult, effectiveActiveIds);
@@ -704,11 +692,7 @@ export async function createThreeWebGpuPreviewController(
       }
     }
 
-    previewScene.controls.update();
-    const backgroundColor = currentState?.document.preview.backgroundColor || "#080e0c";
-    previewScene.scene.background = new THREE.Color(backgroundColor);
-    input.renderer.domElement.style.backgroundColor = backgroundColor;
-    (input.renderer as any).setClearColor?.(new THREE.Color(backgroundColor), 1);
+    input.onBeforeRender?.();
 
     let totalParticles = 0;
     const nowSeconds = now / 1000;
@@ -729,10 +713,10 @@ export async function createThreeWebGpuPreviewController(
     input.onParticleCountChange?.(totalParticles);
 
     (input.renderer as any).clear?.();
-    input.renderer.render(previewScene.scene, previewScene.camera);
+    input.renderer.render(input.scene, input.camera);
     const targetView = context.getCurrentTexture().createView();
-    smokeRenderer.render(previewScene.camera, targetView, smokeEntries, nowSeconds);
-    spriteGpuRenderer.render(previewScene.camera, targetView, spriteGpuEntries, nowSeconds);
+    smokeRenderer.render(input.camera, targetView, smokeEntries, nowSeconds);
+    spriteGpuRenderer.render(input.camera, targetView, spriteGpuEntries, nowSeconds);
   }
 
   rafId = window.requestAnimationFrame(tick);
@@ -741,14 +725,9 @@ export async function createThreeWebGpuPreviewController(
     update(next) {
       updateState(next);
     },
-    resize() {
-      previewScene.resize();
-    },
     dispose() {
       disposed = true;
       window.cancelAnimationFrame(rafId);
-      resizeObserver.disconnect();
-      previewScene.dispose();
       entries.forEach((entry) => destroyEntry(entry));
       smokeRenderer.dispose();
       spriteGpuRenderer.dispose();

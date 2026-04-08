@@ -1,7 +1,9 @@
 import type { CompiledVfxEffect, VfxEffectDocument } from "@ggez/vfx-schema";
 import {
+  createPreviewThreeScene,
   createThreeWebGpuPreviewController,
   summarizeThreeWebGpuPreview,
+  type PreviewThreeScene,
   type ThreeWebGpuPreviewController,
   type ThreeWebGpuPreviewState
 } from "@ggez/vfx-three";
@@ -19,6 +21,8 @@ export function ThreePreviewPanel(props: {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const controllerRef = useRef<ThreeWebGpuPreviewController | null>(null);
   const rendererRef = useRef<WebGPURenderer | null>(null);
+  const previewSceneRef = useRef<PreviewThreeScene | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const [isPlaying, setIsPlaying] = useState(true);
   const [soloSelected, setSoloSelected] = useState(false);
   const [particleCount, setParticleCount] = useState(0);
@@ -67,19 +71,38 @@ export function ThreePreviewPanel(props: {
         renderer.domElement.style.backgroundColor = document.preview.backgroundColor;
         mount.appendChild(renderer.domElement);
 
+        const previewScene = createPreviewThreeScene({ mount, renderer });
+        previewSceneRef.current = previewScene;
+        previewScene.resize();
+        const resizeObserver = new ResizeObserver(() => previewScene.resize());
+        resizeObserverRef.current = resizeObserver;
+        resizeObserver.observe(mount);
+
         return createThreeWebGpuPreviewController({
-          mount,
           renderer,
-          onParticleCountChange: (count: number) => setParticleCount(count)
+          scene: previewScene.scene,
+          camera: previewScene.camera,
+          onParticleCountChange: (count: number) => setParticleCount(count),
+          onBeforeRender: () => previewScene.controls.update()
+        }).then((controller) => {
+          if (cancelled) {
+            resizeObserver.disconnect();
+            return undefined;
+          }
+          return { controller, resizeObserver };
         });
       })
-      .then((controller) => {
-        if (!controller) {
+      .then((result) => {
+        if (!result) {
           return;
         }
+        const { controller, resizeObserver } = result;
 
         if (cancelled) {
           controller.dispose();
+          resizeObserver.disconnect();
+          previewSceneRef.current?.dispose();
+          previewSceneRef.current = null;
           renderer.dispose();
           return;
         }
@@ -98,6 +121,10 @@ export function ThreePreviewPanel(props: {
       cancelled = true;
       controllerRef.current?.dispose();
       controllerRef.current = null;
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
+      previewSceneRef.current?.dispose();
+      previewSceneRef.current = null;
       rendererRef.current = null;
       if (mount.contains(renderer.domElement)) {
         mount.removeChild(renderer.domElement);

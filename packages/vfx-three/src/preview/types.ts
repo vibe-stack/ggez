@@ -22,14 +22,16 @@ export type ThreeWebGpuPreviewSummary = {
 };
 
 export type CreateThreeWebGpuPreviewControllerInput = {
-  mount: HTMLDivElement;
   renderer: WebGPURenderer;
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
   onParticleCountChange?: (count: number) => void;
+  /** Called each frame before rendering — use this to update OrbitControls etc. */
+  onBeforeRender?: () => void;
 };
 
 export type ThreeWebGpuPreviewController = {
   update(next: ThreeWebGpuPreviewState): void;
-  resize(): void;
   dispose(): void;
 };
 
