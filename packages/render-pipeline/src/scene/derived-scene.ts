@@ -18,6 +18,7 @@ export type DerivedEntityMarker = {
   entityType: Entity["type"];
   label: string;
   position: Vec3;
+  properties: Entity["properties"];
   scale: Transform["scale"];
   rotation: Vec3;
   color: string;
@@ -235,6 +236,7 @@ export function deriveRenderSceneCached(
     entityType: entity.type,
     label: entity.name,
     position: (sceneGraph.entityWorldTransforms.get(entity.id) ?? entity.transform).position,
+    properties: entity.properties,
     scale: (sceneGraph.entityWorldTransforms.get(entity.id) ?? entity.transform).scale,
     rotation: (sceneGraph.entityWorldTransforms.get(entity.id) ?? entity.transform).rotation,
     color:
@@ -242,6 +244,8 @@ export function deriveRenderSceneCached(
         ? "#7dd3fc"
         : entity.type === "npc-spawn"
           ? "#fbbf24"
+          : entity.type === "vfx-object"
+            ? "#2dd4bf"
           : "#c084fc"
   }));
 

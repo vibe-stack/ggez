@@ -385,7 +385,7 @@ function executeToolInner(editor: EditorCore, name: string, args: Args, context:
     }
 
     case "place_entity": {
-      const entityType = str(args, "type", "player-spawn") as "npc-spawn" | "player-spawn" | "smart-object";
+      const entityType = str(args, "type", "player-spawn") as "npc-spawn" | "player-spawn" | "smart-object" | "vfx-object";
       const entityCount = Array.from(scene.entities.values()).filter((e) => e.type === entityType).length;
       const entity = createDefaultEntity(entityType, vec3(num(args, "x"), num(args, "y"), num(args, "z")), entityCount);
 

@@ -25,6 +25,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@ggez/vfx-schema": "workspace:*"
+    "@ggez/vfx-schema": "workspace:*",
+    "fflate": "^0.8.2"
   }
 }

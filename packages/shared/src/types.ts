@@ -14,7 +14,7 @@ export type PrimitiveRole = "brush" | "prop";
 export type PropBodyType = "dynamic" | "fixed" | "kinematicPosition";
 export type PropColliderShape = "ball" | "cone" | "cuboid" | "cylinder" | "trimesh";
 export type LightType = "ambient" | "directional" | "hemisphere" | "point" | "spot";
-export type EntityType = "npc-spawn" | "player-spawn" | "smart-object";
+export type EntityType = "npc-spawn" | "player-spawn" | "smart-object" | "vfx-object";
 export type PlayerCameraMode = "fps" | "third-person" | "top-down";
 
 export type Vec3 = {

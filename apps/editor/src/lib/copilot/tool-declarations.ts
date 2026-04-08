@@ -141,7 +141,7 @@ export const COPILOT_TOOL_DECLARATIONS: CopilotToolDeclaration[] = [
         rotationY: { type: "number", description: "Yaw rotation in radians" },
         type: {
           type: "string",
-          enum: ["player-spawn", "npc-spawn", "smart-object"],
+          enum: ["player-spawn", "npc-spawn", "smart-object", "vfx-object"],
           description: "Entity type"
         },
         name: { type: "string", description: "Display name" }

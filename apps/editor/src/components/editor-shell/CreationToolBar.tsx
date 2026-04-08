@@ -137,6 +137,7 @@ export function CreationToolBar({
         <CreationButton disabled={disabled} icon={PlayerSpawnIcon} label="Player Spawn" onClick={() => onPlaceEntity("player-spawn")} />
         <CreationButton disabled={disabled} icon={NpcSpawnIcon} label="NPC Spawn" onClick={() => onPlaceEntity("npc-spawn")} />
         <CreationButton disabled={disabled} icon={SmartObjectIcon} label="Smart Object" onClick={() => onPlaceEntity("smart-object")} />
+        <CreationButton disabled={disabled} icon={Sparkles} label="VFX Object" onClick={() => onPlaceEntity("vfx-object")} />
       </CreationGroup>
 
       <CreationGroup label="Lights">

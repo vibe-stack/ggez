@@ -46,6 +46,7 @@ import { createBlockoutTextureDataUri, resolveTransformPivot, toTuple } from "@g
 import { createIndexedGeometry } from "@/viewport/utils/geometry";
 import type { ViewportRenderMode } from "@/viewport/viewports";
 import type { SceneSettings } from "@ggez/shared";
+import { VfxSceneRuntime } from "@/viewport/components/VfxSceneRuntime";
 
 const previewTextureCache = new Map<string, ReturnType<TextureLoader["load"]>>();
 const modelSceneCache = new Map<string, Object3D>();
@@ -91,6 +92,7 @@ export function ScenePreview({
   const hiddenIds = useMemo(() => new Set(hiddenSceneItemIds), [hiddenSceneItemIds]);
   const selectedIdSet = useMemo(() => new Set(selectedNodeIds), [selectedNodeIds]);
   const physicsActive = renderMode === "lit" && physicsPlayback !== "stopped" && sceneSettings.world.physicsEnabled;
+  const vfxPlaybackActive = renderMode === "lit" && physicsPlayback !== "stopped";
   const { physicsPropMeshes, playerSpawn, staticMeshes, visibleEntityMarkers, visibleGroups, visibleInstancedMeshes, visibleLights } = useMemo(() => {
     const nextPlayerSpawn = physicsActive
       ? renderScene.entityMarkers.find((entity) => entity.entityType === "player-spawn")
@@ -198,9 +200,51 @@ export function ScenePreview({
         </Physics>
       ) : null}
 
+      {vfxPlaybackActive ? (
+        <VfxSceneRuntime entities={visibleEntityMarkers.filter((entity) => entity.entityType === "vfx-object")} playbackActive={vfxPlaybackActive} />
+      ) : null}
+
       {visibleEntityMarkers.map((entity) => {
         const selected = selectedIdSet.has(entity.entityId);
         const color = selected ? "#ffb35a" : entity.color;
+
+        if (entity.entityType === "vfx-object") {
+          return (
+            <group
+              key={entity.entityId}
+              name={`entity:${entity.entityId}`}
+              onClick={(event) => {
+                if (!interactive) {
+                  return;
+                }
+
+                event.stopPropagation();
+                onSelectNode([entity.entityId]);
+              }}
+              onDoubleClick={(event) => {
+                if (!interactive) {
+                  return;
+                }
+
+                event.stopPropagation();
+                onFocusNode(entity.entityId);
+              }}
+              position={toTuple(entity.position)}
+              rotation={toTuple(entity.rotation)}
+            >
+              {!vfxPlaybackActive ? (
+                <mesh scale={toTuple(entity.scale)}>
+                  <boxGeometry args={[1, 1, 1]} />
+                  <meshBasicMaterial color={color} opacity={0.22} transparent wireframe />
+                </mesh>
+              ) : null}
+              <mesh scale={toTuple(entity.scale)} visible={false}>
+                <boxGeometry args={[1, 1, 1]} />
+                <meshBasicMaterial opacity={0} transparent />
+              </mesh>
+            </group>
+          );
+        }
 
         return (
           <group

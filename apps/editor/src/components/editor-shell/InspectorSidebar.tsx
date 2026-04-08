@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { parseVfxRuntimeBundleZip } from "@ggez/vfx-exporter";
 import { BellRing, Cable, FolderTree, Globe2, SlidersHorizontal, SwatchBook, User } from "lucide-react";
 import {
   type EditableMesh,
@@ -1403,6 +1404,10 @@ function EntityInspector({
   entity: Entity;
   onUpdateEntityProperties: (entityId: string, properties: Entity["properties"]) => void;
 }) {
+  if (entity.type === "vfx-object") {
+    return <VfxEntityInspector entity={entity} onUpdateEntityProperties={onUpdateEntityProperties} />;
+  }
+
   const updateProperty = (key: string, value: string | number | boolean) => {
     onUpdateEntityProperties(entity.id, {
       ...entity.properties,
@@ -1421,6 +1426,123 @@ function EntityInspector({
           <TextField key={key} label={startCase(key)} onChange={(next) => updateProperty(key, next)} value={value} />
         )
       )}
+    </ToolSection>
+  );
+}
+
+function VfxEntityInspector({
+  entity,
+  onUpdateEntityProperties
+}: {
+  entity: Entity;
+  onUpdateEntityProperties: (entityId: string, properties: Entity["properties"]) => void;
+}) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const updateProperty = (key: string, value: string | number | boolean) => {
+    onUpdateEntityProperties(entity.id, {
+      ...entity.properties,
+      [key]: value
+    });
+  };
+  const bundleFileName = typeof entity.properties.vfxBundleFileName === "string" ? entity.properties.vfxBundleFileName : "";
+  const bundleDataUrl = typeof entity.properties.vfxBundleDataUrl === "string" ? entity.properties.vfxBundleDataUrl : "";
+  const durationSeconds = typeof entity.properties.vfxDurationSeconds === "number" ? entity.properties.vfxDurationSeconds : 4;
+  const playbackRate = typeof entity.properties.vfxPlaybackRate === "number" ? entity.properties.vfxPlaybackRate : 1;
+  const loopForever = typeof entity.properties.vfxLoop === "boolean" ? entity.properties.vfxLoop : true;
+
+  return (
+    <ToolSection title="VFX">
+      <div className="rounded-lg border border-white/8 bg-black/10 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[11px] font-medium text-foreground/86">Runtime Bundle</div>
+            <div className="truncate text-[10px] text-foreground/48">
+              {bundleFileName || (bundleDataUrl ? "Embedded bundle" : "No bundle uploaded")}
+            </div>
+          </div>
+          <Button
+            onClick={() => fileInputRef.current?.click()}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            {bundleDataUrl ? "Replace" : "Upload"}
+          </Button>
+          <input
+            accept=".vfxbundle,.zip,application/zip"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+
+              if (!file) {
+                return;
+              }
+
+              void Promise.all([readFileAsDataUrl(file), file.arrayBuffer()]).then(([dataUrl, buffer]) => {
+                const parsed = parseVfxRuntimeBundleZip(new Uint8Array(buffer));
+
+                onUpdateEntityProperties(entity.id, {
+                  ...entity.properties,
+                  vfxBundleDataUrl: dataUrl,
+                  vfxBundleFileName: file.name,
+                  vfxDurationSeconds: parsed.document?.preview.durationSeconds ?? durationSeconds,
+                  vfxLoop: parsed.document ? !parsed.document.preview.loop : loopForever,
+                  vfxPlaybackRate: parsed.document?.preview.playbackRate ?? playbackRate
+                });
+              });
+
+              event.target.value = "";
+            }}
+            ref={fileInputRef}
+            type="file"
+          />
+        </div>
+      </div>
+      <BooleanField
+        checked={entity.properties.autoplay !== false}
+        label="Autoplay"
+        onCheckedChange={(checked) => updateProperty("autoplay", checked)}
+      />
+      <BooleanField
+        checked={entity.properties.enabled !== false}
+        label="Enabled"
+        onCheckedChange={(checked) => updateProperty("enabled", checked)}
+      />
+      <BooleanField
+        checked={loopForever}
+        label="Play Infinitely"
+        onCheckedChange={(checked) => updateProperty("vfxLoop", checked)}
+      />
+      <NumberField
+        label="Duration"
+        onChange={(next) => updateProperty("vfxDurationSeconds", Math.max(0.1, next))}
+        value={durationSeconds}
+      />
+      <NumberField
+        label="Playback Rate"
+        onChange={(next) => updateProperty("vfxPlaybackRate", Math.max(0.1, next))}
+        value={playbackRate}
+      />
+      {Object.entries(entity.properties)
+        .filter(
+          ([key]) =>
+            key !== "autoplay"
+            && key !== "enabled"
+            && key !== "vfxBundleDataUrl"
+            && key !== "vfxBundleFileName"
+            && key !== "vfxDurationSeconds"
+            && key !== "vfxLoop"
+            && key !== "vfxPlaybackRate"
+        )
+        .map(([key, value]) =>
+          typeof value === "boolean" ? (
+            <BooleanField key={key} label={startCase(key)} onCheckedChange={(checked) => updateProperty(key, checked)} checked={value} />
+          ) : typeof value === "number" ? (
+            <NumberField key={key} label={startCase(key)} onChange={(next) => updateProperty(key, next)} value={value} />
+          ) : (
+            <TextField key={key} label={startCase(key)} onChange={(next) => updateProperty(key, next)} value={value} />
+          )
+        )}
     </ToolSection>
   );
 }

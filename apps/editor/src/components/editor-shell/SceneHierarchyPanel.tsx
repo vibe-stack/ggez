@@ -385,6 +385,8 @@ function resolveItemIcon(kind: string, itemType: FlatSceneItem["itemType"]) {
     switch (kind) {
       case "npc-spawn":
         return Bot;
+      case "vfx-object":
+        return Sparkles;
       case "smart-object":
         return Sparkles;
       case "player-spawn":
@@ -416,6 +418,8 @@ function resolveKindLabel(kind: string, itemType: FlatSceneItem["itemType"]) {
     switch (kind) {
       case "npc-spawn":
         return "NPC";
+      case "vfx-object":
+        return "VFX";
       case "smart-object":
         return "Smart";
       case "player-spawn":

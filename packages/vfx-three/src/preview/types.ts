@@ -11,6 +11,10 @@ export type ThreeWebGpuPreviewState = {
   selectedEventId?: string;
   resetVersion?: number;
   fireVersion?: number;
+  world?: {
+    position?: { x: number; y: number; z: number };
+    uniformScale?: number;
+  };
 };
 
 export type ThreeWebGpuPreviewSummary = {
@@ -32,6 +36,13 @@ export type CreateThreeWebGpuPreviewControllerInput = {
 
 export type ThreeWebGpuPreviewController = {
   update(next: ThreeWebGpuPreviewState): void;
+  dispose(): void;
+};
+
+export type ThreeWebGpuPreviewRuntime = {
+  update(next: ThreeWebGpuPreviewState): void;
+  step(deltaSeconds: number, nowSeconds: number): void;
+  renderToCurrentTexture(nowSeconds: number): void;
   dispose(): void;
 };
 

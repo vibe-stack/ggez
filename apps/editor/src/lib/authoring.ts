@@ -36,7 +36,8 @@ export const PROP_PRESETS: Array<{ label: string; shape: PrimitiveShape }> = [
 export const ENTITY_PRESETS: Array<{ label: string; type: EntityType }> = [
   { label: "Player Spawn", type: "player-spawn" },
   { label: "NPC Spawn", type: "npc-spawn" },
-  { label: "Smart Object", type: "smart-object" }
+  { label: "Smart Object", type: "smart-object" },
+  { label: "VFX Object", type: "vfx-object" }
 ];
 
 export const LIGHT_PRESETS: Array<{ label: string; type: LightType }> = [
@@ -180,6 +181,8 @@ export function createDefaultEntity(type: EntityType, position: Vec3, index: num
         ? { enabled: true, team: "player" }
         : type === "npc-spawn"
           ? { enabled: true, faction: "neutral" }
+          : type === "vfx-object"
+              ? { autoplay: true, enabled: true, vfxBundleDataUrl: "", vfxBundleFileName: "", vfxDurationSeconds: 4, vfxLoop: true, vfxPlaybackRate: 1 }
           : { enabled: true, reusable: true },
     transform: makeTransform(position),
     type
@@ -193,6 +196,9 @@ export function createEntityLabel(type: EntityType) {
     case "npc-spawn":
       return "NPC Spawn";
     case "smart-object":
+      return "Smart Object";
+    case "vfx-object":
+      return "VFX Object";
     default:
       return "Smart Object";
   }

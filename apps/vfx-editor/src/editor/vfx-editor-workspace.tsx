@@ -2,7 +2,7 @@ import type { ChangeEvent, PointerEvent as ReactPointerEvent, ReactNode } from "
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { createBlankVfxEffectDocument, createCampfireVfxEffectDocument, getDefaultModuleConfig, type VfxEditorStore } from "@ggez/vfx-editor-core";
 import { BUILTIN_ATTRIBUTE_TYPES, MODULE_DESCRIPTORS } from "@ggez/vfx-core";
-import { createVfxArtifact, serializeVfxArtifact } from "@ggez/vfx-exporter";
+import { createVfxArtifact, serializeVfxArtifact, createVfxRuntimeBundleZip } from "@ggez/vfx-exporter";
 import type { EffectGraphNode, EmitterDocument, ModuleInstance, RendererFlipbookSettings, RendererSlot, VfxEventDefinition, VfxParameter } from "@ggez/vfx-schema";
 import { createThreeWebGpuVfxBackend, MVP_RENDERER_TEMPLATES } from "@ggez/vfx-three";
 import { ArrowDownRight, Bot, Cable, Check, ChevronDown, ChevronRight, Flame, GripHorizontal, ImageIcon, Orbit, Plus, Sparkles, Trash2, Upload } from "lucide-react";
@@ -59,6 +59,8 @@ const DOCUMENT_TEMPLATES: Array<{ id: DocumentTemplateId; label: string; create:
   { id: "blank", label: "Blank", create: createBlankVfxEffectDocument },
   { id: "campfire", label: "Campfire", create: createCampfireVfxEffectDocument }
 ];
+
+const BUILTIN_TEXTURE_IDS = new Set(DEFAULT_TEXTURES.map((texture) => texture.id));
 
 type StageKey = "deathStage" | "initializeStage" | "spawnStage" | "updateStage";
 type DocumentTemplateId = "blank" | "campfire";
@@ -1156,6 +1158,58 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
   const artifactPreview = state.compileResult ? serializeVfxArtifact(createVfxArtifact({ effect: state.compileResult })) : "";
   const cacheSnapshot = backend.getCacheSnapshot();
 
+  const handleExportBundle = useCallback(async () => {
+    if (!state.compileResult) {
+      return;
+    }
+
+    const artifact = createVfxArtifact({ effect: state.compileResult });
+    const textureBindings = Array.from(
+      new Set(
+        state.compileResult.emitters
+          .flatMap((emitter) => emitter.renderers)
+          .map((renderer) => renderer.textureBinding)
+          .filter((binding): binding is string => typeof binding === "string" && !BUILTIN_TEXTURE_IDS.has(binding))
+      )
+    );
+
+    const assets = await Promise.all(
+      textureBindings.map(async (binding, index) => {
+        const response = await fetch(binding);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch texture asset for bundle export: ${binding}`);
+        }
+
+        const contentType = response.headers.get("content-type") ?? "image/png";
+        const extension = contentType.includes("jpeg") ? "jpg" : contentType.includes("webp") ? "webp" : "png";
+
+        return {
+          id: binding,
+          path: `texture-${index + 1}.${extension}`,
+          type: "texture" as const,
+          data: new Uint8Array(await response.arrayBuffer())
+        };
+      })
+    );
+
+    const effectName = state.compileResult.name.trim() || state.document.emitters[0]?.name || "effect";
+    const zipBytes = createVfxRuntimeBundleZip({
+      name: effectName,
+      artifact,
+      assets,
+      document: state.document
+    });
+    const normalizedZipBytes = new Uint8Array(zipBytes.byteLength);
+    normalizedZipBytes.set(zipBytes);
+    const blob = new Blob([normalizedZipBytes], { type: "application/zip" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${effectName.replace(/\s+/g, "-").toLowerCase()}.vfxbundle`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }, [state.compileResult, state.document.emitters]);
+
   // Resolve the first selected graph node for context-aware inspector
   const selectedGraphNode = useMemo<EffectGraphNode | null>(() => {
     const id = state.selection.graphNodeIds[0];
@@ -1405,6 +1459,16 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
           onClick={() => props.store.compile()}
         >
           Compile
+        </button>
+        <button
+          type="button"
+          className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition hover:border-emerald-300/25 hover:text-emerald-100 disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={!state.compileResult}
+          onClick={() => {
+            void handleExportBundle();
+          }}
+        >
+          Export Bundle
         </button>
         <div className="ml-2 flex items-center gap-2">
           <span className="text-[10px] uppercase tracking-[0.18em] text-zinc-600">Template</span>
