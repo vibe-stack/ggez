@@ -1,6 +1,6 @@
 {
   "name": "@ggez/vfx-runtime",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Runtime instance model and backend-agnostic execution contracts for Web Hammer VFX.",
   "license": "MIT",
   "type": "module",

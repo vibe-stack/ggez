@@ -1,6 +1,6 @@
 {
   "name": "@ggez/vfx-exporter",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Artifact and bundle helpers for compiled Web Hammer VFX effects.",
   "license": "MIT",
   "type": "module",

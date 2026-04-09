@@ -1,6 +1,6 @@
 {
   "name": "@ggez/vfx-editor-core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "React-independent editor store and document editing helpers for the Web Hammer VFX editor.",
   "license": "MIT",
   "type": "module",

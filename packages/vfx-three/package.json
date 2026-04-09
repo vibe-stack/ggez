@@ -1,6 +1,6 @@
 {
   "name": "@ggez/vfx-three",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Three.js WebGPU renderer bridge and cache primitives for Web Hammer VFX.",
   "license": "MIT",
   "type": "module",

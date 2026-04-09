@@ -1,6 +1,6 @@
 {
   "name": "@ggez/runtime-format",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "Renderer-agnostic runtime contracts, parsing, and validation for Web Hammer.",
   "license": "MIT",
   "type": "module",
