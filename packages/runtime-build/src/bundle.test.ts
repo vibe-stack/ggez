@@ -5,7 +5,20 @@ import { buildRuntimeWorldIndex, externalizeRuntimeAssets, packRuntimeBundle, un
 
 const runtimeScene: RuntimeScene = {
   assets: [],
-  entities: [],
+  entities: [
+    {
+      id: "entity:vfx:test",
+      name: "Campfire Loop",
+      properties: {
+        autoplay: true,
+        enabled: true,
+        vfxBundleDataUrl: "data:application/zip;base64,UEsFBgAAAAAAAAAAAAAAAAAAAAAAAA==",
+        vfxBundleFileName: "campfire.vfxbundle"
+      },
+      transform: makeTransform(vec3(2, 0, 1)),
+      type: "vfx-object"
+    }
+  ],
   layers: [],
   materials: [
     {
@@ -89,7 +102,9 @@ describe("runtime-build", () => {
     expect(unpacked.manifest.materials[0]?.emissiveIntensity).toBe(0.75);
     expect(unpacked.manifest.materials[0]?.opacity).toBe(0.42);
     expect(unpacked.manifest.materials[0]?.transparent).toBe(true);
-    expect(unpacked.files).toHaveLength(1);
+    expect(unpacked.manifest.entities[0]?.properties.vfxBundleAssetPath).toBe("assets/vfx/campfire.vfxbundle");
+    expect(unpacked.manifest.entities[0]?.properties.vfxBundleDataUrl).toBe("");
+    expect(unpacked.files).toHaveLength(2);
   });
 
   test("builds world index documents", () => {

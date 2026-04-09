@@ -33,6 +33,8 @@ describe("create-ggez cli", () => {
     expect(packageJson).toContain("\"name\": \"app\"");
     expect(packageJson).toContain("@ggez/three-runtime");
     expect(packageJson).toContain("@ggez/runtime-physics-crashcat");
+    expect(packageJson).toContain("@ggez/vfx-three");
+    expect(packageJson).toContain("@ggez/vfx-exporter");
     expect(packageJson).not.toContain("@ggez/runtime-physics-rapier");
     expect(mainFile).toContain("createGameApp");
     expect(sceneModule).toContain("createColocatedRuntimeSceneSource");

@@ -114,6 +114,41 @@ export async function externalizeRuntimeAssets(
     }
   }
 
+  for (const entity of manifest.entities) {
+    if (entity.type !== "vfx-object") {
+      continue;
+    }
+
+    const existingAssetPath = typeof entity.properties.vfxBundleAssetPath === "string"
+      ? entity.properties.vfxBundleAssetPath
+      : "";
+    const bundleSource = typeof entity.properties.vfxBundleDataUrl === "string" && entity.properties.vfxBundleDataUrl.length > 0
+      ? entity.properties.vfxBundleDataUrl
+      : existingAssetPath;
+
+    if (!bundleSource) {
+      continue;
+    }
+
+    const bundleFileName = typeof entity.properties.vfxBundleFileName === "string"
+      ? entity.properties.vfxBundleFileName
+      : "";
+    const preferredBaseName = bundleFileName.length > 0 ? stripExtension(bundleFileName) : entity.name || entity.id;
+    const bundledVfxPath = await materializeSource(bundleSource, {
+      copyExternalAssets,
+      files,
+      pathBySource,
+      preferredExtension: inferExtensionFromPath(bundleFileName) ?? inferExtensionFromPath(bundleSource) ?? "vfxbundle",
+      preferredStem: `${assetDir}/vfx/${slugify(preferredBaseName)}`,
+      usedPaths
+    });
+
+    if (bundledVfxPath) {
+      entity.properties.vfxBundleAssetPath = bundledVfxPath;
+      entity.properties.vfxBundleDataUrl = "";
+    }
+  }
+
   return {
     files,
     manifest
@@ -328,6 +363,10 @@ function inferExtension(mimeType: string | undefined, fallback?: string) {
     return "hdr";
   }
 
+  if (normalized === "application/zip") {
+    return fallback ?? "zip";
+  }
+
   if (normalized === "model/gltf+json") {
     return "gltf";
   }
@@ -356,6 +395,9 @@ function inferMimeTypeFromPath(path: string) {
       return "image/svg+xml";
     case "hdr":
       return "image/vnd.radiance";
+    case "vfxbundle":
+    case "zip":
+      return "application/zip";
     case "glb":
       return "model/gltf-binary";
     case "gltf":
@@ -407,4 +449,12 @@ function slugify(value: string) {
 
 function trimSlashes(value: string) {
   return value.replace(/^\/+|\/+$/g, "");
+}
+
+function stripExtension(path: string) {
+  const cleanPath = path.split("?")[0]?.split("#")[0] ?? path;
+  const segments = cleanPath.split("/");
+  const fileName = segments.at(-1) ?? cleanPath;
+  const dotIndex = fileName.lastIndexOf(".");
+  return dotIndex <= 0 ? fileName : fileName.slice(0, dotIndex);
 }

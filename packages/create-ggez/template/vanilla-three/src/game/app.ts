@@ -33,6 +33,7 @@ import { createDefaultGameplaySystems, createStarterGameplayHost, mergeGameplayS
 import { GameLoop, FIXED_STEP_SECONDS } from "./loop";
 import { InputManager } from "./input";
 import { createRuntimePhysicsSession, type RuntimePhysicsSession } from "./physics";
+import { createSceneVfxRuntime, type SceneVfxRuntime } from "./vfx";
 import type {
   GameSceneContext,
   GameSceneDefinition,
@@ -59,6 +60,7 @@ type SceneBundle = {
   physicsWorld: CrashcatPhysicsWorld;
   runtimePhysics: RuntimePhysicsSession;
   runtimeScene: ThreeRuntimeSceneInstance;
+  sceneVfx: SceneVfxRuntime | null;
 };
 
 // ------------------------------------------------------------------
@@ -132,9 +134,11 @@ export async function createGameApp(options: GameAppOptions) {
       activeBundle?.gameplayRuntime.update(dt);
       // Camera is updated at variable rate for smooth motion at high refresh rates.
       activeBundle?.player?.updateCamera(dt);
+      activeBundle?.sceneVfx?.step(dt);
     },
     onRender: () => {
       renderer.render(scene, camera);
+      activeBundle?.sceneVfx?.render();
     }
   });
 
@@ -151,6 +155,7 @@ export async function createGameApp(options: GameAppOptions) {
     await bundle.lifecycle.dispose?.();
     bundle.player?.dispose();
     bundle.gameplayRuntime.dispose();
+    bundle.sceneVfx?.dispose();
     bundle.runtimeScene.dispose();
     bundle.runtimePhysics.dispose();
   };
@@ -180,6 +185,7 @@ export async function createGameApp(options: GameAppOptions) {
     }
 
     const token = ++loadToken;
+    loop.pause();
     setStatus(`Loading ${definition.title}…`);
 
     try {
@@ -193,8 +199,15 @@ export async function createGameApp(options: GameAppOptions) {
         applyToScene: scene,
         resolveAssetUrl: ({ path }) => path
       });
+      const sceneVfx = await createSceneVfxRuntime({
+        camera,
+        entities: runtimeScene.entities,
+        renderer,
+        scene
+      });
 
       if (disposed || token !== loadToken) {
+        sceneVfx?.dispose();
         runtimeScene.dispose();
         return;
       }
@@ -256,6 +269,7 @@ export async function createGameApp(options: GameAppOptions) {
         await mountResult?.dispose?.();
         player?.dispose();
         gameplayRuntime.dispose();
+        sceneVfx?.dispose();
         runtimeScene.dispose();
         runtimePhysics.dispose();
         return;
@@ -276,16 +290,21 @@ export async function createGameApp(options: GameAppOptions) {
         frameCameraOnObject(camera, runtimeScene.root);
       }
 
-      activeBundle = { gameplayRuntime, id: sceneId, lifecycle, player, physicsWorld, runtimePhysics, runtimeScene };
+      activeBundle = { gameplayRuntime, id: sceneId, lifecycle, player, physicsWorld, runtimePhysics, runtimeScene, sceneVfx };
 
       if (previous) {
         await disposeBundle(previous);
       }
 
       setStatus("");
+
+      if (!disposed && token === loadToken) {
+        loop.resume();
+      }
     } catch (error) {
       if (token === loadToken && !disposed) {
         setStatus(`Failed to load "${definition.title}".`);
+        loop.resume();
       }
 
       throw error;

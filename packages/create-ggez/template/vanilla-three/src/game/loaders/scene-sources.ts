@@ -1,5 +1,5 @@
 import { parseRuntimeScene, type RuntimeScene } from "@ggez/runtime-format";
-import type { GameSceneDefinition, RuntimeSceneSource } from "./scene-types";
+import type { GameSceneDefinition, RuntimeSceneSource } from "../scene";
 
 const MATERIAL_TEXTURE_SLOTS = ["baseColorTexture", "metallicRoughnessTexture", "normalTexture"] as const;
 
@@ -135,6 +135,27 @@ function rewriteRuntimeSceneAssetUrls(
     }
 
     return nextMaterial;
+  });
+
+  rewritten.entities = rewritten.entities.map((entity) => {
+    if (entity.type !== "vfx-object") {
+      return entity;
+    }
+
+    const nextEntity = {
+      ...entity,
+      properties: { ...entity.properties }
+    };
+
+    for (const key of ["vfxBundleAssetPath", "vfxBundleDataUrl"] as const) {
+      const value = nextEntity.properties[key];
+
+      if (typeof value === "string") {
+        nextEntity.properties[key] = resolveRuntimeAssetPath(value, resolveAssetUrl);
+      }
+    }
+
+    return nextEntity;
   });
 
   if (rewritten.settings.world.skybox.enabled && rewritten.settings.world.skybox.source) {

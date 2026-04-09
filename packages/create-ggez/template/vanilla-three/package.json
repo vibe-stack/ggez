@@ -23,6 +23,9 @@
     "@ggez/runtime-physics-crashcat": "^0.1.8",
     "@ggez/shared": "^0.1.8",
     "@ggez/three-runtime": "^0.1.8",
+    "@ggez/vfx-exporter": "^0.1.8",
+    "@ggez/vfx-schema": "^0.1.8",
+    "@ggez/vfx-three": "^0.1.8",
     "three": "^0.181.1"
   },
   "devDependencies": {
