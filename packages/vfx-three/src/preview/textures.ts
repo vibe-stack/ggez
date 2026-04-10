@@ -1,8 +1,19 @@
 import * as THREE from "three";
-import type { PreviewTextureSource, SpriteTextureDefinition } from "./types";
+import type { PreviewFlipbookFrameBounds, PreviewTextureSource, SpriteTextureDefinition } from "./types";
 
 const BUILTIN_PREVIEW_TEXTURES = new Set(["circle-soft", "circle-hard", "ring", "spark", "smoke", "star", "flame", "beam"]);
 const previewTextureSourceCache = new Map<string, Promise<PreviewTextureSource>>();
+const previewFrameBoundsCache = new Map<string, PreviewFlipbookFrameBounds[]>();
+const DEFAULT_FRAME_BOUNDS: PreviewFlipbookFrameBounds = {
+  uvOffsetX: 0,
+  uvOffsetY: 0,
+  uvScaleX: 1,
+  uvScaleY: 1,
+  quadOffsetX: 0,
+  quadOffsetY: 0,
+  quadScaleX: 1,
+  quadScaleY: 1
+};
 
 function drawSmokeCell(ctx: CanvasRenderingContext2D, originX: number, originY: number, tileSize: number, variant: number) {
   const blobCount = 6 + variant;
@@ -177,6 +188,110 @@ export function createPreviewSpriteTextureFromSource(source: PreviewTextureSourc
   texture.minFilter = THREE.LinearFilter;
   texture.generateMipmaps = false;
   return { texture };
+}
+
+export function resolvePreviewFlipbookFrameBounds(
+  source: PreviewTextureSource,
+  rows: number,
+  cols: number
+): PreviewFlipbookFrameBounds[] {
+  const resolvedRows = Math.max(1, Math.floor(rows));
+  const resolvedCols = Math.max(1, Math.floor(cols));
+  const cacheKey = `${source.key}:${resolvedCols}x${resolvedRows}`;
+  const cached = previewFrameBoundsCache.get(cacheKey);
+
+  if (cached) {
+    return cached;
+  }
+
+  if (typeof document === "undefined") {
+    const fallback = Array.from({ length: resolvedRows * resolvedCols }, () => ({ ...DEFAULT_FRAME_BOUNDS }));
+    previewFrameBoundsCache.set(cacheKey, fallback);
+    return fallback;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = source.width;
+  canvas.height = source.height;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+  if (!ctx) {
+    const fallback = Array.from({ length: resolvedRows * resolvedCols }, () => ({ ...DEFAULT_FRAME_BOUNDS }));
+    previewFrameBoundsCache.set(cacheKey, fallback);
+    return fallback;
+  }
+
+  ctx.clearRect(0, 0, source.width, source.height);
+  ctx.drawImage(source.source, 0, 0, source.width, source.height);
+  const pixels = ctx.getImageData(0, 0, source.width, source.height).data;
+  const alphaThreshold = 8;
+  const bounds: PreviewFlipbookFrameBounds[] = [];
+
+  for (let row = 0; row < resolvedRows; row += 1) {
+    const cellTop = Math.floor((row * source.height) / resolvedRows);
+    const cellBottom = Math.floor(((row + 1) * source.height) / resolvedRows);
+
+    for (let col = 0; col < resolvedCols; col += 1) {
+      const cellLeft = Math.floor((col * source.width) / resolvedCols);
+      const cellRight = Math.floor(((col + 1) * source.width) / resolvedCols);
+      const cellWidth = Math.max(1, cellRight - cellLeft);
+      const cellHeight = Math.max(1, cellBottom - cellTop);
+      let minX = cellRight;
+      let maxX = cellLeft - 1;
+      let minY = cellBottom;
+      let maxY = cellTop - 1;
+
+      for (let y = cellTop; y < cellBottom; y += 1) {
+        const rowOffset = y * source.width * 4;
+        for (let x = cellLeft; x < cellRight; x += 1) {
+          if (pixels[rowOffset + x * 4 + 3] >= alphaThreshold) {
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+
+      if (maxX < minX || maxY < minY) {
+        bounds.push({
+          uvOffsetX: cellLeft / source.width,
+          uvOffsetY: 1 - (cellBottom / source.height),
+          uvScaleX: cellWidth / source.width,
+          uvScaleY: cellHeight / source.height,
+          quadOffsetX: 0,
+          quadOffsetY: 0,
+          quadScaleX: 1,
+          quadScaleY: 1
+        });
+        continue;
+      }
+
+      minX = Math.max(cellLeft, minX - 1);
+      maxX = Math.min(cellRight - 1, maxX + 1);
+      minY = Math.max(cellTop, minY - 1);
+      maxY = Math.min(cellBottom - 1, maxY + 1);
+
+      const trimmedWidth = Math.max(1, maxX - minX + 1);
+      const trimmedHeight = Math.max(1, maxY - minY + 1);
+      const trimmedCenterX = ((minX + maxX + 1) * 0.5 - cellLeft) / cellWidth;
+      const trimmedCenterYFromTop = ((minY + maxY + 1) * 0.5 - cellTop) / cellHeight;
+
+      bounds.push({
+        uvOffsetX: minX / source.width,
+        uvOffsetY: 1 - ((maxY + 1) / source.height),
+        uvScaleX: trimmedWidth / source.width,
+        uvScaleY: trimmedHeight / source.height,
+        quadOffsetX: trimmedCenterX - 0.5,
+        quadOffsetY: 0.5 - trimmedCenterYFromTop,
+        quadScaleX: trimmedWidth / cellWidth,
+        quadScaleY: trimmedHeight / cellHeight
+      });
+    }
+  }
+
+  previewFrameBoundsCache.set(cacheKey, bounds);
+  return bounds;
 }
 
 export function makePreviewSpriteTexture(preset: string): SpriteTextureDefinition {

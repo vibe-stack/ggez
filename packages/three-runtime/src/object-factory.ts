@@ -78,6 +78,23 @@ const gltfLoader = new GLTFLoader();
 const mtlLoader = new MTLLoader();
 const modelTextureLoader = new TextureLoader();
 const tempModelInstanceMatrix = new Matrix4();
+const DEFAULT_DIRECTIONAL_SHADOW_MAP_SIZE = 2048;
+const DEFAULT_DIRECTIONAL_SHADOW_BIAS = -0.00015;
+const DEFAULT_DIRECTIONAL_SHADOW_NORMAL_BIAS = 0.03;
+
+function applyDefaultShadowSettings(light: DirectionalLight | PointLight | SpotLight) {
+  if (!light.castShadow) {
+    return;
+  }
+
+  light.shadow.mapSize.width = DEFAULT_DIRECTIONAL_SHADOW_MAP_SIZE;
+  light.shadow.mapSize.height = DEFAULT_DIRECTIONAL_SHADOW_MAP_SIZE;
+  light.shadow.bias = DEFAULT_DIRECTIONAL_SHADOW_BIAS;
+
+  if ("normalBias" in light.shadow) {
+    light.shadow.normalBias = DEFAULT_DIRECTIONAL_SHADOW_NORMAL_BIAS;
+  }
+}
 const tempModelChildMatrix = new Matrix4();
 const tempPivotMatrix = new Matrix4();
 const tempInstancePosition = new Vector3();
@@ -840,6 +857,7 @@ function createThreeLight(node: Extract<WebHammerEngineNode, { kind: "light" }>)
     case "point": {
       const light = new PointLight(node.data.color, node.data.intensity, node.data.distance ?? 0, node.data.decay ?? 2);
       light.castShadow = node.data.castShadow;
+      applyDefaultShadowSettings(light);
       return light;
     }
     case "directional": {
@@ -847,6 +865,7 @@ function createThreeLight(node: Extract<WebHammerEngineNode, { kind: "light" }>)
       const light = new DirectionalLight(node.data.color, node.data.intensity);
       const target = new Object3D();
       light.castShadow = node.data.castShadow;
+      applyDefaultShadowSettings(light);
       target.position.set(0, 0, -6);
       group.add(target);
       group.add(light);
@@ -865,6 +884,7 @@ function createThreeLight(node: Extract<WebHammerEngineNode, { kind: "light" }>)
       );
       const target = new Object3D();
       light.castShadow = node.data.castShadow;
+      applyDefaultShadowSettings(light);
       target.position.set(0, 0, -6);
       group.add(target);
       group.add(light);
@@ -979,9 +999,13 @@ export function extractPhysics(node: WebHammerEngineNode): PropPhysics | undefin
 }
 
 export function findPrimaryLight(object: Object3D) {
-  if ("isLight" in object && object.isLight) {
-    return object;
-  }
+  let resolved: Object3D | undefined;
 
-  return object.children.find((child) => "isLight" in child && child.isLight);
+  object.traverse((child) => {
+    if (!resolved && "isLight" in child && child.isLight) {
+      resolved = child;
+    }
+  });
+
+  return resolved;
 }

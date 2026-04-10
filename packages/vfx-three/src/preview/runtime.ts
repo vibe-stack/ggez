@@ -4,7 +4,7 @@ import { attribute as tslAttribute, uv as tslUv, texture as tslTexture, material
 import { buildEmitterPreviewConfigs, resolveActiveEmitterIds } from "./extraction";
 import { createPreviewGpuSmokeRenderer } from "./smoke-renderer";
 import { createPreviewGpuSpriteRenderer } from "./sprite-gpu-renderer";
-import { createPreviewSpriteTextureFromSource, loadPreviewTextureSource } from "./textures";
+import { createPreviewSpriteTextureFromSource, loadPreviewTextureSource, resolvePreviewFlipbookFrameBounds } from "./textures";
 import { evaluatePreviewAlpha, evaluatePreviewColor, evaluatePreviewSize } from "./evaluation";
 import {
   GPU_BUFFER_USAGE,
@@ -17,6 +17,7 @@ import {
   type CreateThreeWebGpuPreviewControllerInput,
   type EmitterPreviewConfig,
   type EmitterReadbackSlot,
+  type PreviewFlipbookFrameBounds,
   type SmokeRenderResources,
   type SpriteGpuRenderResources,
   type ThreeWebGpuPreviewRuntime,
@@ -26,6 +27,7 @@ import {
 type RuntimeEntry = {
   accumulator: number;
   config: EmitterPreviewConfig;
+  frameBounds: PreviewFlipbookFrameBounds[];
   textures: THREE.Texture[];
   instancedMesh: THREE.InstancedMesh | null;
   instanceAlphaData: Float32Array;
@@ -62,6 +64,7 @@ const _bsZAxis = new THREE.Vector3(0, 0, 1);
 const _bsScale = new THREE.Vector3();
 const _bsMatrix = new THREE.Matrix4();
 const _bsDeadMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
+const _bsOffset = new THREE.Vector3();
 
 const COMPUTE_SHADER_CODE = /* wgsl */ `
 struct Particle {
@@ -365,6 +368,13 @@ export async function createThreeWebGpuPreviewRuntime(
     for (const { config, textureSource } of resolvedTextures) {
       const renderMode = config.isSmoke ? "smoke-gpu" : "sprite-gpu";
       const requiresReadback = config.deathEventIds.length > 0;
+      const frameBounds = textureSource
+        ? resolvePreviewFlipbookFrameBounds(
+            textureSource,
+            Math.max(1, config.flipbook.rows),
+            Math.max(1, config.flipbook.cols)
+          )
+        : [];
       const particleData = new Float32Array(config.maxParticleCount * PARTICLE_FLOATS);
       const particleBuffer = device.createBuffer({
         label: `vfx-preview-particles-${config.emitterId}`,
@@ -445,6 +455,7 @@ export async function createThreeWebGpuPreviewRuntime(
       entries.set(config.emitterId, {
         accumulator: 0,
         config,
+        frameBounds,
         textures,
         instancedMesh,
         instanceAlphaData,
@@ -566,7 +577,8 @@ export async function createThreeWebGpuPreviewRuntime(
 
     const cols = Math.max(entry.config.flipbook.cols, 1);
     const rows = Math.max(entry.config.flipbook.rows, 1);
-    const hasFlipbook = entry.config.flipbook.enabled && cols * rows > 1;
+    const frameCount = Math.max(cols * rows, 1);
+    const usesFrameBounds = entry.frameBounds.length > 0;
 
     for (let index = 0; index < entry.config.maxParticleCount; index += 1) {
       const offset = index * PARTICLE_FLOATS;
@@ -598,6 +610,16 @@ export async function createThreeWebGpuPreviewRuntime(
         entry.particleData[offset + PARTICLE_INDEX.sizeEnd]
       );
       const color = evaluatePreviewColor(entry.config.color, entry.config.colorCurve, life, entry.config.isSmoke);
+      const frame = frameCount > 1
+        ? resolveSceneSpriteFlipbookFrame(
+            entry,
+            age,
+            lifetime,
+            entry.particleData[offset + PARTICLE_INDEX.frame],
+            nowSeconds
+          )
+        : 0;
+      const frameBounds = entry.frameBounds[frame] ?? entry.frameBounds[0];
 
       // Billboard matrix: camera facing + per-particle local Z rotation
       const rotation = entry.particleData[offset + PARTICLE_INDEX.rotation]
@@ -610,30 +632,41 @@ export async function createThreeWebGpuPreviewRuntime(
         entry.particleData[offset + PARTICLE_INDEX.positionY] + entry.particleData[offset + PARTICLE_INDEX.velocityY] * predictionSeconds,
         entry.particleData[offset + PARTICLE_INDEX.positionZ] + entry.particleData[offset + PARTICLE_INDEX.velocityZ] * predictionSeconds
       );
-      _bsScale.setScalar(Math.max(0.001, size));
+      if (frameBounds) {
+        _bsOffset.set(frameBounds.quadOffsetX * size, frameBounds.quadOffsetY * size, 0).applyQuaternion(_bsQuaternion);
+        _bsPosition.add(_bsOffset);
+        _bsScale.set(
+          Math.max(0.001, size * frameBounds.quadScaleX),
+          Math.max(0.001, size * frameBounds.quadScaleY),
+          1
+        );
+      } else {
+        _bsScale.set(Math.max(0.001, size), Math.max(0.001, size), 1);
+      }
       _bsMatrix.compose(_bsPosition, _bsQuaternion, _bsScale);
       instancedMesh.setMatrixAt(index, _bsMatrix);
 
       instancedMesh.instanceColor!.setXYZ(index, color.r, color.g, color.b);
       instanceAlphaData[index] = alpha;
 
-      // Per-instance UV transform for flipbook
-      if (hasFlipbook) {
-        const frame = resolveSceneSpriteFlipbookFrame(entry, age, lifetime,
-          entry.particleData[offset + PARTICLE_INDEX.frame], nowSeconds);
-        const cellX = frame % cols;
-        const cellY = Math.floor(frame / cols);
-        instanceUvTransformData[index * 4 + 0] = cellX / cols;
-        instanceUvTransformData[index * 4 + 1] = 1 - (cellY + 1) / rows;
-        instanceUvTransformData[index * 4 + 2] = 1 / cols;
-        instanceUvTransformData[index * 4 + 3] = 1 / rows;
+      if (usesFrameBounds) {
+        const bounds = frameBounds ?? {
+          uvOffsetX: 0,
+          uvOffsetY: 0,
+          uvScaleX: 1,
+          uvScaleY: 1
+        };
+        instanceUvTransformData[index * 4 + 0] = bounds.uvOffsetX;
+        instanceUvTransformData[index * 4 + 1] = bounds.uvOffsetY;
+        instanceUvTransformData[index * 4 + 2] = bounds.uvScaleX;
+        instanceUvTransformData[index * 4 + 3] = bounds.uvScaleY;
       }
     }
 
     instancedMesh.instanceMatrix.needsUpdate = true;
     instancedMesh.instanceColor!.needsUpdate = true;
     (instancedMesh.geometry.getAttribute("instanceAlpha") as THREE.BufferAttribute).needsUpdate = true;
-    if (hasFlipbook) {
+    if (usesFrameBounds) {
       (instancedMesh.geometry.getAttribute("instanceUvTransform") as THREE.BufferAttribute).needsUpdate = true;
     }
   }

@@ -90,6 +90,17 @@ export type PreviewTextureSource = {
   height: number;
 };
 
+export type PreviewFlipbookFrameBounds = {
+  uvOffsetX: number;
+  uvOffsetY: number;
+  uvScaleX: number;
+  uvScaleY: number;
+  quadOffsetX: number;
+  quadOffsetY: number;
+  quadScaleX: number;
+  quadScaleY: number;
+};
+
 export type SpriteTextureDefinition = {
   texture: THREE.Texture;
 };

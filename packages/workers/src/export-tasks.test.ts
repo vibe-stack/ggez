@@ -46,6 +46,133 @@ const settings: SceneSettings = {
 };
 
 describe("exportEngineBundle", () => {
+  test("ignores zero-sized uploaded metallic-roughness maps instead of crashing", async () => {
+    const globals = globalThis as typeof globalThis & {
+      OffscreenCanvas?: typeof OffscreenCanvas;
+      createImageBitmap?: typeof createImageBitmap;
+    };
+    const originalOffscreenCanvas = globals.OffscreenCanvas;
+    const originalCreateImageBitmap = globals.createImageBitmap;
+
+    class MockOffscreenCanvas {
+      constructor(_width: number, _height: number) {}
+
+      getContext() {
+        return null;
+      }
+
+      async convertToBlob() {
+        return new Blob();
+      }
+    }
+
+    globals.OffscreenCanvas = MockOffscreenCanvas as unknown as typeof OffscreenCanvas;
+    globals.createImageBitmap = (async () => ({
+      close() {},
+      height: 0,
+      width: 0
+    })) as typeof createImageBitmap;
+
+    try {
+      const snapshot: SceneDocumentSnapshot = {
+        assets: [],
+        entities: [],
+        layers: [],
+        materials: [
+          {
+            color: "#ffffff",
+            id: "material:test",
+            metalness: 0.35,
+            metalnessTexture:
+              "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9sotW5kAAAAASUVORK5CYII=",
+            name: "Test Material",
+            roughness: 0.65,
+            roughnessTexture:
+              "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9sotW5kAAAAASUVORK5CYII="
+          }
+        ],
+        nodes: [],
+        settings,
+        textures: []
+      };
+
+      const scene = await buildRuntimeSceneFromSnapshot(snapshot);
+
+      expect(scene.materials[0]?.metallicRoughnessTexture).toBeUndefined();
+      expect(scene.materials[0]?.metallicFactor).toBe(0.35);
+      expect(scene.materials[0]?.roughnessFactor).toBe(0.65);
+    } finally {
+      globals.OffscreenCanvas = originalOffscreenCanvas;
+      globals.createImageBitmap = originalCreateImageBitmap;
+    }
+  });
+
+  test("ignores worker readback failures from uploaded metallic-roughness maps", async () => {
+    const globals = globalThis as typeof globalThis & {
+      OffscreenCanvas?: typeof OffscreenCanvas;
+      createImageBitmap?: typeof createImageBitmap;
+    };
+    const originalOffscreenCanvas = globals.OffscreenCanvas;
+    const originalCreateImageBitmap = globals.createImageBitmap;
+
+    class MockOffscreenCanvas {
+      constructor(_width: number, _height: number) {}
+
+      getContext() {
+        return {
+          drawImage() {},
+          getImageData() {
+            throw new Error("Failed to execute 'getImageData' on 'OffscreenCanvasRenderingContext2D': The source width is 0.");
+          }
+        };
+      }
+
+      async convertToBlob() {
+        return new Blob();
+      }
+    }
+
+    globals.OffscreenCanvas = MockOffscreenCanvas as unknown as typeof OffscreenCanvas;
+    globals.createImageBitmap = (async () => ({
+      close() {},
+      height: 8,
+      width: 8
+    })) as typeof createImageBitmap;
+
+    try {
+      const snapshot: SceneDocumentSnapshot = {
+        assets: [],
+        entities: [],
+        layers: [],
+        materials: [
+          {
+            color: "#ffffff",
+            id: "material:test",
+            metalness: 0.35,
+            metalnessTexture:
+              "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9sotW5kAAAAASUVORK5CYII=",
+            name: "Test Material",
+            roughness: 0.65,
+            roughnessTexture:
+              "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9sotW5kAAAAASUVORK5CYII="
+          }
+        ],
+        nodes: [],
+        settings,
+        textures: []
+      };
+
+      const bundle = await exportEngineBundle(snapshot);
+
+      expect(bundle.manifest.materials[0]?.metallicRoughnessTexture).toBeUndefined();
+      expect(bundle.manifest.materials[0]?.metallicFactor).toBe(0.35);
+      expect(bundle.manifest.materials[0]?.roughnessFactor).toBe(0.65);
+    } finally {
+      globals.OffscreenCanvas = originalOffscreenCanvas;
+      globals.createImageBitmap = originalCreateImageBitmap;
+    }
+  });
+
   test("matches direct runtime-build scene compilation", async () => {
     const snapshot: SceneDocumentSnapshot = {
       assets: [],

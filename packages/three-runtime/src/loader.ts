@@ -23,6 +23,7 @@ import {
   MeshStandardMaterial,
   Object3D,
   PointLight,
+  OrthographicCamera,
   Quaternion,
   SRGBColorSpace,
   Scene,
@@ -124,6 +125,12 @@ const textureLoader = new TextureLoader();
 const gltfLoader = new GLTFLoader();
 const hdrLoader = new HDRLoader();
 const mtlLoader = new MTLLoader();
+const runtimeSceneBounds = new Box3();
+const runtimeSceneBoundsCenter = new Vector3();
+const runtimeSceneBoundsSize = new Vector3();
+const DEFAULT_DIRECTIONAL_LIGHT_OFFSET = new Vector3(28, 42, 24);
+const DEFAULT_DIRECTIONAL_SHADOW_RADIUS = 72;
+const DEFAULT_DIRECTIONAL_SHADOW_FAR = 180;
 
 export function isWebHammerEngineScene(value: unknown): value is WebHammerEngineScene {
   return isRuntimeScene(value);
@@ -256,6 +263,8 @@ export async function createThreeRuntimeSceneInstance(
     }
   }
 
+  configureRuntimeLightShadows(root, lights);
+
   return {
     audioDescriptors: getRuntimeAudioDescriptors(engineScene),
     dispose() {
@@ -271,6 +280,71 @@ export async function createThreeRuntimeSceneInstance(
     root,
     scene: engineScene
   };
+}
+
+function configureRuntimeLightShadows(root: Object3D, lights: Object3D[]) {
+  root.updateMatrixWorld(true);
+  runtimeSceneBounds.setFromObject(root);
+
+  const hasSceneBounds = !runtimeSceneBounds.isEmpty();
+
+  if (hasSceneBounds) {
+    runtimeSceneBounds.getCenter(runtimeSceneBoundsCenter);
+    runtimeSceneBounds.getSize(runtimeSceneBoundsSize);
+  } else {
+    runtimeSceneBoundsCenter.set(0, 0, 0);
+    runtimeSceneBoundsSize.set(0, 0, 0);
+  }
+
+  const shadowRadius = hasSceneBounds
+    ? Math.max(
+        DEFAULT_DIRECTIONAL_SHADOW_RADIUS,
+        runtimeSceneBoundsSize.x * 0.75,
+        runtimeSceneBoundsSize.z * 0.75,
+        runtimeSceneBoundsSize.y
+      )
+    : DEFAULT_DIRECTIONAL_SHADOW_RADIUS;
+  const shadowFar = hasSceneBounds
+    ? Math.max(DEFAULT_DIRECTIONAL_SHADOW_FAR, runtimeSceneBoundsSize.length() * 2.5)
+    : DEFAULT_DIRECTIONAL_SHADOW_FAR;
+
+  lights.forEach((object) => {
+    if (!(object instanceof DirectionalLight) || !object.castShadow) {
+      return;
+    }
+
+    if (hasSceneBounds && object.parent && object.target.parent) {
+      const localLightPosition = object.parent.worldToLocal(
+        runtimeSceneBoundsCenter.clone().add(DEFAULT_DIRECTIONAL_LIGHT_OFFSET)
+      );
+      const localTarget = object.target.parent.worldToLocal(runtimeSceneBoundsCenter.clone());
+
+      object.position.copy(localLightPosition);
+      object.target.position.copy(localTarget);
+      object.updateMatrixWorld(true);
+      object.target.updateMatrixWorld(true);
+    }
+
+    const shadowCamera = object.shadow.camera as OrthographicCamera;
+
+    shadowCamera.near = 0.5;
+    shadowCamera.far = shadowFar;
+    shadowCamera.left = -shadowRadius;
+    shadowCamera.right = shadowRadius;
+    shadowCamera.top = shadowRadius;
+    shadowCamera.bottom = -shadowRadius;
+    shadowCamera.updateProjectionMatrix();
+
+    // Scale bias and map size with frustum so acne and blur stay consistent
+    // regardless of scene extent. Reference is the 72-unit default frustum.
+    const biasScale = shadowRadius / DEFAULT_DIRECTIONAL_SHADOW_RADIUS;
+    object.shadow.bias = -0.00015 * biasScale;
+    object.shadow.normalBias = 0.03 * biasScale;
+    // Clamp map size at 4096 — large enough for the biggest maps, not wasteful for small ones.
+    const mapSize = Math.min(4096, Math.ceil(2048 * biasScale / 512) * 512);
+    object.shadow.mapSize.width = mapSize;
+    object.shadow.mapSize.height = mapSize;
+  });
 }
 
 export async function loadWebHammerEngineScene(
@@ -1057,6 +1131,10 @@ function createThreeLight(node: Extract<WebHammerEngineNode, { kind: "light" }>)
     case "point": {
       const light = new PointLight(node.data.color, node.data.intensity, node.data.distance ?? 0, node.data.decay ?? 2);
       light.castShadow = node.data.castShadow;
+      light.shadow.mapSize.width = 2048;
+      light.shadow.mapSize.height = 2048;
+      light.shadow.bias = -0.00015;
+      light.shadow.normalBias = 0.03;
       return light;
     }
     case "directional": {
@@ -1065,6 +1143,10 @@ function createThreeLight(node: Extract<WebHammerEngineNode, { kind: "light" }>)
       const target = new Object3D();
 
       light.castShadow = node.data.castShadow;
+      light.shadow.mapSize.width = 2048;
+      light.shadow.mapSize.height = 2048;
+      light.shadow.bias = -0.00015;
+      light.shadow.normalBias = 0.03;
       target.position.set(0, 0, -6);
       group.add(light);
       group.add(target);
@@ -1084,6 +1166,10 @@ function createThreeLight(node: Extract<WebHammerEngineNode, { kind: "light" }>)
       const target = new Object3D();
 
       light.castShadow = node.data.castShadow;
+      light.shadow.mapSize.width = 2048;
+      light.shadow.mapSize.height = 2048;
+      light.shadow.bias = -0.00015;
+      light.shadow.normalBias = 0.03;
       target.position.set(0, 0, -6);
       group.add(light);
       group.add(target);
@@ -1123,17 +1209,7 @@ function extractPhysics(node: WebHammerEngineNode) {
   return undefined;
 }
 
-function findPrimaryLight(object: Object3D) {
-  let resolved: Object3D | undefined;
 
-  object.traverse((child: Object3D) => {
-    if (!resolved && "isLight" in child && child.isLight) {
-      resolved = child;
-    }
-  });
-
-  return resolved;
-}
 
 function resolveModelFormat(format: unknown, path: string): "gltf" | "obj" {
   if (typeof format === "string" && format.toLowerCase() === "obj") {

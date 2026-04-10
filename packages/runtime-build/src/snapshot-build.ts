@@ -1138,6 +1138,11 @@ async function createMetallicRoughnessTextureDataUri(
     loadImagePixels(metalnessSource),
     loadImagePixels(roughnessSource)
   ]);
+
+  if (!metalness && !roughness) {
+    return undefined;
+  }
+
   const width = Math.max(metalness?.width ?? 1, roughness?.width ?? 1);
   const height = Math.max(metalness?.height ?? 1, roughness?.height ?? 1);
   const canvas = new OffscreenCanvas(width, height);
@@ -1169,26 +1174,46 @@ async function loadImagePixels(source?: string) {
     return undefined;
   }
 
-  const response = await fetch(source);
-  const blob = await response.blob();
-  const bitmap = await createImageBitmap(blob);
-  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-  const context = canvas.getContext("2d", { willReadFrequently: true });
+  let bitmap: ImageBitmap | undefined;
 
-  if (!context) {
-    bitmap.close();
+  try {
+    const response = await fetch(source);
+    const blob = await response.blob();
+
+    if (blob.size <= 0) {
+      return undefined;
+    }
+
+    bitmap = await createImageBitmap(blob);
+
+    if (bitmap.width <= 0 || bitmap.height <= 0) {
+      return undefined;
+    }
+
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+
+    if (!context) {
+      return undefined;
+    }
+
+    context.drawImage(bitmap, 0, 0);
+    const imageData = context.getImageData(0, 0, bitmap.width, bitmap.height);
+
+    if (imageData.width <= 0 || imageData.height <= 0) {
+      return undefined;
+    }
+
+    return {
+      height: imageData.height,
+      pixels: imageData.data,
+      width: imageData.width
+    };
+  } catch {
     return undefined;
+  } finally {
+    bitmap?.close();
   }
-
-  context.drawImage(bitmap, 0, 0);
-  bitmap.close();
-  const imageData = context.getImageData(0, 0, bitmap.width, bitmap.height);
-
-  return {
-    height: imageData.height,
-    pixels: imageData.data,
-    width: imageData.width
-  };
 }
 
 function clamp01(value: number) {
