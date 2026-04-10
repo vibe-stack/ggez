@@ -19,6 +19,9 @@ export type CompileVfxResult = {
 function stableMaterialSignature(input: {
   blendMode: string;
   depthFade: boolean;
+  emissive: boolean;
+  emissiveColor: string;
+  emissiveIntensity: number;
   distortion: boolean;
   facingMode: string;
   flipbook: boolean;
@@ -34,6 +37,9 @@ function stableMaterialSignature(input: {
     input.softParticles ? "soft" : "hard",
     input.depthFade ? "depth-fade" : "no-depth-fade",
     input.flipbook ? "flipbook" : "static",
+    input.emissive ? "emissive" : "non-emissive",
+    input.emissiveColor,
+    input.emissiveIntensity.toFixed(3),
     input.facingMode,
     input.distortion ? "distort" : "no-distort",
     input.sortMode
@@ -177,6 +183,9 @@ function compileEmitter(document: VfxEffectDocument, emitter: VfxEffectDocument[
           softParticles: renderer.material.softParticles,
           depthFade: renderer.material.depthFade,
           flipbook: renderer.material.flipbook,
+          emissive: renderer.material.emissive,
+          emissiveColor: renderer.material.emissiveColor,
+          emissiveIntensity: renderer.material.emissiveIntensity,
           facingMode: renderer.material.facingMode,
           distortion: renderer.material.distortion,
           sortMode: renderer.material.sortMode

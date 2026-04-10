@@ -477,6 +477,7 @@ function RendererSection(props: {
   onAddRenderer(templateId: string): void;
   onCycleBlendMode(rendererId: string): void;
   onSetRendererTexture(rendererId: string, textureUrl: string): void;
+  onUpdateRendererMaterial(rendererId: string, patch: Partial<RendererSlot["material"]>): void;
   onUpdateRendererFlipbook(rendererId: string, patch: Partial<RendererFlipbookSettings>): void;
 }) {
   const [open, setOpen] = useState(true);
@@ -488,6 +489,8 @@ function RendererSection(props: {
   const activeRenderer = emitter.renderers.find((r) => r.id === activeRendererId) ?? emitter.renderers[0];
   const activeTextureId = activeRenderer?.parameterBindings["_texture"] ?? undefined;
   const activeFlipbook = activeRenderer?.flipbookSettings ?? createDefaultFlipbookSettings(activeRenderer?.template ?? "SpriteAdditiveMaterial", activeTextureId);
+  const activeEmissiveColor = activeRenderer?.material.emissiveColor ?? "#ffffff";
+  const activeEmissiveIntensity = activeRenderer?.material.emissiveIntensity ?? 0;
 
   return (
     <div className="border-t border-white/6">
@@ -567,15 +570,62 @@ function RendererSection(props: {
                 ))}
               </div>
               {activeRenderer && (
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-zinc-600">Blend</span>
-                  <button
-                    type="button"
-                    className="rounded-md border border-white/10 px-2 py-0.5 text-[10px] text-zinc-400 transition hover:border-white/20"
-                    onClick={() => props.onCycleBlendMode(activeRenderer.id)}
-                  >
-                    {activeRenderer.material.blendMode}
-                  </button>
+                <div className="space-y-2 rounded-xl border border-white/8 bg-black/10 p-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-zinc-600">Blend</span>
+                    <button
+                      type="button"
+                      className="rounded-md border border-white/10 px-2 py-0.5 text-[10px] text-zinc-400 transition hover:border-white/20"
+                      onClick={() => props.onCycleBlendMode(activeRenderer.id)}
+                    >
+                      {activeRenderer.material.blendMode}
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-zinc-500">Emission</span>
+                    <button
+                      type="button"
+                      className={`rounded-md border px-2 py-0.5 text-[10px] transition ${
+                        activeRenderer.material.emissive
+                          ? "border-emerald-300/30 bg-emerald-400/10 text-emerald-200"
+                          : "border-white/10 text-zinc-500 hover:border-white/20 hover:text-zinc-300"
+                      }`}
+                      onClick={() =>
+                        props.onUpdateRendererMaterial(activeRenderer.id, {
+                          emissive: !activeRenderer.material.emissive
+                        })
+                      }
+                    >
+                      {activeRenderer.material.emissive ? "Enabled" : "Disabled"}
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-[auto_1fr] items-center gap-2">
+                    <input
+                      type="color"
+                      className="h-8 w-10 cursor-pointer rounded-lg border border-white/10 bg-transparent p-0.5"
+                      value={activeEmissiveColor}
+                      onChange={(event) =>
+                        props.onUpdateRendererMaterial(activeRenderer.id, {
+                          emissiveColor: event.target.value
+                        })
+                      }
+                    />
+                    <span className="font-mono text-[10px] text-zinc-500">{activeEmissiveColor}</span>
+                  </div>
+                  <div>
+                    <div className="mb-1 text-[10px] text-zinc-600">Intensity</div>
+                    <DragInput
+                      value={activeEmissiveIntensity}
+                      onChange={(value) =>
+                        props.onUpdateRendererMaterial(activeRenderer.id, {
+                          emissiveIntensity: Math.max(0, value)
+                        })
+                      }
+                      step={0.05}
+                      min={0}
+                      precision={2}
+                    />
+                  </div>
                 </div>
               )}
             </div>
@@ -918,6 +968,7 @@ function InspectorPanel(props: {
   onAddRenderer(templateId: string): void;
   onCycleBlendMode(rendererId: string): void;
   onSetRendererTexture(rendererId: string, textureUrl: string): void;
+  onUpdateRendererMaterial(rendererId: string, patch: Partial<RendererSlot["material"]>): void;
   onUpdateRendererFlipbook(rendererId: string, patch: Partial<RendererFlipbookSettings>): void;
   onUpdateEvent(event: VfxEventDefinition): void;
   onUpdateParameter(parameter: VfxParameter): void;
@@ -1052,6 +1103,7 @@ function InspectorPanel(props: {
         onAddRenderer={props.onAddRenderer}
         onCycleBlendMode={props.onCycleBlendMode}
         onSetRendererTexture={props.onSetRendererTexture}
+        onUpdateRendererMaterial={props.onUpdateRendererMaterial}
         onUpdateRendererFlipbook={props.onUpdateRendererFlipbook}
       />
     </div>
@@ -1082,6 +1134,8 @@ function createRendererFromTemplate(templateId: string, index: number): Renderer
       flipbook: templateId === "SpriteSmokeMaterial" || templateId === "SpriteAdditiveMaterial",
       distortion: templateId === "DistortionMaterial",
       emissive: templateId !== "MeshParticleMaterial",
+      emissiveColor: "#ffffff",
+      emissiveIntensity: 0,
       facingMode: kind === "beam" ? "none" : kind === "ribbon" ? "velocity-aligned" : "full",
       sortMode: kind === "mesh" ? "back-to-front" : "none"
     },
@@ -1387,6 +1441,24 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
     }));
   }
 
+  function handleUpdateRendererMaterial(rendererId: string, patch: Partial<RendererSlot["material"]>) {
+    if (!selectedEmitter) return;
+    props.store.updateEmitter(selectedEmitter.id, (emitter) => ({
+      ...emitter,
+      renderers: emitter.renderers.map((renderer) =>
+        renderer.id === rendererId
+          ? {
+              ...renderer,
+              material: {
+                ...renderer.material,
+                ...patch
+              }
+            }
+          : renderer
+      )
+    }));
+  }
+
   function handleDeleteSelection() {
     if (selectedEdgeIds.length > 0) {
       props.store.deleteGraphEdges(selectedEdgeIds);
@@ -1630,6 +1702,7 @@ export function VfxEditorWorkspace(props: { store: VfxEditorStore }) {
               onAddRenderer={handleAddRenderer}
               onCycleBlendMode={handleCycleBlendMode}
               onSetRendererTexture={handleSetRendererTexture}
+              onUpdateRendererMaterial={handleUpdateRendererMaterial}
               onUpdateRendererFlipbook={handleUpdateRendererFlipbook}
               onUpdateEvent={handleUpdateEvent}
               onUpdateParameter={handleUpdateParameter}

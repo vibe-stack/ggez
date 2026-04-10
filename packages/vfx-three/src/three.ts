@@ -20,32 +20,32 @@ export const MVP_RENDERER_TEMPLATES: VfxRendererTemplateDefinition[] = [
   {
     id: "SpriteSmokeMaterial",
     description: "Shared sprite smoke shading with alpha blending, soft particles, and flipbook support.",
-    materialSignatureAxes: ["blendMode", "softParticles", "depthFade", "flipbook", "facingMode"]
+    materialSignatureAxes: ["blendMode", "softParticles", "depthFade", "flipbook", "emissive", "emissiveColor", "emissiveIntensity", "facingMode"]
   },
   {
     id: "SpriteAdditiveMaterial",
     description: "Shared additive sprite shading for sparks, embers, and muzzle flashes.",
-    materialSignatureAxes: ["blendMode", "flipbook", "facingMode", "sortMode"]
+    materialSignatureAxes: ["blendMode", "flipbook", "emissive", "emissiveColor", "emissiveIntensity", "facingMode", "sortMode"]
   },
   {
     id: "RibbonTrailMaterial",
     description: "Shared ribbon template for trails, tracer arcs, and slash streaks.",
-    materialSignatureAxes: ["blendMode", "lightingMode", "depthFade"]
+    materialSignatureAxes: ["blendMode", "lightingMode", "depthFade", "emissive", "emissiveColor", "emissiveIntensity"]
   },
   {
     id: "MeshParticleMaterial",
     description: "Shared mesh particle template with lit or unlit shading.",
-    materialSignatureAxes: ["lightingMode", "blendMode", "sortMode"]
+    materialSignatureAxes: ["lightingMode", "blendMode", "emissive", "emissiveColor", "emissiveIntensity", "sortMode"]
   },
   {
     id: "DistortionMaterial",
     description: "Shared distortion template for heat haze and shockwave refraction.",
-    materialSignatureAxes: ["distortion", "depthFade", "sortMode"]
+    materialSignatureAxes: ["distortion", "depthFade", "emissive", "emissiveColor", "emissiveIntensity", "sortMode"]
   },
   {
     id: "BeamMaterial",
     description: "Shared beam template for hitscan streaks and energy beams.",
-    materialSignatureAxes: ["blendMode", "lightingMode", "sortMode"]
+    materialSignatureAxes: ["blendMode", "lightingMode", "emissive", "emissiveColor", "emissiveIntensity", "sortMode"]
   }
 ];
 

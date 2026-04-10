@@ -15,7 +15,7 @@ type PreviewGpuSmokeRenderer = {
 };
 
 const CAMERA_UNIFORM_FLOATS = 24;
-const EMITTER_UNIFORM_FLOATS = 12;
+const EMITTER_UNIFORM_FLOATS = 16;
 const COMPOSITE_UNIFORM_FLOATS = 4;
 
 const SMOKE_RENDER_SHADER = /* wgsl */ `
@@ -35,6 +35,7 @@ struct CameraUniforms {
 
 struct EmitterUniforms {
   tint : vec4f,
+  emissive : vec4f,
   params0 : vec4f,
   params1 : vec4f,
 }
@@ -128,6 +129,7 @@ fn vertexMain(@builtin(vertex_index) vertexIndex : u32, @builtin(instance_index)
   let groundFade = clamp((particle.position.y + size * 0.55) / max(size * 0.95, 0.001), 0.0, 1.0);
   let alpha = clamp(fadeIn * body * fadeOut * groundFade, 0.0, 1.0);
   let brightness = mix(1.08, 0.62, life);
+  let emissiveStrength = emitter.params1.w;
 
   let corner = quadCorner(vertexIndex);
   let uv = quadUv(vertexIndex);
@@ -145,7 +147,7 @@ fn vertexMain(@builtin(vertex_index) vertexIndex : u32, @builtin(instance_index)
 
   output.position = camera.viewProj * vec4f(worldPosition, 1.0);
   output.uv = uv;
-  output.color = emitter.tint.rgb * brightness;
+  output.color = emitter.tint.rgb * brightness + emitter.emissive.rgb * emissiveStrength;
   output.alpha = alpha;
   output.life = life;
   output.frame = resolveFlipbookFrame(particle);
@@ -191,14 +193,18 @@ function writeEmitterUniforms(device: any, buffer: any, config: EmitterPreviewCo
   emitterUniforms[1] = tint.g;
   emitterUniforms[2] = tint.b;
   emitterUniforms[3] = 1;
-  emitterUniforms[4] = Math.max(1, config.flipbook.cols);
-  emitterUniforms[5] = Math.max(1, config.flipbook.rows);
-  emitterUniforms[6] = config.flipbook.enabled ? Math.max(0, config.flipbook.fps) : 0;
-  emitterUniforms[7] = config.flipbook.looping ? 1 : 0;
-  emitterUniforms[8] = config.flipbook.playbackMode === "particle-age" ? 1 : 0;
-  emitterUniforms[9] = nowSeconds;
-  emitterUniforms[10] = 0;
-  emitterUniforms[11] = 0;
+  emitterUniforms[4] = config.emissiveColor.r;
+  emitterUniforms[5] = config.emissiveColor.g;
+  emitterUniforms[6] = config.emissiveColor.b;
+  emitterUniforms[7] = 1;
+  emitterUniforms[8] = Math.max(1, config.flipbook.cols);
+  emitterUniforms[9] = Math.max(1, config.flipbook.rows);
+  emitterUniforms[10] = config.flipbook.enabled ? Math.max(0, config.flipbook.fps) : 0;
+  emitterUniforms[11] = config.flipbook.looping ? 1 : 0;
+  emitterUniforms[12] = config.flipbook.playbackMode === "particle-age" ? 1 : 0;
+  emitterUniforms[13] = nowSeconds;
+  emitterUniforms[14] = 0;
+  emitterUniforms[15] = Math.max(0, config.emissiveIntensity);
   device.queue.writeBuffer(buffer, 0, emitterUniforms);
 }
 

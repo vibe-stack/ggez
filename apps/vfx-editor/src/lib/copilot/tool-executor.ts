@@ -326,6 +326,8 @@ function createRendererFromTemplate(template: RendererSlot["template"], index: n
       flipbook: template === "SpriteSmokeMaterial" || template === "SpriteAdditiveMaterial",
       distortion: template === "DistortionMaterial",
       emissive: template !== "MeshParticleMaterial",
+      emissiveColor: "#ffffff",
+      emissiveIntensity: 0,
       facingMode: kind === "beam" ? "none" : kind === "ribbon" ? "velocity-aligned" : "full",
       sortMode: kind === "mesh" ? "back-to-front" : "none"
     },

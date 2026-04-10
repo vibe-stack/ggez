@@ -15,7 +15,7 @@ type PreviewGpuSpriteRenderer = {
 };
 
 const CAMERA_UNIFORM_FLOATS = 24;
-const EMITTER_UNIFORM_FLOATS = 16;
+const EMITTER_UNIFORM_FLOATS = 24;
 
 const SPRITE_RENDER_SHADER = /* wgsl */ `
 struct Particle {
@@ -34,9 +34,11 @@ struct CameraUniforms {
 
 struct EmitterUniforms {
   tint : vec4f,
+  emissive : vec4f,
   settings0 : vec4f,
   settings1 : vec4f,
   settings2 : vec4f,
+  settings3 : vec4f,
 }
 
 struct VertexOutput {
@@ -163,7 +165,8 @@ fn vertexMain(@builtin(vertex_index) vertexIndex : u32, @builtin(instance_index)
   let life = clamp(particle.timing.x / max(particle.timing.y, 0.0001), 0.0, 1.0);
   let size = evalSize(emitter.settings0.y, life, particle.timing.z, particle.timing.w);
   let alpha = evalAlpha(emitter.settings0.z, life, emitter.settings2.x);
-  let color = evalColor(emitter.settings0.w, life, emitter.tint.rgb, emitter.settings2.x);
+  let baseColor = evalColor(emitter.settings0.w, life, emitter.tint.rgb, emitter.settings2.x);
+  let color = baseColor + emitter.emissive.rgb * emitter.settings3.x;
 
   let corner = quadCorner(vertexIndex);
   let uv = quadUv(vertexIndex);
@@ -215,18 +218,26 @@ function writeEmitterUniforms(device: any, buffer: any, config: EmitterPreviewCo
   uniforms[1] = config.color.g;
   uniforms[2] = config.color.b;
   uniforms[3] = 1;
-  uniforms[4] = Math.max(1, config.flipbook.cols);
-  uniforms[5] = curveCode(config.sizeCurve);
-  uniforms[6] = curveCode(config.alphaCurve);
-  uniforms[7] = curveCode(config.colorCurve);
-  uniforms[8] = Math.max(1, config.flipbook.rows);
-  uniforms[9] = config.flipbook.enabled ? Math.max(0, config.flipbook.fps) : 0;
-  uniforms[10] = config.flipbook.looping ? 1 : 0;
-  uniforms[11] = config.flipbook.playbackMode === "particle-age" ? 1 : 0;
-  uniforms[12] = config.isSmoke ? 1 : 0;
-  uniforms[13] = nowSeconds;
-  uniforms[14] = 0;
-  uniforms[15] = 0;
+  uniforms[4] = config.emissiveColor.r;
+  uniforms[5] = config.emissiveColor.g;
+  uniforms[6] = config.emissiveColor.b;
+  uniforms[7] = 1;
+  uniforms[8] = Math.max(1, config.flipbook.cols);
+  uniforms[9] = curveCode(config.sizeCurve);
+  uniforms[10] = curveCode(config.alphaCurve);
+  uniforms[11] = curveCode(config.colorCurve);
+  uniforms[12] = Math.max(1, config.flipbook.rows);
+  uniforms[13] = config.flipbook.enabled ? Math.max(0, config.flipbook.fps) : 0;
+  uniforms[14] = config.flipbook.looping ? 1 : 0;
+  uniforms[15] = config.flipbook.playbackMode === "particle-age" ? 1 : 0;
+  uniforms[16] = config.isSmoke ? 1 : 0;
+  uniforms[17] = nowSeconds;
+  uniforms[18] = 0;
+  uniforms[19] = 0;
+  uniforms[20] = Math.max(0, config.emissiveIntensity);
+  uniforms[21] = 0;
+  uniforms[22] = 0;
+  uniforms[23] = 0;
   device.queue.writeBuffer(buffer, 0, uniforms);
 }
 

@@ -76,6 +76,8 @@ export type EmitterPreviewConfig = {
   alphaCurve?: string;
   colorCurve?: string;
   color: THREE.Color;
+  emissiveColor: THREE.Color;
+  emissiveIntensity: number;
   additive: boolean;
   maxParticleCount: number;
   isSmoke: boolean;

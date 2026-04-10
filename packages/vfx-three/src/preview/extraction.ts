@@ -86,6 +86,22 @@ function readHexColor(document: VfxEffectDocument, emitter: EmitterDocument): TH
   }
 }
 
+function readEmissiveColor(document: VfxEffectDocument, emitter: EmitterDocument): THREE.Color {
+  const renderer = emitter.renderers.find((entry) => entry.enabled);
+  const authoredHex = renderer?.material.emissiveColor;
+  const fallback = readHexColor(document, emitter);
+
+  if (typeof authoredHex !== "string" || authoredHex.length === 0) {
+    return fallback;
+  }
+
+  try {
+    return new THREE.Color(authoredHex);
+  } catch {
+    return fallback;
+  }
+}
+
 function readTextureId(emitter: EmitterDocument) {
   const renderer = emitter.renderers.find((entry) => entry.enabled);
   const boundTexture = typeof renderer?.parameterBindings._texture === "string" ? renderer.parameterBindings._texture : undefined;
@@ -211,6 +227,8 @@ export function buildEmitterPreviewConfigs(
       alphaCurve: typeof alphaOverLife?.config.curve === "string" ? alphaOverLife.config.curve : undefined,
       colorCurve: typeof colorOverLife?.config.curve === "string" ? colorOverLife.config.curve : undefined,
       color: readHexColor(document, emitter),
+      emissiveColor: readEmissiveColor(document, emitter),
+      emissiveIntensity: firstRenderer?.material.emissive ? readNumber(firstRenderer.material.emissiveIntensity, 0) : 0,
       additive: firstRenderer?.material.blendMode !== "alpha",
       maxParticleCount: Math.min(
         compiledEmitter?.capacity ?? emitter.maxParticleCount,

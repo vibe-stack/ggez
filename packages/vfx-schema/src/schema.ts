@@ -150,6 +150,8 @@ export const rendererMaterialSettingsSchema = z.object({
   flipbook: z.boolean().default(false),
   distortion: z.boolean().default(false),
   emissive: z.boolean().default(true),
+  emissiveColor: z.string().min(1).default("#ffffff"),
+  emissiveIntensity: z.number().nonnegative().default(0),
   facingMode: cameraFacingModeSchema.default("full"),
   sortMode: sortModeSchema.default("none")
 });

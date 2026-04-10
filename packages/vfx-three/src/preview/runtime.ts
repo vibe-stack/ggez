@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { MeshBasicNodeMaterial } from "three/webgpu";
+import * as THREE_WEBGPU from "three/webgpu";
 import { attribute as tslAttribute, uv as tslUv, texture as tslTexture, materialColor as tslMaterialColor } from "three/tsl";
 import { buildEmitterPreviewConfigs, resolveActiveEmitterIds } from "./extraction";
 import { createPreviewGpuSmokeRenderer } from "./smoke-renderer";
@@ -65,6 +65,9 @@ const _bsScale = new THREE.Vector3();
 const _bsMatrix = new THREE.Matrix4();
 const _bsDeadMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
 const _bsOffset = new THREE.Vector3();
+const MeshBasicNodeMaterialCtor = (THREE_WEBGPU as any).MeshBasicNodeMaterial as new (
+  parameters?: Record<string, unknown>
+) => THREE.Material & { colorNode?: unknown; opacityNode?: unknown };
 
 const COMPUTE_SHADER_CODE = /* wgsl */ `
 struct Particle {
@@ -426,7 +429,7 @@ export async function createThreeWebGpuPreviewRuntime(
         const uvTransformNode = tslAttribute("instanceUvTransform", "vec4");
         const transformedUv = tslUv().mul((uvTransformNode as any).zw).add((uvTransformNode as any).xy);
         const sampledColor = tslTexture(baseTexture, transformedUv);
-        const nodeMaterial = new MeshBasicNodeMaterial({
+        const nodeMaterial = new MeshBasicNodeMaterialCtor({
           transparent: true,
           depthWrite: false,
           depthTest: true,
@@ -610,6 +613,10 @@ export async function createThreeWebGpuPreviewRuntime(
         entry.particleData[offset + PARTICLE_INDEX.sizeEnd]
       );
       const color = evaluatePreviewColor(entry.config.color, entry.config.colorCurve, life, entry.config.isSmoke);
+      const emissiveIntensity = Math.max(0, entry.config.emissiveIntensity);
+      const finalColorR = color.r + entry.config.emissiveColor.r * emissiveIntensity;
+      const finalColorG = color.g + entry.config.emissiveColor.g * emissiveIntensity;
+      const finalColorB = color.b + entry.config.emissiveColor.b * emissiveIntensity;
       const frame = frameCount > 1
         ? resolveSceneSpriteFlipbookFrame(
             entry,
@@ -646,7 +653,7 @@ export async function createThreeWebGpuPreviewRuntime(
       _bsMatrix.compose(_bsPosition, _bsQuaternion, _bsScale);
       instancedMesh.setMatrixAt(index, _bsMatrix);
 
-      instancedMesh.instanceColor!.setXYZ(index, color.r, color.g, color.b);
+      instancedMesh.instanceColor!.setXYZ(index, finalColorR, finalColorG, finalColorB);
       instanceAlphaData[index] = alpha;
 
       if (usesFrameBounds) {
@@ -826,6 +833,8 @@ export async function createThreeWebGpuPreviewRuntime(
       sizeEnd: config.sizeEnd,
       additive: config.additive,
       color: config.color.getHexString(),
+      emissiveColor: config.emissiveColor.getHexString(),
+      emissiveIntensity: config.emissiveIntensity,
       textureId: config.textureId,
       flipbook: config.flipbook,
       maxParticleCount: config.maxParticleCount,

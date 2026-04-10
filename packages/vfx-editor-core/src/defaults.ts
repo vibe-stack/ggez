@@ -253,6 +253,8 @@ export function createCampfireVfxEffectDocument(): VfxEffectDocument {
               flipbook: false,
               distortion: false,
               emissive: true,
+              emissiveColor: "#ffffff",
+              emissiveIntensity: 0,
               facingMode: "full",
               sortMode: "none"
             },
@@ -328,6 +330,8 @@ export function createCampfireVfxEffectDocument(): VfxEffectDocument {
               flipbook: false,
               distortion: false,
               emissive: true,
+              emissiveColor: "#ffffff",
+              emissiveIntensity: 0,
               facingMode: "full",
               sortMode: "none"
             },
@@ -404,6 +408,8 @@ export function createCampfireVfxEffectDocument(): VfxEffectDocument {
               flipbook: false,
               distortion: false,
               emissive: true,
+              emissiveColor: "#ffffff",
+              emissiveIntensity: 0,
               facingMode: "full",
               sortMode: "none"
             },
@@ -474,6 +480,8 @@ export function createCampfireVfxEffectDocument(): VfxEffectDocument {
               flipbook: true,
               distortion: false,
               emissive: false,
+              emissiveColor: "#ffffff",
+              emissiveIntensity: 0,
               facingMode: "full",
               sortMode: "back-to-front"
             },
