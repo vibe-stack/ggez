@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@ggez/vfx-schema": "workspace:*",
-    "fflate": "^0.8.2"
+    "fflate": "^0.8.2",
+    "zod": "^3.25.76"
   }
 }
