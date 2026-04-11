@@ -1,8 +1,11 @@
 import type { Asset, GeometryNode, PrimitiveNode, Vec3 } from "@ggez/shared";
 import {
+  buildModelLodLevelOrder,
   createSerializedModelAssetFiles,
+  HIGH_MODEL_LOD_LEVEL,
   isModelNode,
   isPrimitiveNode,
+  normalizeModelLodLevelId,
   resolveModelAssetFile,
   resolveModelAssetFiles,
   resolveModelFormat,
@@ -86,7 +89,7 @@ export function createModelAsset(input: {
   texturePath?: string;
 }) {
   const files = resolveImportedModelFiles(input);
-  const primaryFile = files.find((file) => file.level === "high") ?? files[0];
+  const primaryFile = files.find((file) => file.level === HIGH_MODEL_LOD_LEVEL) ?? files[0];
 
   return {
     id: `asset:model:${slugify(input.name)}:${crypto.randomUUID()}`,
@@ -191,7 +194,7 @@ export function inferModelLodLevelFromFileName(fileName: string): ModelLodLevel 
   const normalized = fileName.toLowerCase();
 
   if (/(^|[^a-z0-9])(lod0|lod_0|high|hero|base)([^a-z0-9]|$)/.test(normalized)) {
-    return "high";
+    return HIGH_MODEL_LOD_LEVEL;
   }
 
   if (/(^|[^a-z0-9])(lod1|lod_1|mid|medium)([^a-z0-9]|$)/.test(normalized)) {
@@ -202,7 +205,7 @@ export function inferModelLodLevelFromFileName(fileName: string): ModelLodLevel 
     return "low";
   }
 
-  return "high";
+  return HIGH_MODEL_LOD_LEVEL;
 }
 
 export function resolveImportedModelAssetName(files: File[]) {
@@ -238,11 +241,14 @@ export function dedupeModelFiles(files: ModelAssetFile[]) {
   const filesByLevel = new Map<ModelLodLevel, ModelAssetFile>();
 
   files.forEach((file) => {
-    filesByLevel.set(file.level, file);
+    filesByLevel.set(normalizeModelLodLevelId(file.level), {
+      ...file,
+      level: normalizeModelLodLevelId(file.level)
+    });
   });
 
-  return ["high", "mid", "low"].flatMap((level) => {
-    const file = filesByLevel.get(level as ModelLodLevel);
+  return buildModelLodLevelOrder(filesByLevel.keys()).flatMap((level) => {
+    const file = filesByLevel.get(level);
     return file ? [file] : [];
   });
 }

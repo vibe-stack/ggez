@@ -27,10 +27,11 @@ const settings: SceneSettings = {
     fogNear: 10,
     gravity: vec3(0, -9.81, 0),
     lod: {
-      bakedAt: "",
-      enabled: false,
-      lowDetailRatio: 0.22,
-      midDetailRatio: 0.52
+      enabled: true,
+      levels: [
+        { distance: 24, id: "mid", label: "Mid" },
+        { distance: 64, id: "low", label: "Low" }
+      ]
     },
     physicsEnabled: true,
     skybox: {
@@ -467,10 +468,11 @@ describe("exportEngineBundle", () => {
         world: {
           ...settings.world,
           lod: {
-            bakedAt: "2026-03-15T12:00:00.000Z",
             enabled: true,
-            lowDetailRatio: 0.18,
-            midDetailRatio: 0.48
+            levels: [
+              { distance: 18, id: "mid", label: "Mid" },
+              { distance: 48, id: "low", label: "Low" }
+            ]
           }
         }
       },
@@ -481,7 +483,7 @@ describe("exportEngineBundle", () => {
     const sphere = bundle.manifest.nodes.find((node) => node.id === "node:sphere" && node.kind === "primitive");
 
     expect(sphere && "lods" in sphere ? sphere.lods : undefined).toBeUndefined();
-    expect(bundle.manifest.settings.world.lod.bakedAt).toBe("2026-03-15T12:00:00.000Z");
+    expect(bundle.manifest.settings.world.lod.levels.map((level) => level.id)).toEqual(["mid", "low"]);
   });
 
   test("preserves authored model lod files in runtime manifests", async () => {

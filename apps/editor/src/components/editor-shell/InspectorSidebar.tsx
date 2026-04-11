@@ -6,7 +6,9 @@ import {
   isInstancingNode,
   isLightNode,
   isPrimitiveNode,
+  HIGH_MODEL_LOD_LEVEL,
   type ModelLodLevel,
+  type WorldLodLevelDefinition,
   vec3,
   type Entity,
   type GeometryNode,
@@ -56,7 +58,7 @@ type InspectorSidebarProps = {
   onChangeRightPanel: (panel: RightPanelId | null) => void;
   onClipSelection: (axis: "x" | "y" | "z") => void;
   onAssignAssetLod: (assetId: string, level: ModelLodLevel) => void;
-  onClearAssetLod: (assetId: string, level: Exclude<ModelLodLevel, "high">) => void;
+  onClearAssetLod: (assetId: string, level: ModelLodLevel) => void;
   onDeleteAsset: (assetId: string) => void;
   onDeleteMaterial: (materialId: string) => void;
   onDeleteTexture: (textureId: string) => void;
@@ -109,6 +111,14 @@ const RIGHT_PANEL_TAB_LABEL_CLASS =
 
 function inferSkyboxFormat(file: File): SceneSettings["world"]["skybox"]["format"] {
   return file.name.toLowerCase().endsWith(".hdr") ? "hdr" : "image";
+}
+
+function slugifyLodLevelId(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "lod";
 }
 
 export function InspectorSidebar({
@@ -551,13 +561,140 @@ export function InspectorSidebar({
                 </ToolSection>
 
                 <ToolSection title="Model LODs">
+                  <BooleanField
+                    label="Enable Runtime Switching"
+                    onCheckedChange={(checked) =>
+                      setDraftWorldSettingsState((current) => ({
+                        ...current,
+                        lod: {
+                          ...current.lod,
+                          enabled: checked
+                        }
+                      }))
+                    }
+                    checked={draftWorldSettings.lod.enabled}
+                  />
                   <div className="rounded-xl border border-white/8 bg-white/4 px-3 py-2 text-[11px] text-foreground/60">
-                    Automatic runtime LOD generation is disabled. Author explicit high, mid, and low model files from the
-                    Assets library instead.
+                    Author explicit mesh tiers in the Assets library. These world settings decide which named tiers exist
+                    and the distance at which each one takes over.
                   </div>
-                  <div className="rounded-xl bg-white/3 px-3 py-2 text-[11px] text-foreground/56">
-                    The runtime still uses distance-based switching, but the files now come from your authored asset tiers
-                    rather than editor-side mesh simplification.
+                  <div className="space-y-2">
+                    <div className="rounded-xl border border-white/8 bg-black/16 px-3 py-2 text-[11px] text-foreground/64">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="font-medium text-foreground/76">High</div>
+                          <div>Base authored mesh. Always active at the closest distance.</div>
+                        </div>
+                        <div className="rounded-full border border-white/10 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-foreground/52">
+                          0m
+                        </div>
+                      </div>
+                    </div>
+                    {draftWorldSettings.lod.levels.map((level, index) => (
+                      <div className="rounded-xl border border-white/8 bg-black/16 px-3 py-3" key={level.id}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-[minmax(0,1fr)_6rem]">
+                            <Input
+                              className="h-9 border-white/8 bg-white/5 text-xs"
+                              onChange={(event) => {
+                                const nextLabel = event.target.value;
+                                setDraftWorldSettingsState((current) => ({
+                                  ...current,
+                                  lod: {
+                                    ...current.lod,
+                                    levels: current.lod.levels.map((entry) =>
+                                      entry.id === level.id
+                                        ? {
+                                            ...entry,
+                                            id: slugifyLodLevelId(nextLabel || entry.id),
+                                            label: nextLabel
+                                          }
+                                        : entry
+                                    )
+                                  }
+                                }));
+                              }}
+                              value={level.label}
+                            />
+                            <DragInput
+                              className="w-full"
+                              compact
+                              label="Distance"
+                              min={index === 0 ? 0.01 : draftWorldSettings.lod.levels[index - 1]!.distance + 0.01}
+                              onChange={(value) =>
+                                setDraftWorldSettingsState((current) => ({
+                                  ...current,
+                                  lod: {
+                                    ...current.lod,
+                                    levels: current.lod.levels.map((entry, entryIndex) =>
+                                      entry.id === level.id
+                                        ? {
+                                            ...entry,
+                                            distance: Math.max(
+                                              entryIndex === 0 ? 0.01 : current.lod.levels[entryIndex - 1]!.distance + 0.01,
+                                              value
+                                            )
+                                          }
+                                        : entry
+                                    )
+                                  }
+                                }))
+                              }
+                              onValueCommit={commitWorldSettings}
+                              precision={2}
+                              step={1}
+                              value={level.distance}
+                            />
+                          </div>
+                          <Button
+                            className="text-foreground/62"
+                            onClick={() =>
+                              setDraftWorldSettingsState((current) => ({
+                                ...current,
+                                lod: {
+                                  ...current.lod,
+                                  levels: current.lod.levels.filter((entry) => entry.id !== level.id)
+                                }
+                              }))
+                            }
+                            size="xs"
+                            variant="ghost"
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                        <div className="mt-2 text-[11px] text-foreground/48">ID: {level.id}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center justify-between gap-2 rounded-xl bg-white/3 px-3 py-2 text-[11px] text-foreground/58">
+                    <span>Use short names like `mid`, `low`, `ultra-low`, `proxy-far`.</span>
+                    <Button
+                      onClick={() => {
+                        const nextIndex = draftWorldSettings.lod.levels.length + 1;
+                        const nextLevel: WorldLodLevelDefinition = {
+                          distance: (draftWorldSettings.lod.levels.at(-1)?.distance ?? 24) + 24,
+                          id: `lod-${nextIndex}`,
+                          label: `LOD ${nextIndex}`
+                        };
+                        setDraftWorldSettingsState((current) => ({
+                          ...current,
+                          lod: {
+                            ...current.lod,
+                            levels: [...current.lod.levels, nextLevel]
+                          }
+                        }));
+                      }}
+                      size="xs"
+                      variant="ghost"
+                    >
+                      Add Level
+                    </Button>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button onClick={commitWorldSettings} size="xs" variant="ghost">
+                      Save LOD Settings
+                    </Button>
                   </div>
                 </ToolSection>
 
@@ -1080,6 +1217,7 @@ export function InspectorSidebar({
           <TabsContent className="min-h-0 flex-1 px-3 pb-3" value="assets">
             <ModelAssetBrowserPanel
               items={modelAssets}
+              lodLevels={sceneSettings.world.lod.levels}
               onAssignAssetLod={onAssignAssetLod}
               onClearAssetLod={onClearAssetLod}
               onDeleteAsset={onDeleteAsset}

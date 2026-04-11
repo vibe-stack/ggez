@@ -324,10 +324,19 @@ export function createDefaultSceneSettings(): SceneSettings {
       fogNear: 500,
       gravity: vec3(0, -9.81, 0),
       lod: {
-        bakedAt: "",
-        enabled: false,
-        lowDetailRatio: 0.22,
-        midDetailRatio: 0.52
+        enabled: true,
+        levels: [
+          {
+            distance: 24,
+            id: "mid",
+            label: "Mid"
+          },
+          {
+            distance: 64,
+            id: "low",
+            label: "Low"
+          }
+        ]
       },
       physicsEnabled: true,
       skybox: {
@@ -381,20 +390,66 @@ function normalizeWorldSettings(world?: Partial<WorldSettings> | WorldSettings):
 
 function normalizeWorldLodSettings(lod?: Partial<WorldSettings["lod"]> | WorldSettings["lod"]): WorldSettings["lod"] {
   const defaults = createDefaultSceneSettings().world.lod;
-  const resolvedMidDetailRatio = clampUnitInterval(clampFiniteNumber(lod?.midDetailRatio, defaults.midDetailRatio));
-  const resolvedLowDetailRatio = Math.min(
-    clampUnitInterval(clampFiniteNumber(lod?.lowDetailRatio, defaults.lowDetailRatio)),
-    resolvedMidDetailRatio
-  );
+  const legacyLod = lod as Partial<{ bakedAt?: string; lowDetailRatio?: number; midDetailRatio?: number }> | undefined;
+  const sourceLevels = Array.isArray(lod?.levels)
+    ? lod.levels
+    : [
+        {
+          distance: 24,
+          id: "mid",
+          label: "Mid"
+        },
+        {
+          distance: 64,
+          id: "low",
+          label: "Low"
+        }
+      ];
+  const levelsById = new Map<string, { distance: number; id: string; label: string }>();
+
+  sourceLevels.forEach((level, index) => {
+    if (!level || typeof level !== "object") {
+      return;
+    }
+
+    const rawId = typeof level.id === "string" ? level.id.trim().toLowerCase() : "";
+    const id = rawId.length > 0 ? rawId : `lod-${index + 1}`;
+    const label = typeof level.label === "string" && level.label.trim().length > 0 ? level.label.trim() : toTitleCase(id);
+    const distance = Math.max(0, clampFiniteNumber(level.distance, index === 0 ? 24 : (levelsById.get(Array.from(levelsById.keys())[index - 1] ?? "")?.distance ?? 24) + 24));
+
+    levelsById.set(id, {
+      distance,
+      id,
+      label
+    });
+  });
+
+  const normalizedLevels = Array.from(levelsById.values())
+    .sort((left, right) => left.distance - right.distance)
+    .map((level, index, levels) => ({
+      ...level,
+      distance: index === 0 ? Math.max(0, level.distance) : Math.max(level.distance, levels[index - 1]!.distance + 0.01)
+    }));
 
   return {
     ...defaults,
     ...lod,
-    bakedAt: typeof lod?.bakedAt === "string" ? lod.bakedAt : defaults.bakedAt,
     enabled: Boolean(lod?.enabled),
-    lowDetailRatio: resolvedLowDetailRatio,
-    midDetailRatio: Math.max(resolvedMidDetailRatio, resolvedLowDetailRatio)
+    levels:
+      normalizedLevels.length > 0
+        ? normalizedLevels
+        : legacyLod?.midDetailRatio || legacyLod?.lowDetailRatio
+          ? defaults.levels
+          : defaults.levels
   };
+}
+
+function toTitleCase(value: string) {
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
+    .join(" ");
 }
 
 function normalizeSceneSkybox(skybox?: Partial<WorldSettings["skybox"]> | WorldSettings["skybox"]): WorldSettings["skybox"] {

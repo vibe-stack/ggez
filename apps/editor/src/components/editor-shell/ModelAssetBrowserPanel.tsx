@@ -5,7 +5,7 @@ import { Mesh, MeshStandardMaterial, Object3D, SRGBColorSpace, Texture, TextureL
 import { MTLLoader } from "three/examples/jsm/loaders/MTLLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import type { ModelAssetFile, ModelLodLevel } from "@ggez/shared";
+import { buildModelLodLevelOrder, HIGH_MODEL_LOD_LEVEL, type ModelAssetFile, type ModelLodLevel, type WorldLodLevelDefinition } from "@ggez/shared";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -15,8 +15,9 @@ import { resolveModelBoundsFromAsset } from "@/lib/model-assets";
 
 type ModelAssetBrowserPanelProps = {
   items: ModelAssetLibraryItem[];
+  lodLevels: WorldLodLevelDefinition[];
   onAssignAssetLod: (assetId: string, level: ModelLodLevel) => void;
-  onClearAssetLod: (assetId: string, level: Exclude<ModelLodLevel, "high">) => void;
+  onClearAssetLod: (assetId: string, level: ModelLodLevel) => void;
   onDeleteAsset: (assetId: string) => void;
   onFocusAssetNodes: (assetId: string) => void;
   onImportAsset: () => void;
@@ -30,10 +31,10 @@ const mtlLoader = new MTLLoader();
 const objTextureLoader = new TextureLoader();
 const previewSceneCache = new Map<string, Promise<Object3D>>();
 const previewTextureCache = new Map<string, Promise<Texture>>();
-const MODEL_LEVEL_ORDER: ModelLodLevel[] = ["high", "mid", "low"];
 
 export function ModelAssetBrowserPanel({
   items,
+  lodLevels,
   onAssignAssetLod,
   onClearAssetLod,
   onDeleteAsset,
@@ -44,6 +45,13 @@ export function ModelAssetBrowserPanel({
   selectedAssetId
 }: ModelAssetBrowserPanelProps) {
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const levelDefinitions = useMemo(
+    () => [
+      { distance: 0, id: HIGH_MODEL_LOD_LEVEL, label: "High" },
+      ...lodLevels
+    ],
+    [lodLevels]
+  );
   const selectedItem = useMemo(
     () => items.find((item) => item.asset.id === selectedAssetId) ?? items[0],
     [items, selectedAssetId]
@@ -74,6 +82,7 @@ export function ModelAssetBrowserPanel({
         {selectedItem ? (
           <CompactSelectionCard
             item={selectedItem}
+            levelDefinitions={levelDefinitions}
             onAssignAssetLod={onAssignAssetLod}
             onClearAssetLod={onClearAssetLod}
             onDeleteAsset={onDeleteAsset}
@@ -142,6 +151,7 @@ export function ModelAssetBrowserPanel({
               {selectedItem ? (
                 <ModelAssetDetailPane
                   item={selectedItem}
+                  levelDefinitions={levelDefinitions}
                   onAssignAssetLod={onAssignAssetLod}
                   onClearAssetLod={onClearAssetLod}
                   onDeleteAsset={onDeleteAsset}
@@ -161,6 +171,7 @@ export function ModelAssetBrowserPanel({
 
 function CompactSelectionCard({
   item,
+  levelDefinitions,
   onAssignAssetLod,
   onClearAssetLod,
   onDeleteAsset,
@@ -168,8 +179,9 @@ function CompactSelectionCard({
   onInsertAsset
 }: {
   item: ModelAssetLibraryItem;
+  levelDefinitions: WorldLodLevelDefinition[];
   onAssignAssetLod: (assetId: string, level: ModelLodLevel) => void;
-  onClearAssetLod: (assetId: string, level: Exclude<ModelLodLevel, "high">) => void;
+  onClearAssetLod: (assetId: string, level: ModelLodLevel) => void;
   onDeleteAsset: (assetId: string) => void;
   onFocusAssetNodes: (assetId: string) => void;
   onInsertAsset: (assetId: string) => void;
@@ -202,51 +214,16 @@ function CompactSelectionCard({
         </div>
       </div>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-3">
-        {MODEL_LEVEL_ORDER.map((level) => (
-          <CompactLodBadge
-            assetId={item.asset.id}
-            file={item.files.find((file) => file.level === level)}
-            key={level}
-            level={level}
-            onAssignAssetLod={onAssignAssetLod}
-            onClearAssetLod={onClearAssetLod}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function CompactLodBadge({
-  assetId,
-  file,
-  level,
-  onAssignAssetLod,
-  onClearAssetLod
-}: {
-  assetId: string;
-  file?: ModelAssetFile;
-  level: ModelLodLevel;
-  onAssignAssetLod: (assetId: string, level: ModelLodLevel) => void;
-  onClearAssetLod: (assetId: string, level: Exclude<ModelLodLevel, "high">) => void;
-}) {
-  return (
-    <div className="rounded-xl border border-white/8 bg-black/18 px-2.5 py-2 text-xs">
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-medium uppercase text-foreground/58">{level}</span>
-        {file ? <span className="text-foreground/72">{file.format}</span> : null}
-      </div>
-      <div className="mt-1 truncate text-foreground/76">{file ? shortenAssetPath(file.path) : "No file"}</div>
-      <div className="mt-2 flex gap-1.5">
-        <Button className="flex-1" onClick={() => onAssignAssetLod(assetId, level)} size="xs" variant="ghost">
-          {file ? "Replace" : "Add"}
-        </Button>
-        {level !== "high" && file ? (
-          <Button className="px-2 text-foreground/62" onClick={() => onClearAssetLod(assetId, level)} size="xs" variant="ghost">
-            Clear
-          </Button>
-        ) : null}
+      <div className="mt-3 flex flex-wrap gap-2 text-xs">
+        {resolveLevelDefinitionsForItem(levelDefinitions, item.files).map((level) => {
+          const file = item.files.find((entry) => entry.level === level.id);
+          return (
+            <div className="rounded-full border border-white/8 bg-black/18 px-2.5 py-1.5" key={level.id}>
+              <span className="text-foreground/52">{level.label}</span>{" "}
+              <span className="text-foreground/82">{file ? describeAssetFileSource(file) : "Missing"}</span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -312,6 +289,7 @@ function AssetRow({
 
 function ModelAssetDetailPane({
   item,
+  levelDefinitions,
   onAssignAssetLod,
   onClearAssetLod,
   onDeleteAsset,
@@ -319,19 +297,21 @@ function ModelAssetDetailPane({
   onInsertAsset
 }: {
   item: ModelAssetLibraryItem;
+  levelDefinitions: WorldLodLevelDefinition[];
   onAssignAssetLod: (assetId: string, level: ModelLodLevel) => void;
-  onClearAssetLod: (assetId: string, level: Exclude<ModelLodLevel, "high">) => void;
+  onClearAssetLod: (assetId: string, level: ModelLodLevel) => void;
   onDeleteAsset: (assetId: string) => void;
   onFocusAssetNodes: (assetId: string) => void;
   onInsertAsset: (assetId: string) => void;
 }) {
   const bounds = resolveModelBoundsFromAsset(item.asset);
-  const [previewLevel, setPreviewLevel] = useState<ModelLodLevel>("high");
+  const resolvedLevelDefinitions = useMemo(() => resolveLevelDefinitionsForItem(levelDefinitions, item.files), [item.files, levelDefinitions]);
+  const [previewLevel, setPreviewLevel] = useState<ModelLodLevel>(HIGH_MODEL_LOD_LEVEL);
   const previewFile = item.files.find((file) => file.level === previewLevel) ?? item.files[0];
   const scene = useLoadedPreviewScene(previewFile);
 
   useEffect(() => {
-    setPreviewLevel("high");
+    setPreviewLevel(HIGH_MODEL_LOD_LEVEL);
   }, [item.asset.id]);
 
   return (
@@ -341,24 +321,24 @@ function ModelAssetDetailPane({
           <div className="flex items-center justify-between border-b border-white/8 px-4 py-3">
             <div>
               <div className="text-sm font-medium text-foreground/88">Preview</div>
-              <div className="text-xs text-foreground/52">Single shared canvas. No more per-card WebGL pileup.</div>
+              <div className="text-xs text-foreground/52">Single shared canvas with the configured authored level set.</div>
             </div>
             <div className="flex items-center gap-1 rounded-xl bg-black/20 p-1">
-              {MODEL_LEVEL_ORDER.map((level) => {
-                const hasFile = item.files.some((file) => file.level === level);
+              {resolvedLevelDefinitions.map((level) => {
+                const hasFile = item.files.some((file) => file.level === level.id);
                 return (
                   <Button
                     className={cn(
                       "px-2.5 uppercase",
-                      previewLevel === level && "bg-emerald-500/18 text-emerald-100"
+                      previewLevel === level.id && "bg-emerald-500/18 text-emerald-100"
                     )}
                     disabled={!hasFile}
-                    key={level}
-                    onClick={() => setPreviewLevel(level)}
+                    key={level.id}
+                    onClick={() => setPreviewLevel(level.id)}
                     size="xs"
                     variant="ghost"
                   >
-                    {level}
+                    {level.label}
                   </Button>
                 );
               })}
@@ -424,21 +404,29 @@ function ModelAssetDetailPane({
           <div>
             <div className="text-sm font-medium text-foreground/84">Authored LOD Files</div>
             <div className="mt-1 text-xs text-foreground/54">
-              Upload hand-authored tiers here. Export and runtime loading use these files directly instead of auto-generating broken meshes.
+              Configure named authored levels here. The world settings tab controls which levels exist and the distance each one represents.
             </div>
           </div>
 
-          <div className="grid gap-3 lg:grid-cols-3">
-            {MODEL_LEVEL_ORDER.map((level) => (
-              <LodSlotCard
-                assetId={item.asset.id}
-                file={item.files.find((entry) => entry.level === level)}
-                key={level}
-                level={level}
-                onAssignAssetLod={onAssignAssetLod}
-                onClearAssetLod={onClearAssetLod}
-              />
-            ))}
+          <div className="overflow-hidden rounded-2xl border border-white/8 bg-white/4">
+            <div className="grid grid-cols-[minmax(0,1.25fr)_7rem_9rem_8rem] gap-3 border-b border-white/8 px-4 py-3 text-[10px] font-medium tracking-[0.18em] text-foreground/42 uppercase">
+              <div>Level</div>
+              <div>Distance</div>
+              <div>Source</div>
+              <div className="text-right">Actions</div>
+            </div>
+            <div className="divide-y divide-white/8">
+              {resolvedLevelDefinitions.map((level) => (
+                <LodSlotRow
+                  assetId={item.asset.id}
+                  file={item.files.find((entry) => entry.level === level.id)}
+                  key={level.id}
+                  level={level}
+                  onAssignAssetLod={onAssignAssetLod}
+                  onClearAssetLod={onClearAssetLod}
+                />
+              ))}
+            </div>
           </div>
         </div>
       </ScrollArea>
@@ -446,7 +434,7 @@ function ModelAssetDetailPane({
   );
 }
 
-function LodSlotCard({
+function LodSlotRow({
   assetId,
   file,
   level,
@@ -455,42 +443,30 @@ function LodSlotCard({
 }: {
   assetId: string;
   file?: ModelAssetFile;
-  level: ModelLodLevel;
+  level: WorldLodLevelDefinition;
   onAssignAssetLod: (assetId: string, level: ModelLodLevel) => void;
-  onClearAssetLod: (assetId: string, level: Exclude<ModelLodLevel, "high">) => void;
+  onClearAssetLod: (assetId: string, level: ModelLodLevel) => void;
 }) {
   return (
-    <div className="rounded-2xl border border-white/8 bg-white/4 p-4">
-      <div className="flex items-start justify-between gap-3">
+    <div className="grid grid-cols-[minmax(0,1.25fr)_7rem_9rem_8rem] items-center gap-3 px-4 py-3 text-sm">
+      <div className="min-w-0">
         <div>
-          <div className="text-[10px] font-medium tracking-[0.18em] text-foreground/42 uppercase">{level}</div>
+          <div className="text-[10px] font-medium tracking-[0.18em] text-foreground/42 uppercase">{level.id}</div>
           <div className="mt-1 text-sm font-medium text-foreground/86">{file ? file.format.toUpperCase() : "Not set"}</div>
         </div>
-        <Button onClick={() => onAssignAssetLod(assetId, level)} size="xs" variant="ghost">
+      </div>
+      <div className="text-xs text-foreground/66">{level.distance.toFixed(0)}m</div>
+      <div className="min-w-0 text-xs text-foreground/66">{file ? describeAssetFileSource(file) : "Missing"}</div>
+      <div className="flex justify-end gap-1.5">
+        <Button onClick={() => onAssignAssetLod(assetId, level.id)} size="xs" variant="ghost">
           {file ? "Replace" : "Add"}
         </Button>
-      </div>
-
-      <div className="mt-3 space-y-2 text-xs text-foreground/58">
-        <div className="rounded-xl bg-black/16 px-3 py-2.5">
-          <div className="text-[10px] uppercase tracking-[0.16em] text-foreground/36">Source</div>
-          <div className="mt-1 break-all text-foreground/76">{file ? shortenAssetPath(file.path) : "No file assigned"}</div>
-        </div>
-        {file?.texturePath ? (
-          <div className="rounded-xl bg-black/16 px-3 py-2.5">
-            <div className="text-[10px] uppercase tracking-[0.16em] text-foreground/36">Texture</div>
-            <div className="mt-1 break-all text-foreground/72">{shortenAssetPath(file.texturePath)}</div>
-          </div>
+        {level.id !== HIGH_MODEL_LOD_LEVEL && file ? (
+          <Button className="text-foreground/60" onClick={() => onClearAssetLod(assetId, level.id)} size="xs" variant="ghost">
+            Clear
+          </Button>
         ) : null}
       </div>
-
-      {level !== "high" && file ? (
-        <div className="mt-3 flex justify-end">
-          <Button className="text-foreground/60" onClick={() => onClearAssetLod(assetId, level)} size="xs" variant="ghost">
-            Clear {level}
-          </Button>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -638,4 +614,32 @@ function shortenAssetPath(path: string) {
 
 function formatAxis(value?: number) {
   return typeof value === "number" ? value.toFixed(2) : "-";
+}
+
+function resolveLevelDefinitionsForItem(levelDefinitions: WorldLodLevelDefinition[], files: ModelAssetFile[]) {
+  const configuredLevels = buildModelLodLevelOrder([HIGH_MODEL_LOD_LEVEL, ...levelDefinitions.map((level) => level.id), ...files.map((file) => file.level)]);
+
+  return configuredLevels.map((levelId) => {
+    if (levelId === HIGH_MODEL_LOD_LEVEL) {
+      return {
+        distance: 0,
+        id: HIGH_MODEL_LOD_LEVEL,
+        label: "High"
+      } satisfies WorldLodLevelDefinition;
+    }
+
+    return levelDefinitions.find((level) => level.id === levelId) ?? {
+      distance: 0,
+      id: levelId,
+      label: levelId.replace(/[-_]+/g, " ")
+    } satisfies WorldLodLevelDefinition;
+  });
+}
+
+function describeAssetFileSource(file: ModelAssetFile) {
+  if (file.path.startsWith("data:")) {
+    return `Embedded ${file.format.toUpperCase()}`;
+  }
+
+  return file.path.split("/").pop() ?? `${file.format.toUpperCase()} file`;
 }

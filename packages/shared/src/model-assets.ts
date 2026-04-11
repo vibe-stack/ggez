@@ -1,7 +1,7 @@
 import type { Asset } from "./types";
 
 export type ModelFormat = "glb" | "gltf" | "obj";
-export type ModelLodLevel = "high" | "mid" | "low";
+export type ModelLodLevel = string;
 
 export type ModelAssetFile = {
   format: ModelFormat;
@@ -12,15 +12,16 @@ export type ModelAssetFile = {
 };
 
 const MODEL_ASSET_FILES_METADATA_KEY = "modelFiles";
-const MODEL_LEVEL_ORDER: ModelLodLevel[] = ["high", "mid", "low"];
+export const HIGH_MODEL_LOD_LEVEL = "high" as const;
+export const DEFAULT_MODEL_LOD_LEVEL_ORDER: ModelLodLevel[] = [HIGH_MODEL_LOD_LEVEL, "mid", "low"];
 
 export function createSerializedModelAssetFiles(files: ModelAssetFile[]): string {
   return JSON.stringify(sortModelAssetFiles(files));
 }
 
-export function resolveModelAssetFile(asset: Asset | undefined, level: ModelLodLevel = "high"): ModelAssetFile | undefined {
+export function resolveModelAssetFile(asset: Asset | undefined, level: ModelLodLevel = HIGH_MODEL_LOD_LEVEL): ModelAssetFile | undefined {
   const files = resolveModelAssetFiles(asset);
-  return files.find((file) => file.level === level);
+  return files.find((file) => normalizeModelLodLevelId(file.level) === normalizeModelLodLevelId(level));
 }
 
 export function resolveModelAssetFiles(asset: Asset | undefined): ModelAssetFile[] {
@@ -42,13 +43,16 @@ export function resolveModelAssetFiles(asset: Asset | undefined): ModelAssetFile
   const filesByLevel = new Map<ModelLodLevel, ModelAssetFile>();
 
   fromMetadata.forEach((file) => {
-    filesByLevel.set(file.level, file);
+    filesByLevel.set(normalizeModelLodLevelId(file.level), {
+      ...file,
+      level: normalizeModelLodLevelId(file.level)
+    });
   });
 
   if (legacyPrimaryFile) {
-    filesByLevel.set("high", {
+    filesByLevel.set(HIGH_MODEL_LOD_LEVEL, {
       ...legacyPrimaryFile,
-      ...filesByLevel.get("high")
+      ...filesByLevel.get(HIGH_MODEL_LOD_LEVEL)
     });
   }
 
@@ -77,10 +81,44 @@ export function resolveModelFormat(modelFormat: unknown, path: string): ModelFor
   return "glb";
 }
 
-export function sortModelAssetFiles(files: ModelAssetFile[]): ModelAssetFile[] {
+export function sortModelAssetFiles(files: ModelAssetFile[], levelOrder: ModelLodLevel[] = DEFAULT_MODEL_LOD_LEVEL_ORDER): ModelAssetFile[] {
+  const normalizedLevelOrder = levelOrder.map((level) => normalizeModelLodLevelId(level));
+
   return [...files]
     .filter((file) => Boolean(file.path))
-    .sort((left, right) => MODEL_LEVEL_ORDER.indexOf(left.level) - MODEL_LEVEL_ORDER.indexOf(right.level));
+    .map((file) => ({
+      ...file,
+      level: normalizeModelLodLevelId(file.level)
+    }))
+    .sort((left, right) => {
+      const leftIndex = normalizedLevelOrder.indexOf(left.level);
+      const rightIndex = normalizedLevelOrder.indexOf(right.level);
+
+      if (leftIndex >= 0 || rightIndex >= 0) {
+        return (leftIndex >= 0 ? leftIndex : Number.MAX_SAFE_INTEGER) - (rightIndex >= 0 ? rightIndex : Number.MAX_SAFE_INTEGER);
+      }
+
+      return left.level.localeCompare(right.level);
+    });
+}
+
+export function buildModelLodLevelOrder(levels: Iterable<ModelLodLevel>) {
+  const ordered = new Set<ModelLodLevel>(DEFAULT_MODEL_LOD_LEVEL_ORDER);
+
+  Array.from(levels)
+    .map((level) => normalizeModelLodLevelId(level))
+    .filter((level) => level !== HIGH_MODEL_LOD_LEVEL)
+    .sort((left, right) => left.localeCompare(right))
+    .forEach((level) => {
+      ordered.add(level);
+    });
+
+  return Array.from(ordered);
+}
+
+export function normalizeModelLodLevelId(level: string | undefined): ModelLodLevel {
+  const normalized = typeof level === "string" ? level.trim().toLowerCase() : "";
+  return normalized.length > 0 ? normalized : HIGH_MODEL_LOD_LEVEL;
 }
 
 function parseSerializedModelAssetFiles(value: unknown): ModelAssetFile[] {
@@ -103,14 +141,14 @@ function parseSerializedModelAssetFiles(value: unknown): ModelAssetFile[] {
 
         const candidate = entry as Partial<ModelAssetFile>;
 
-        if (!isModelLodLevel(candidate.level) || typeof candidate.path !== "string" || candidate.path.length === 0) {
+        if (typeof candidate.level !== "string" || typeof candidate.path !== "string" || candidate.path.length === 0) {
           return [];
         }
 
         return [
           {
             format: resolveModelFormat(candidate.format, candidate.path),
-            level: candidate.level,
+            level: normalizeModelLodLevelId(candidate.level),
             materialMtlText: typeof candidate.materialMtlText === "string" ? candidate.materialMtlText : undefined,
             path: candidate.path,
             texturePath: typeof candidate.texturePath === "string" ? candidate.texturePath : undefined
@@ -121,10 +159,6 @@ function parseSerializedModelAssetFiles(value: unknown): ModelAssetFile[] {
   } catch {
     return [];
   }
-}
-
-function isModelLodLevel(value: unknown): value is ModelLodLevel {
-  return value === "high" || value === "mid" || value === "low";
 }
 
 function readModelMetadataString(asset: Asset, key: string) {

@@ -47,7 +47,7 @@ export type RuntimeGeometry = {
   primitives: RuntimePrimitive[];
 };
 
-export type RuntimeLodLevel = "mid" | "low";
+export type RuntimeLodLevel = string;
 
 export type RuntimeGeometryLod = {
   geometry: RuntimeGeometry;

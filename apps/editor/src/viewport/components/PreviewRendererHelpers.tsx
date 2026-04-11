@@ -1,0 +1,890 @@
+import { useFrame, useThree } from "@react-three/fiber";
+import { BallCollider, ConeCollider, CuboidCollider, CylinderCollider, RigidBody, TrimeshCollider } from "@react-three/rapier";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+    Mesh, MeshStandardMaterial,
+    Object3D
+} from "three";
+import { HIGH_MODEL_LOD_LEVEL, type ModelAssetFile, type ModelLodLevel, type Vec3, type WorldLodSettings } from "@ggez/shared";
+import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
+import {
+    disableBvhRaycast,
+    enableBvhRaycast, type DerivedLight,
+    type DerivedRenderMesh
+} from "@ggez/render-pipeline";
+import { toTuple } from "@ggez/shared";
+import {
+    renderModeUsesRenderableSurfaces,
+    renderModeUsesSceneLights,
+    renderModeUsesShadows,
+    renderModeUsesSolidMaterials,
+    type ViewportRenderMode
+} from "@/viewport/viewports";
+import type { SceneSettings } from "@ggez/shared";
+import { cloneModelSceneGraph, computeModelBounds, createPrimaryModelFile, createSolidModelMaterial, disposeOwnedSceneMaterials, disposePreviewMaterial, gltfLoader, loadModelTexture, modelDistanceVector, modelSceneCache, mtlLoader, patchMtlTextureReferences, resolveEditorModelLodLevel, resolveIntersectedIds, resolveMeshPivot, resolvePhysicsColliderProps, usePreviewMaterials, useRenderableGeometry } from "../utils/preview-utils";
+
+export function RenderStaticMesh({
+  hovered,
+  interactive,
+  mesh,
+  onFocusNode,
+  onHoverEnd,
+  onHoverStart,
+  onMeshObjectChange,
+  onSelectNodes,
+  renderMode,
+  sceneSettings,
+  selected
+}: {
+  hovered: boolean;
+  interactive: boolean;
+  mesh: DerivedRenderMesh;
+  onFocusNode: (nodeId: string) => void;
+  onHoverEnd: () => void;
+  onHoverStart: (nodeId: string) => void;
+  onMeshObjectChange: (nodeId: string, object: Object3D | null) => void;
+  onSelectNodes: (nodeIds: string[]) => void;
+  renderMode: ViewportRenderMode;
+  sceneSettings: SceneSettings;
+  selected: boolean;
+}) {
+  if (!mesh.surface && !mesh.primitive && !mesh.modelPath) {
+    return null;
+  }
+
+  return (
+    <RenderNodeRoot
+      hovered={hovered}
+      interactive={interactive}
+      mesh={mesh}
+      onFocusNode={onFocusNode}
+      onHoverEnd={onHoverEnd}
+      onHoverStart={onHoverStart}
+      onMeshObjectChange={onMeshObjectChange}
+      onSelectNodes={onSelectNodes}
+      renderMode={renderMode}
+      sceneSettings={sceneSettings}
+      selected={selected}
+    />
+  );
+}
+
+export function PhysicsPropMesh({
+  hovered,
+  interactive,
+  mesh,
+  onFocusNode,
+  onHoverEnd,
+  onHoverStart,
+  onMeshObjectChange,
+  onSelectNodes,
+  renderMode,
+  sceneSettings,
+  selected
+}: {
+  hovered: boolean;
+  interactive: boolean;
+  mesh: DerivedRenderMesh;
+  onFocusNode: (nodeId: string) => void;
+  onHoverEnd: () => void;
+  onHoverStart: (nodeId: string) => void;
+  onMeshObjectChange: (nodeId: string, object: Object3D | null) => void;
+  onSelectNodes: (nodeIds: string[]) => void;
+  renderMode: ViewportRenderMode;
+  sceneSettings: SceneSettings;
+  selected: boolean;
+}) {
+  const physics = mesh.physics;
+  const colliderProps = useMemo(() => resolvePhysicsColliderProps(mesh.physics), [mesh.physics]);
+
+  if (!physics) {
+    return null;
+  }
+
+  const useTrimeshCollider = physics.colliderShape === "trimesh" || !mesh.primitive;
+
+  return (
+    <RigidBody
+      angularDamping={physics.angularDamping}
+      canSleep={physics.canSleep}
+      ccd={physics.ccd}
+      colliders={false}
+      gravityScale={physics.gravityScale}
+      linearDamping={physics.linearDamping}
+      lockRotations={physics.lockRotations}
+      lockTranslations={physics.lockTranslations}
+      position={toTuple(mesh.position)}
+      rotation={toTuple(mesh.rotation)}
+      type={physics.bodyType}
+    >
+      {!useTrimeshCollider ? (
+        <ManualCollider mesh={mesh} />
+      ) : (
+        <TrimeshPhysicsCollider colliderProps={colliderProps} mesh={mesh} />
+      )}
+      <group scale={toTuple(mesh.scale)}>
+        <RenderNodeBody
+          hovered={hovered}
+          interactive={interactive}
+          mesh={mesh}
+          onFocusNode={onFocusNode}
+          onHoverEnd={onHoverEnd}
+          onHoverStart={onHoverStart}
+          onSelectNodes={onSelectNodes}
+          renderMode={renderMode}
+          sceneSettings={sceneSettings}
+          selected={selected}
+        />
+      </group>
+      <object3D
+        name={`node:${mesh.nodeId}`}
+        ref={(object) => {
+          onMeshObjectChange(mesh.nodeId, object);
+        }}
+      />
+    </RigidBody>
+  );
+}
+
+
+
+export function RenderNodeRoot({
+  hovered,
+  interactive,
+  mesh,
+  onFocusNode,
+  onHoverEnd,
+  onHoverStart,
+  onMeshObjectChange,
+  onSelectNodes,
+  renderMode,
+  sceneSettings,
+  selected
+}: {
+  hovered: boolean;
+  interactive: boolean;
+  mesh: DerivedRenderMesh;
+  onFocusNode: (nodeId: string) => void;
+  onHoverEnd: () => void;
+  onHoverStart: (nodeId: string) => void;
+  onMeshObjectChange: (nodeId: string, object: Object3D | null) => void;
+  onSelectNodes: (nodeIds: string[]) => void;
+  renderMode: ViewportRenderMode;
+  sceneSettings: SceneSettings;
+  selected: boolean;
+}) {
+  return (
+    <group
+      name={`node:${mesh.nodeId}`}
+      position={toTuple(mesh.position)}
+      rotation={toTuple(mesh.rotation)}
+      scale={toTuple(mesh.scale)}
+      ref={(object) => {
+        onMeshObjectChange(mesh.nodeId, object);
+      }}
+    >
+      <RenderNodeBody
+        hovered={hovered}
+        interactive={interactive}
+        mesh={mesh}
+        onFocusNode={onFocusNode}
+        onHoverEnd={onHoverEnd}
+        onHoverStart={onHoverStart}
+        onSelectNodes={onSelectNodes}
+        renderMode={renderMode}
+        sceneSettings={sceneSettings}
+        selected={selected}
+      />
+    </group>
+  );
+}
+
+export function RenderNodeBody({
+  hovered,
+  interactive,
+  mesh,
+  onFocusNode,
+  onHoverEnd,
+  onHoverStart,
+  onSelectNodes,
+  renderMode,
+  sceneSettings,
+  selected
+}: {
+  hovered: boolean;
+  interactive: boolean;
+  mesh: DerivedRenderMesh;
+  onFocusNode: (nodeId: string) => void;
+  onHoverEnd: () => void;
+  onHoverStart: (nodeId: string) => void;
+  onSelectNodes: (nodeIds: string[]) => void;
+  renderMode: ViewportRenderMode;
+  sceneSettings: SceneSettings;
+  selected: boolean;
+}) {
+  if (mesh.modelPath) {
+    return (
+      <RenderModelBody
+        hovered={hovered}
+        interactive={interactive}
+        mesh={mesh}
+        onFocusNode={onFocusNode}
+        onHoverEnd={onHoverEnd}
+        onHoverStart={onHoverStart}
+        onSelectNodes={onSelectNodes}
+        renderMode={renderMode}
+        sceneSettings={sceneSettings}
+        selected={selected}
+      />
+    );
+  }
+
+  return (
+    <RenderMeshBody
+      hovered={hovered}
+      interactive={interactive}
+      mesh={mesh}
+      onFocusNode={onFocusNode}
+      onHoverEnd={onHoverEnd}
+      onHoverStart={onHoverStart}
+      onSelectNodes={onSelectNodes}
+      renderMode={renderMode}
+      selected={selected}
+    />
+  );
+}
+
+export function StaticPhysicsCollider({ mesh }: { mesh: DerivedRenderMesh }) {
+  return (
+    <RigidBody colliders={false} position={toTuple(mesh.position)} rotation={toTuple(mesh.rotation)} type="fixed">
+      <TrimeshPhysicsCollider mesh={mesh} />
+    </RigidBody>
+  );
+}
+
+export function TrimeshPhysicsCollider({
+  colliderProps,
+  mesh
+}: {
+  colliderProps?: ReturnType<typeof resolvePhysicsColliderProps>;
+  mesh: DerivedRenderMesh;
+}) {
+  const colliderArgs = useTrimeshColliderArgs(mesh);
+  const pivot = resolveMeshPivot(mesh);
+
+  if (!colliderArgs) {
+    return null;
+  }
+
+  return (
+    <group scale={toTuple(mesh.scale)}>
+      <TrimeshCollider
+        args={colliderArgs}
+        position={[-pivot.x, -pivot.y, -pivot.z]}
+        {...colliderProps}
+      />
+    </group>
+  );
+}
+
+export function useTrimeshColliderArgs(mesh: DerivedRenderMesh): [ArrayLike<number>, ArrayLike<number>] | undefined {
+  const geometry = useRenderableGeometry(mesh, "full");
+  const fallbackIndices = useMemo(() => {
+    if (!geometry) {
+      return new Uint32Array();
+    }
+
+    const positionCount = geometry.getAttribute("position")?.count ?? 0;
+    return Uint32Array.from({ length: positionCount }, (_, index) => index);
+  }, [geometry]);
+
+  useEffect(() => {
+    return () => {
+      geometry?.dispose();
+    };
+  }, [geometry]);
+
+  if (!geometry) {
+    return undefined;
+  }
+
+  return [
+    geometry.getAttribute("position").array,
+    geometry.getIndex()?.array ?? fallbackIndices
+  ];
+}
+
+export function RenderMeshBody({
+  hovered,
+  interactive,
+  mesh,
+  onFocusNode,
+  onHoverEnd,
+  onHoverStart,
+  onSelectNodes,
+  renderMode,
+  selected
+}: {
+  hovered: boolean;
+  interactive: boolean;
+  mesh: DerivedRenderMesh;
+  onFocusNode: (nodeId: string) => void;
+  onHoverEnd: () => void;
+  onHoverStart: (nodeId: string) => void;
+  onSelectNodes: (nodeIds: string[]) => void;
+  renderMode: ViewportRenderMode;
+  selected: boolean;
+}) {
+  const [meshObject, setMeshObject] = useState<Mesh | null>(null);
+  const geometry = useRenderableGeometry(mesh, renderMode);
+  const previewMaterials = usePreviewMaterials(mesh, renderMode, selected, hovered);
+  const pivot = resolveMeshPivot(mesh);
+
+  useEffect(() => {
+    if (geometry && meshObject && mesh.bvhEnabled) {
+      enableBvhRaycast(meshObject, geometry);
+    }
+
+    return () => {
+      if (geometry) {
+        disableBvhRaycast(geometry);
+      }
+    };
+  }, [geometry, mesh.bvhEnabled, meshObject]);
+
+  useEffect(() => {
+    if (meshObject && previewMaterials.length > 0) {
+      meshObject.material = previewMaterials.length === 1 ? previewMaterials[0] : previewMaterials;
+    }
+  }, [meshObject, previewMaterials]);
+
+  useEffect(() => {
+    return () => {
+      previewMaterials.forEach((material) => disposePreviewMaterial(material));
+    };
+  }, [previewMaterials]);
+
+  useEffect(() => {
+    return () => {
+      geometry?.dispose();
+    };
+  }, [geometry]);
+
+  if (!geometry) {
+    return null;
+  }
+
+  return (
+    <group position={[-pivot.x, -pivot.y, -pivot.z]}>
+      <mesh
+        castShadow={renderModeUsesShadows(renderMode)}
+        onClick={(event) => {
+          if (!interactive) {
+            return;
+          }
+
+          event.stopPropagation();
+
+          if (renderMode === "wireframe") {
+            const nodeIds = resolveIntersectedIds(event.intersections);
+
+            if (nodeIds.length > 0) {
+              onSelectNodes(nodeIds);
+              return;
+            }
+          }
+
+          onSelectNodes([mesh.nodeId]);
+        }}
+        onDoubleClick={(event) => {
+          if (!interactive) {
+            return;
+          }
+
+          event.stopPropagation();
+          onFocusNode(mesh.nodeId);
+        }}
+        onPointerOut={(event) => {
+          if (!interactive) {
+            return;
+          }
+
+          event.stopPropagation();
+          onHoverEnd();
+        }}
+        onPointerOver={(event) => {
+          if (!interactive) {
+            return;
+          }
+
+          event.stopPropagation();
+          onHoverStart(mesh.nodeId);
+        }}
+        ref={setMeshObject}
+        receiveShadow={renderModeUsesShadows(renderMode)}
+      >
+        <primitive attach="geometry" object={geometry} />
+        {renderMode === "wireframe" ? (
+          <meshBasicMaterial
+            color={selected ? "#f97316" : hovered ? "#67e8f9" : "#94a3b8"}
+            depthWrite={false}
+            toneMapped={false}
+            wireframe
+          />
+        ) : null}
+      </mesh>
+    </group>
+  );
+}
+
+export function RenderModelBody({
+  hovered,
+  interactive,
+  mesh,
+  onFocusNode,
+  onHoverEnd,
+  onHoverStart,
+  onSelectNodes,
+  renderMode,
+  sceneSettings,
+  selected
+}: {
+  hovered: boolean;
+  interactive: boolean;
+  mesh: DerivedRenderMesh;
+  onFocusNode: (nodeId: string) => void;
+  onHoverEnd: () => void;
+  onHoverStart: (nodeId: string) => void;
+  onSelectNodes: (nodeIds: string[]) => void;
+  renderMode: ViewportRenderMode;
+  sceneSettings: SceneSettings;
+  selected: boolean;
+}) {
+  const resolvedModelFile = useResolvedModelPreviewFile(mesh.modelFiles, createPrimaryModelFile(mesh), sceneSettings.world.lod, mesh.position);
+  const loadedScene = useLoadedModelScene(
+    resolvedModelFile
+  );
+  const loadedBounds = useMemo(
+    () => (loadedScene ? computeModelBounds(loadedScene) : undefined),
+    [loadedScene]
+  );
+  const modelBounds = loadedBounds ?? (mesh.modelSize && mesh.modelCenter
+    ? {
+        center: mesh.modelCenter,
+        size: mesh.modelSize
+      }
+    : undefined);
+  const boundsCenter = modelBounds?.center ?? mesh.modelCenter ?? { x: 0, y: 0, z: 0 };
+  const showBoundsOverlay = renderMode === "wireframe" || selected || hovered;
+  const overlayColor = selected ? "#f97316" : hovered ? "#67e8f9" : "#94a3b8";
+  const showModelSurface = renderModeUsesRenderableSurfaces(renderMode);
+  const modelScene = useMemo(() => {
+    if (!loadedScene || !showModelSurface || renderModeUsesSolidMaterials(renderMode)) {
+      return undefined;
+    }
+
+    const clone = cloneModelSceneGraph(loadedScene);
+    clone.traverse((child) => {
+      if (child instanceof Mesh) {
+        child.castShadow = renderModeUsesShadows(renderMode);
+        child.receiveShadow = renderModeUsesShadows(renderMode);
+      }
+    });
+    return clone;
+  }, [loadedScene, renderMode, showModelSurface]);
+  const solidScene = useMemo(() => {
+    if (!loadedScene || !renderModeUsesSolidMaterials(renderMode)) {
+      return undefined;
+    }
+
+    const clone = cloneModelSceneGraph(loadedScene);
+    clone.traverse((child) => {
+      if (!(child instanceof Mesh)) {
+        return;
+      }
+
+      child.castShadow = false;
+      child.receiveShadow = false;
+      child.material = createSolidModelMaterial(child.material, selected, hovered);
+    });
+    return clone;
+  }, [hovered, loadedScene, renderMode, selected]);
+
+  useEffect(() => {
+    return () => {
+      disposeOwnedSceneMaterials(solidScene);
+    };
+  }, [solidScene]);
+
+  const handleClick = useCallback((event: any) => {
+    if (!interactive) {
+      return;
+    }
+
+    event.stopPropagation();
+    onSelectNodes([mesh.nodeId]);
+  }, [interactive, mesh.nodeId, onSelectNodes]);
+
+  const handleDoubleClick = useCallback((event: any) => {
+    if (!interactive) {
+      return;
+    }
+
+    event.stopPropagation();
+    onFocusNode(mesh.nodeId);
+  }, [interactive, mesh.nodeId, onFocusNode]);
+
+  const handlePointerOver = useCallback((event: any) => {
+    if (!interactive) {
+      return;
+    }
+
+    event.stopPropagation();
+    onHoverStart(mesh.nodeId);
+  }, [interactive, mesh.nodeId, onHoverStart]);
+
+  const handlePointerOut = useCallback((event: any) => {
+    if (!interactive) {
+      return;
+    }
+
+    event.stopPropagation();
+    onHoverEnd();
+  }, [interactive, onHoverEnd]);
+
+  return (
+    <group>
+      {modelScene ? (
+        <primitive
+          object={modelScene}
+          onClick={handleClick}
+          onDoubleClick={handleDoubleClick}
+          onPointerOut={handlePointerOut}
+          onPointerOver={handlePointerOver}
+        />
+      ) : null}
+      {solidScene ? (
+        <primitive
+          object={solidScene}
+          onClick={handleClick}
+          onDoubleClick={handleDoubleClick}
+          onPointerOut={handlePointerOut}
+          onPointerOver={handlePointerOver}
+        />
+      ) : null}
+      {!modelScene && !solidScene && showModelSurface ? (
+        <mesh
+          castShadow={renderModeUsesShadows(renderMode)}
+          onClick={handleClick}
+          onDoubleClick={handleDoubleClick}
+          onPointerOut={handlePointerOut}
+          onPointerOver={handlePointerOver}
+          position={[boundsCenter.x, boundsCenter.y, boundsCenter.z]}
+          receiveShadow={renderModeUsesShadows(renderMode)}
+        >
+          <boxGeometry args={toTuple(mesh.modelSize ?? { x: 1.4, y: 1.4, z: 1.4 })} />
+          {renderModeUsesSolidMaterials(renderMode) ? (
+            <meshStandardMaterial color={selected ? "#ffb35a" : "#d8dee6"} metalness={0.06} roughness={0.84} />
+          ) : (
+            <meshStandardMaterial color={mesh.material.color} metalness={0.08} roughness={0.72} />
+          )}
+        </mesh>
+      ) : null}
+      {showBoundsOverlay ? (
+        <mesh
+          onClick={handleClick}
+          onDoubleClick={handleDoubleClick}
+          onPointerOut={handlePointerOut}
+          onPointerOver={handlePointerOver}
+          position={[boundsCenter.x, boundsCenter.y, boundsCenter.z]}
+        >
+          <boxGeometry args={toTuple(modelBounds?.size ?? mesh.modelSize ?? { x: 1.4, y: 1.4, z: 1.4 })} />
+          <meshBasicMaterial
+            color={overlayColor}
+            depthWrite={false}
+            opacity={renderMode === "wireframe" ? 1 : 0.85}
+            toneMapped={false}
+            transparent={renderMode !== "wireframe"}
+            wireframe
+          />
+        </mesh>
+      ) : null}
+    </group>
+  );
+}
+
+export function useLoadedModelScene(file?: ModelAssetFile) {
+  const [scene, setScene] = useState<Object3D>();
+
+  useEffect(() => {
+    if (!file?.path) {
+      setScene(undefined);
+      return;
+    }
+
+    const cacheKey = `${file.level}:${file.format}:${file.path}:${file.texturePath ?? ""}:${file.materialMtlText ?? ""}`;
+    const cachedScene = modelSceneCache.get(cacheKey);
+
+    if (cachedScene) {
+      setScene(cachedScene);
+      return;
+    }
+
+    let cancelled = false;
+
+    void loadModelScene(file)
+      .then((loadedScene) => {
+        if (cancelled) {
+          return;
+        }
+
+        modelSceneCache.set(cacheKey, loadedScene);
+        setScene(loadedScene);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setScene(undefined);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [file]);
+
+  return scene;
+}
+
+async function loadModelScene(file: ModelAssetFile) {
+  if (file.format === "obj") {
+    const objLoader = new OBJLoader();
+
+    if (file.materialMtlText) {
+      const materialCreator = mtlLoader.parse(
+        patchMtlTextureReferences(file.materialMtlText, file.texturePath),
+        ""
+      );
+      materialCreator.preload();
+      objLoader.setMaterials(materialCreator);
+    }
+
+    const object = await objLoader.loadAsync(file.path);
+
+    if (!file.materialMtlText && file.texturePath) {
+      const texture = await loadModelTexture(file.texturePath);
+
+      object.traverse((child) => {
+        if (child instanceof Mesh) {
+          child.material = new MeshStandardMaterial({
+            map: texture,
+            metalness: 0.12,
+            roughness: 0.76
+          });
+        }
+      });
+    }
+
+    return object;
+  }
+
+  const gltf = await gltfLoader.loadAsync(file.path);
+  return gltf.scene;
+}
+
+export function useResolvedModelPreviewFile(
+  files: ModelAssetFile[] | undefined,
+  fallbackFile: ModelAssetFile | undefined,
+  lodSettings: WorldLodSettings,
+  position: Vec3
+) {
+  const { camera } = useThree();
+  const [requestedLevel, setRequestedLevel] = useState<ModelLodLevel>(HIGH_MODEL_LOD_LEVEL);
+
+  useFrame(() => {
+    const nextLevel = resolveEditorModelLodLevel(
+      files,
+      lodSettings,
+      camera.position.distanceTo(modelDistanceVector.set(position.x, position.y, position.z))
+    );
+
+    setRequestedLevel((current) => (current === nextLevel ? current : nextLevel));
+  });
+
+  useEffect(() => {
+    setRequestedLevel(HIGH_MODEL_LOD_LEVEL);
+  }, [fallbackFile?.path, files, lodSettings]);
+
+  return useMemo(() => {
+    const matchingFile = files?.find((file) => file.level === requestedLevel);
+    return matchingFile ?? fallbackFile;
+  }, [fallbackFile, files, requestedLevel]);
+}
+
+
+
+export function RenderLightNode({
+  hovered,
+  interactive,
+  light,
+  onFocusNode,
+  onHoverEnd,
+  onHoverStart,
+  onSelectNodes,
+  renderMode,
+  selected
+}: {
+  hovered: boolean;
+  interactive: boolean;
+  light: DerivedLight;
+  onFocusNode: (nodeId: string) => void;
+  onHoverEnd: () => void;
+  onHoverStart: (nodeId: string) => void;
+  onSelectNodes: (nodeIds: string[]) => void;
+  renderMode: ViewportRenderMode;
+  selected: boolean;
+}) {
+  const targetRef = useRef<Object3D | null>(null);
+  const lightRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (lightRef.current && targetRef.current) {
+      lightRef.current.target = targetRef.current;
+      targetRef.current.updateMatrixWorld();
+    }
+  }, [light.nodeId, light.rotation.x, light.rotation.y, light.rotation.z]);
+
+  const markerColor = selected ? "#ffb35a" : hovered ? "#d8f4f0" : light.color;
+
+  return (
+    <group
+      name={`node:${light.nodeId}`}
+      onClick={(event) => {
+        if (!interactive) {
+          return;
+        }
+
+        event.stopPropagation();
+        onSelectNodes([light.nodeId]);
+      }}
+      onDoubleClick={(event) => {
+        if (!interactive) {
+          return;
+        }
+
+        event.stopPropagation();
+        onFocusNode(light.nodeId);
+      }}
+      onPointerOut={(event) => {
+        if (!interactive) {
+          return;
+        }
+
+        event.stopPropagation();
+        onHoverEnd();
+      }}
+      onPointerOver={(event) => {
+        if (!interactive) {
+          return;
+        }
+
+        event.stopPropagation();
+        onHoverStart(light.nodeId);
+      }}
+      position={toTuple(light.position)}
+      rotation={toTuple(light.rotation)}
+    >
+      <mesh>
+        <sphereGeometry args={[0.22, 16, 16]} />
+        <meshStandardMaterial color={markerColor} emissive={markerColor} emissiveIntensity={0.35} />
+      </mesh>
+      <mesh position={[0, -0.4, 0]}>
+        <cylinderGeometry args={[0.05, 0.05, 0.45, 8]} />
+        <meshStandardMaterial color="#d8e0ea" metalness={0.1} roughness={0.55} />
+      </mesh>
+
+      {renderModeUsesSceneLights(renderMode) && light.data.enabled ? (
+        <>
+          {light.data.type === "ambient" ? (
+            <ambientLight color={light.data.color} intensity={light.data.intensity} />
+          ) : null}
+          {light.data.type === "hemisphere" ? (
+            <hemisphereLight
+              args={[light.data.color, light.data.groundColor ?? "#0f1721", light.data.intensity]}
+            />
+          ) : null}
+          {light.data.type === "point" ? (
+            <pointLight
+              castShadow={light.data.castShadow}
+              color={light.data.color}
+              decay={light.data.decay}
+              distance={light.data.distance}
+              intensity={light.data.intensity}
+            />
+          ) : null}
+          {light.data.type === "directional" ? (
+            <>
+              <directionalLight
+                castShadow={light.data.castShadow}
+                color={light.data.color}
+                intensity={light.data.intensity}
+                ref={lightRef}
+              />
+              <object3D ref={targetRef} position={[0, 0, -6]} />
+            </>
+          ) : null}
+          {light.data.type === "spot" ? (
+            <>
+              <spotLight
+                angle={light.data.angle}
+                castShadow={light.data.castShadow}
+                color={light.data.color}
+                decay={light.data.decay}
+                distance={light.data.distance}
+                intensity={light.data.intensity}
+                penumbra={light.data.penumbra}
+                ref={lightRef}
+              />
+              <object3D ref={targetRef} position={[0, 0, -6]} />
+            </>
+          ) : null}
+        </>
+      ) : null}
+    </group>
+  );
+}
+
+export function ManualCollider({ mesh }: { mesh: DerivedRenderMesh }) {
+  const pivot = resolveMeshPivot(mesh);
+  const commonProps = {
+    position: [-pivot.x, -pivot.y, -pivot.z] as [number, number, number],
+    scale: toTuple(mesh.scale),
+    ...resolvePhysicsColliderProps(mesh.physics)
+  };
+
+  if (!mesh.primitive || !mesh.physics) {
+    return null;
+  }
+
+  if (mesh.physics.colliderShape === "ball" && mesh.primitive.kind === "sphere") {
+    return <BallCollider args={[mesh.primitive.radius]} {...commonProps} />;
+  }
+
+  if (mesh.physics.colliderShape === "cuboid" && mesh.primitive.kind === "box") {
+    return (
+      <CuboidCollider
+        args={[mesh.primitive.size.x * 0.5, mesh.primitive.size.y * 0.5, mesh.primitive.size.z * 0.5]}
+        {...commonProps}
+      />
+    );
+  }
+
+  if (mesh.physics.colliderShape === "cylinder" && mesh.primitive.kind === "cylinder") {
+    return <CylinderCollider args={[mesh.primitive.height * 0.5, Math.max(mesh.primitive.radiusTop, mesh.primitive.radiusBottom)]} {...commonProps} />;
+  }
+
+  if (mesh.physics.colliderShape === "cone" && mesh.primitive.kind === "cone") {
+    return <ConeCollider args={[mesh.primitive.height * 0.5, mesh.primitive.radius]} {...commonProps} />;
+  }
+
+  return null;
+}

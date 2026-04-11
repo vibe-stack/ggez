@@ -1,5 +1,5 @@
-import type { Asset, PropPhysics, Transform, Vec3 } from "@ggez/shared";
-import { resolveInstancingSourceNode, resolveSceneGraph, vec3 } from "@ggez/shared";
+import type { Asset, PropPhysics, Transform, Vec3, WorldLodSettings } from "@ggez/shared";
+import { HIGH_MODEL_LOD_LEVEL, resolveInstancingSourceNode, resolveSceneGraph, vec3 } from "@ggez/shared";
 import {
   AmbientLight,
   BackSide,
@@ -42,7 +42,7 @@ import type {
   WebHammerExportMaterial,
   WebHammerExportModelLod
 } from "./types";
-import type { WebHammerSceneLoaderOptions, WebHammerSceneLodOptions } from "./loader";
+import { resolveConfiguredSceneLodLevels, type WebHammerSceneLoaderOptions, type WebHammerSceneLodOptions } from "./loader";
 
 type TextureSlot = "baseColorTexture" | "metallicRoughnessTexture" | "normalTexture";
 
@@ -115,7 +115,7 @@ export type WebHammerSceneObjectFactory = {
 };
 
 export function createWebHammerSceneObjectFactory(
-  engineScene: Pick<WebHammerEngineScene, "assets" | "nodes">,
+  engineScene: Pick<WebHammerEngineScene, "assets" | "nodes" | "settings">,
   options: WebHammerSceneObjectFactoryOptions = {}
 ): WebHammerSceneObjectFactory {
   const resources: WebHammerSceneObjectFactoryResources = {
@@ -127,7 +127,7 @@ export function createWebHammerSceneObjectFactory(
 
   return {
     createInstancingObjects: () => createInstancingObjects(engineScene, resources, options),
-    createNodeObject: (node, overrides) => createObjectForNode(node, resources, options, overrides)
+    createNodeObject: (node, overrides) => createObjectForNode(node, resources, options, engineScene.settings.world.lod, overrides)
   };
 }
 
@@ -137,6 +137,7 @@ async function createObjectForNode(
   node: WebHammerEngineNode,
   resources: WebHammerSceneObjectFactoryResources,
   options: WebHammerSceneObjectFactoryOptions,
+  worldLodSettings: WorldLodSettings,
   overrides?: CreateNodeObjectOverrides
 ) {
   const anchor = new Group();
@@ -181,11 +182,11 @@ async function createObjectForNode(
   }
 
   if (node.kind === "model") {
-    content.add(createLazyModelObject(node, resources, options));
+    content.add(createLazyModelObject(node, resources, options, worldLodSettings));
     return anchor;
   }
 
-  const lodObject = await createLodObjectForGeometryNode(node, resources, options);
+  const lodObject = await createLodObjectForGeometryNode(node, resources, options, worldLodSettings);
 
   if (lodObject) {
     content.add(lodObject);
@@ -195,7 +196,7 @@ async function createObjectForNode(
 }
 
 async function createInstancingObjects(
-  engineScene: Pick<WebHammerEngineScene, "assets" | "nodes">,
+  engineScene: Pick<WebHammerEngineScene, "assets" | "nodes" | "settings">,
   resources: WebHammerSceneObjectFactoryResources,
   options: WebHammerSceneObjectFactoryOptions
 ) {
@@ -240,8 +241,8 @@ async function createInstancingObjects(
 
     const object =
       exportedSourceNode.kind === "model"
-        ? await createInstancedObjectForModelNode(exportedSourceNode, instances, sceneGraph, resources, options)
-        : await createInstancedObjectForGeometryNode(exportedSourceNode, instances, sceneGraph, resources, options);
+        ? await createInstancedObjectForModelNode(exportedSourceNode, instances, sceneGraph, resources, options, engineScene.settings.world.lod)
+        : await createInstancedObjectForGeometryNode(exportedSourceNode, instances, sceneGraph, resources, options, engineScene.settings.world.lod);
 
     if (object) {
       objects.push(object);
@@ -256,12 +257,13 @@ async function createInstancedObjectForGeometryNode(
   instances: Array<Extract<WebHammerEngineNode, { kind: "instancing" }>>,
   sceneGraph: ReturnType<typeof resolveSceneGraph>,
   resources: WebHammerSceneObjectFactoryResources,
-  options: WebHammerSceneObjectFactoryOptions
+  options: WebHammerSceneObjectFactoryOptions,
+  worldLodSettings: WorldLodSettings
 ) {
   const baseGroup = await createInstancedGeometryObject(sourceNode.geometry, sourceNode, instances, sceneGraph, resources, options);
-  const lodOptions = resolveSceneLodOptions(options.lod);
+  const configuredLevels = resolveConfiguredSceneLodLevels(options.lod, worldLodSettings);
 
-  if (!lodOptions || !sourceNode.lods?.length) {
+  if (!configuredLevels?.length || !sourceNode.lods?.length) {
     return baseGroup;
   }
 
@@ -280,8 +282,11 @@ async function createInstancedObjectForGeometryNode(
       options,
       level
     );
-    const distance = level.level === "mid" ? lodOptions.midDistance : lodOptions.lowDistance;
-    lod.addLevel(levelGroup, distance);
+    const distance = configuredLevels.find((entry) => entry.level === level.level)?.distance;
+
+    if (typeof distance === "number") {
+      lod.addLevel(levelGroup, distance);
+    }
   }
 
   lod.userData.webHammer = {
@@ -351,9 +356,10 @@ async function createInstancedObjectForModelNode(
   instances: Array<Extract<WebHammerEngineNode, { kind: "instancing" }>>,
   sceneGraph: ReturnType<typeof resolveSceneGraph>,
   resources: WebHammerSceneObjectFactoryResources,
-  options: WebHammerSceneObjectFactoryOptions
+  options: WebHammerSceneObjectFactoryOptions,
+  worldLodSettings: WorldLodSettings
 ) {
-  return createLazyInstancedModelObject(sourceNode, instances, sceneGraph, resources, options);
+  return createLazyInstancedModelObject(sourceNode, instances, sceneGraph, resources, options, worldLodSettings);
 }
 
 async function createInstancedModelObject(
@@ -411,12 +417,13 @@ async function createInstancedModelObject(
 async function createLodObjectForGeometryNode(
   node: WebHammerEngineGeometryNode,
   resources: WebHammerSceneObjectFactoryResources,
-  options: WebHammerSceneObjectFactoryOptions
+  options: WebHammerSceneObjectFactoryOptions,
+  worldLodSettings: WorldLodSettings
 ) {
   const baseGroup = await createGeometryObject(node.geometry, node, resources, options);
-  const lodOptions = resolveSceneLodOptions(options.lod);
+  const configuredLevels = resolveConfiguredSceneLodLevels(options.lod, worldLodSettings);
 
-  if (!lodOptions || !node.lods?.length) {
+  if (!configuredLevels?.length || !node.lods?.length) {
     return baseGroup;
   }
 
@@ -427,8 +434,11 @@ async function createLodObjectForGeometryNode(
 
   for (const level of node.lods) {
     const levelGroup = await createGeometryObject(level.geometry, node, resources, options, level);
-    const distance = level.level === "mid" ? lodOptions.midDistance : lodOptions.lowDistance;
-    lod.addLevel(levelGroup, distance);
+    const distance = configuredLevels.find((entry) => entry.level === level.level)?.distance;
+
+    if (typeof distance === "number") {
+      lod.addLevel(levelGroup, distance);
+    }
   }
 
   lod.userData.webHammer = {
@@ -769,10 +779,11 @@ function createMissingModelFallback(asset: Asset | undefined, name = "Missing Mo
 function createLazyModelObject(
   node: WebHammerEngineModelNode,
   resources: WebHammerSceneObjectFactoryResources,
-  options: WebHammerSceneObjectFactoryOptions
+  options: WebHammerSceneObjectFactoryOptions,
+  worldLodSettings: WorldLodSettings
 ) {
   const fallback = createMissingModelFallback(resources.assetsById.get(node.data.assetId), `${node.name}:loading`);
-  const descriptors = resolveRuntimeModelLevelDescriptors(node, options.lod);
+  const descriptors = resolveRuntimeModelLevelDescriptors(node, options.lod, worldLodSettings);
 
   return createLazyRuntimeModelGroup({
     descriptors,
@@ -794,9 +805,10 @@ function createLazyInstancedModelObject(
   instances: Array<Extract<WebHammerEngineNode, { kind: "instancing" }>>,
   sceneGraph: ReturnType<typeof resolveSceneGraph>,
   resources: WebHammerSceneObjectFactoryResources,
-  options: WebHammerSceneObjectFactoryOptions
+  options: WebHammerSceneObjectFactoryOptions,
+  worldLodSettings: WorldLodSettings,
 ) {
-  const descriptors = resolveRuntimeModelLevelDescriptors(sourceNode, options.lod);
+  const descriptors = resolveRuntimeModelLevelDescriptors(sourceNode, options.lod, worldLodSettings);
   const fallback = new Group();
   const center = computeInstancedBatchCenter(instances, sceneGraph);
 
@@ -901,38 +913,35 @@ function resolveDesiredRuntimeModelLevelDescriptor(
 
 function resolveRuntimeModelLevelDescriptors(
   node: WebHammerEngineModelNode,
-  lod?: WebHammerSceneLodOptions
+  lod: WebHammerSceneLodOptions | undefined,
+  worldLodSettings: WorldLodSettings
 ) {
-  const lodOptions = resolveSceneLodOptions(lod);
   const descriptors: RuntimeModelLevelDescriptor[] = [
     {
       distance: 0,
-      key: "high"
+      key: HIGH_MODEL_LOD_LEVEL
     }
   ];
 
-  if (!lodOptions) {
+  const configuredLevels = resolveConfiguredSceneLodLevels(lod, worldLodSettings);
+
+  if (!configuredLevels?.length) {
     return descriptors;
   }
 
-  const mid = node.lods?.find((level) => level.level === "mid");
-  const low = node.lods?.find((level) => level.level === "low");
+  configuredLevels.forEach((configuredLevel) => {
+    const reference = node.lods?.find((level) => level.level === configuredLevel.level);
 
-  if (mid) {
-    descriptors.push({
-      distance: lodOptions.midDistance,
-      key: "mid",
-      reference: mid
-    });
-  }
+    if (!reference) {
+      return;
+    }
 
-  if (low) {
     descriptors.push({
-      distance: lodOptions.lowDistance,
-      key: "low",
-      reference: low
+      distance: configuredLevel.distance,
+      key: configuredLevel.level,
+      reference
     });
-  }
+  });
 
   return descriptors;
 }
@@ -1049,20 +1058,6 @@ function composeTransformMatrix(transform: Transform) {
   tempInstanceScale.set(transform.scale.x, transform.scale.y, transform.scale.z);
 
   return new Matrix4().compose(tempInstancePosition, tempInstanceQuaternion, tempInstanceScale);
-}
-
-function resolveSceneLodOptions(lod?: WebHammerSceneLodOptions): WebHammerSceneLodOptions | undefined {
-  if (!lod) {
-    return undefined;
-  }
-
-  const midDistance = Math.max(0, lod.midDistance);
-  const lowDistance = Math.max(midDistance + 0.01, lod.lowDistance);
-
-  return {
-    lowDistance,
-    midDistance
-  };
 }
 
 function resolveMaterialSide(side?: WebHammerExportMaterial["side"]) {

@@ -1,4 +1,4 @@
-import type { Asset, MaterialRenderSide, PropPhysics, SceneSkyboxSettings, Transform, Vec3 } from "@ggez/shared";
+import type { Asset, MaterialRenderSide, PropPhysics, SceneSkyboxSettings, Transform, Vec3, WorldLodSettings } from "@ggez/shared";
 import { resolveInstancingSourceNode, resolveSceneGraph, vec3 } from "@ggez/shared";
 import {
   AmbientLight,
@@ -93,9 +93,43 @@ export type WebHammerSceneLoaderOptions = {
 };
 
 export type WebHammerSceneLodOptions = {
-  lowDistance: number;
-  midDistance: number;
+  levels?: Array<{ distance: number; level: string }>;
+  lowDistance?: number;
+  midDistance?: number;
 };
+
+export function resolveConfiguredSceneLodLevels(
+  lod: WebHammerSceneLodOptions | undefined,
+  worldLod: WorldLodSettings | undefined
+) {
+  if (Array.isArray(lod?.levels) && lod.levels.length > 0) {
+    return [...lod.levels]
+      .filter((level) => typeof level.level === "string" && level.level.length > 0)
+      .sort((left, right) => left.distance - right.distance);
+  }
+
+  if (typeof lod?.midDistance === "number" || typeof lod?.lowDistance === "number") {
+    const midDistance = Math.max(0, lod?.midDistance ?? 10);
+    const lowDistance = Math.max(midDistance + 0.01, lod?.lowDistance ?? 30);
+
+    return [
+      { distance: midDistance, level: "mid" },
+      { distance: lowDistance, level: "low" }
+    ];
+  }
+
+  if (!worldLod?.enabled) {
+    return undefined;
+  }
+
+  return [...worldLod.levels]
+    .filter((level) => typeof level.id === "string" && level.id.length > 0)
+    .sort((left, right) => left.distance - right.distance)
+    .map((level) => ({
+      distance: level.distance,
+      level: level.id
+    }));
+}
 
 export type ThreeRuntimeSceneInstance = {
   audioDescriptors: RuntimeAudioDescriptor[];
@@ -880,10 +914,11 @@ function resolveSceneLodOptions(lod?: WebHammerSceneLodOptions): WebHammerSceneL
     return undefined;
   }
 
-  const midDistance = Math.max(0, lod.midDistance);
-  const lowDistance = Math.max(midDistance + 0.01, lod.lowDistance);
+  const midDistance = Math.max(0, lod.midDistance ?? 10);
+  const lowDistance = Math.max(midDistance + 0.01, lod.lowDistance ?? 30);
 
   return {
+    levels: lod.levels,
     lowDistance,
     midDistance
   };

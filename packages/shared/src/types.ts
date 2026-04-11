@@ -304,11 +304,15 @@ export type SceneSkyboxSettings = {
   source: string;
 };
 
+export type WorldLodLevelDefinition = {
+  distance: number;
+  id: string;
+  label: string;
+};
+
 export type WorldLodSettings = {
-  bakedAt?: string;
   enabled: boolean;
-  lowDetailRatio: number;
-  midDetailRatio: number;
+  levels: WorldLodLevelDefinition[];
 };
 
 export type WorldSettings = {

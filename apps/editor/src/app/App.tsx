@@ -51,6 +51,7 @@ import {
   type ViewportState
 } from "@ggez/render-pipeline";
 import {
+  buildModelLodLevelOrder,
   createSerializedModelAssetFiles,
   type BrushShape,
   type GeometryNode,
@@ -61,8 +62,10 @@ import {
   isModelNode,
   isPrimitiveNode,
   makeTransform,
+  HIGH_MODEL_LOD_LEVEL,
   type ModelAssetFile,
   type ModelLodLevel,
+  type WorldLodLevelDefinition,
   type Material,
   type MeshNode,
   type ModelNode,
@@ -853,8 +856,8 @@ export function App() {
     }
 
     try {
-      const resolvedFiles = await resolveImportedModelFiles(files);
-      const primaryFile = resolvedFiles.find((entry) => entry.level === "high") ?? resolvedFiles[0];
+      const resolvedFiles = await resolveImportedModelFiles(files, editor.scene.settings.world.lod.levels);
+      const primaryFile = resolvedFiles.find((entry) => entry.level === HIGH_MODEL_LOD_LEVEL) ?? resolvedFiles[0];
 
       if (!primaryFile) {
         return;
@@ -908,7 +911,11 @@ export function App() {
     modelLodInputRef.current?.click();
   };
 
-  const handleClearAssetLod = (assetId: string, level: Exclude<ModelLodLevel, "high">) => {
+  const handleClearAssetLod = (assetId: string, level: ModelLodLevel) => {
+    if (level === HIGH_MODEL_LOD_LEVEL) {
+      return;
+    }
+
     const asset = editor.scene.assets.get(assetId);
 
     if (!asset || asset.type !== "model") {
@@ -950,7 +957,7 @@ export function App() {
         } satisfies ModelAssetFile
       ]);
 
-      const bounds = pendingUpload.level === "high"
+      const bounds = pendingUpload.level === HIGH_MODEL_LOD_LEVEL
         ? await analyzeModelSource({ format, path })
         : undefined;
       const nextAsset = updateModelAssetFiles(asset, nextFiles, bounds);
@@ -1994,7 +2001,7 @@ export function App() {
   );
 }
 
-async function resolveImportedModelFiles(files: File[]) {
+async function resolveImportedModelFiles(files: File[], configuredLevels: WorldLodLevelDefinition[]) {
   const resolvedEntries = await Promise.all(
     files.map(async (file) => ({
       file,
@@ -2003,11 +2010,14 @@ async function resolveImportedModelFiles(files: File[]) {
     }))
   );
   const filesByLevel = new Map<ModelLodLevel, ModelAssetFile>();
+  const availableLevels = buildModelLodLevelOrder([HIGH_MODEL_LOD_LEVEL, ...configuredLevels.map((level) => level.id)]);
 
   resolvedEntries.forEach((entry, index) => {
     const inferredLevel = inferModelLodLevelFromFileName(entry.file.name);
-    const fallbackLevel = (["high", "mid", "low"] as ModelLodLevel[]).find((level) => !filesByLevel.has(level));
-    const level = filesByLevel.has(inferredLevel) ? fallbackLevel ?? inferredLevel : inferredLevel;
+    const exactLevelMatch = configuredLevels.find((level) => entry.file.name.toLowerCase().includes(level.id.toLowerCase()));
+    const desiredLevel = exactLevelMatch?.id ?? inferredLevel;
+    const fallbackLevel = availableLevels.find((level) => !filesByLevel.has(level));
+    const level = filesByLevel.has(desiredLevel) ? fallbackLevel ?? desiredLevel : desiredLevel;
 
     filesByLevel.set(level, {
       format: entry.format,
@@ -2015,22 +2025,22 @@ async function resolveImportedModelFiles(files: File[]) {
       path: entry.path
     });
 
-    if (index === 0 && !filesByLevel.has("high")) {
-      filesByLevel.set("high", {
+    if (index === 0 && !filesByLevel.has(HIGH_MODEL_LOD_LEVEL)) {
+      filesByLevel.set(HIGH_MODEL_LOD_LEVEL, {
         format: entry.format,
-        level: "high",
+        level: HIGH_MODEL_LOD_LEVEL,
         path: entry.path
       });
     }
   });
 
-  if (!filesByLevel.has("high")) {
+  if (!filesByLevel.has(HIGH_MODEL_LOD_LEVEL)) {
     const firstFile = filesByLevel.values().next().value;
 
     if (firstFile) {
-      filesByLevel.set("high", {
+      filesByLevel.set(HIGH_MODEL_LOD_LEVEL, {
         ...firstFile,
-        level: "high"
+        level: HIGH_MODEL_LOD_LEVEL
       });
     }
   }
@@ -2048,7 +2058,7 @@ function updateModelAssetFiles(
   bounds?: Awaited<ReturnType<typeof analyzeModelSource>>
 ): Asset {
   const nextFiles = dedupeModelFiles(files);
-  const primaryFile = nextFiles.find((file) => file.level === "high") ?? nextFiles[0];
+  const primaryFile = nextFiles.find((file) => file.level === HIGH_MODEL_LOD_LEVEL) ?? nextFiles[0];
 
   if (!primaryFile) {
     return structuredClone(asset);

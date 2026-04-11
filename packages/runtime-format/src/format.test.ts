@@ -53,10 +53,11 @@ function createScene(version = CURRENT_RUNTIME_SCENE_VERSION): RuntimeScene {
         fogNear: 0,
         gravity: vec3(0, -9.81, 0),
         lod: {
-          bakedAt: "",
-          enabled: false,
-          lowDetailRatio: 0.2,
-          midDetailRatio: 0.5
+          enabled: true,
+          levels: [
+            { distance: 24, id: "mid", label: "Mid" },
+            { distance: 64, id: "low", label: "Low" }
+          ]
         },
         physicsEnabled: true,
         skybox: {

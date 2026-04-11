@@ -706,14 +706,14 @@ async function buildExportGeometry(
 
 async function buildGeometryLods(
   geometry: WebHammerExportGeometry,
-  settings: SceneDocumentSnapshot["settings"]["world"]["lod"]
+  _settings: SceneDocumentSnapshot["settings"]["world"]["lod"]
 ): Promise<WebHammerExportGeometryLod[] | undefined> {
   if (!geometry.primitives.length) {
     return undefined;
   }
 
-  const midGeometry = simplifyExportGeometry(geometry, settings.midDetailRatio);
-  const lowGeometry = simplifyExportGeometry(geometry, settings.lowDetailRatio);
+  const midGeometry = simplifyExportGeometry(geometry, 0.52);
+  const lowGeometry = simplifyExportGeometry(geometry, 0.22);
   const lods: WebHammerExportGeometryLod[] = [];
 
   if (midGeometry) {
@@ -737,7 +737,7 @@ async function buildModelLods(
   name: string,
   asset: Asset | undefined,
   nodeId: string,
-  settings: SceneDocumentSnapshot["settings"]["world"]["lod"]
+  _settings: SceneDocumentSnapshot["settings"]["world"]["lod"]
 ): Promise<{ assets: Asset[]; lods?: WebHammerExportModelLod[] }> {
   if (!asset?.path) {
     return { assets: [], lods: undefined };
@@ -747,8 +747,8 @@ async function buildModelLods(
   const bakedLevels: Array<{ asset: Asset; level: WebHammerExportModelLod["level"] }> = [];
 
   for (const [level, ratio] of [
-    ["mid", settings.midDetailRatio],
-    ["low", settings.lowDetailRatio]
+    ["mid", 0.52],
+    ["low", 0.22]
   ] as const) {
     const simplified = simplifyModelSceneForRatio(source, ratio);
 
