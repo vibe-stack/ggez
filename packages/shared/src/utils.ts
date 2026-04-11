@@ -434,7 +434,7 @@ function normalizeWorldLodSettings(lod?: Partial<WorldSettings["lod"]> | WorldSe
   return {
     ...defaults,
     ...lod,
-    enabled: Boolean(lod?.enabled),
+    enabled: lod?.enabled != null ? Boolean(lod.enabled) : defaults.enabled,
     levels:
       normalizedLevels.length > 0
         ? normalizedLevels

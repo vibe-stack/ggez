@@ -174,29 +174,29 @@ export function WorldSettingsPanel({
             }}
           />
           {!draftWorldSettings.lod.enabled && (
-            <div className="flex items-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/8 px-3 py-2 text-[11px] text-amber-300/80">
+            <div className="flex items-center gap-2 rounded-xl bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300/80">
               LOD switching is off — all models render at High quality regardless of distance.
             </div>
           )}
-          <div className="rounded-xl border border-white/8 bg-white/4 px-3 py-2 text-[11px] text-foreground/60">
+          <div className="rounded-xl bg-white/4 px-3 py-2 text-[11px] text-foreground/60">
             Author explicit mesh tiers in the Assets library. These world settings decide which
             named tiers exist and the distance at which each one takes over.
           </div>
           <div className="space-y-2">
-            <div className="rounded-xl border border-white/8 bg-black/16 px-3 py-2 text-[11px] text-foreground/64">
+            <div className="rounded-xl bg-white/4 px-3 py-2 text-[11px] text-foreground/64">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="font-medium text-foreground/76">High</div>
                   <div>Base mesh. Always active at the closest distance.</div>
                 </div>
-                <div className="rounded-full border border-white/10 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-foreground/52">
+                <div className="rounded-full bg-white/8 px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-foreground/52">
                   0m
                 </div>
               </div>
             </div>
             {draftWorldSettings.lod.levels.map((level, index) => (
               <div
-                className="rounded-xl border border-white/8 bg-black/16 px-3 py-3"
+                className="rounded-xl bg-white/4 px-3 py-3"
                 key={level.id}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -319,7 +319,7 @@ export function WorldSettingsPanel({
               })
             }
           />
-          <div className="rounded-xl border border-white/8 bg-white/4 px-3 py-2 text-[11px] text-foreground/56">
+          <div className="rounded-xl bg-white/4 px-3 py-2 text-[11px] text-foreground/56">
             HDRs are best when you want image-based lighting. Leave `Affect Lighting` off to use
             the skybox as backdrop only.
           </div>

@@ -72,8 +72,8 @@ const EVENT_SCOPE_OPTIONS = [
   { label: "Mission", value: "mission" }
 ] as const;
 
-const PANEL_SURFACE_CLASS = "rounded-2xl border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.02))]";
-const ROW_SURFACE_CLASS = "rounded-xl border border-white/6 bg-white/[0.03]";
+const PANEL_SURFACE_CLASS = "rounded-2xl bg-white/4";
+const ROW_SURFACE_CLASS = "rounded-xl bg-white/4";
 
 export function HooksPanel({
   entities,
@@ -283,7 +283,7 @@ export function EventsPanel({ onUpdateSceneSettings, sceneSettings }: EventsPane
             <PopoverTrigger render={<Button size="icon-xs" type="button" variant="ghost" />}>
               <SlidersHorizontal className="size-3.5" />
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-72 rounded-2xl border border-white/8 bg-[#10161d]/96 p-3">
+            <PopoverContent align="end" className="w-72 rounded-2xl bg-[#10161d]/96 p-3">
               <div className="space-y-3">
                 <TextInput
                   label="Category"
@@ -364,7 +364,7 @@ export function EventsPanel({ onUpdateSceneSettings, sceneSettings }: EventsPane
                 <PopoverTrigger render={<Button size="icon-xs" type="button" variant="ghost" />}>
                   <SlidersHorizontal className="size-3.5" />
                 </PopoverTrigger>
-                <PopoverContent align="end" className="w-72 rounded-2xl border border-white/8 bg-[#10161d]/96 p-3">
+                <PopoverContent align="end" className="w-72 rounded-2xl bg-[#10161d]/96 p-3">
                   <div className="space-y-3">
                     <TextInput
                       label="Category"
@@ -1615,7 +1615,7 @@ function FieldGroup({
 
 function Chip({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-full border border-white/8 bg-white/4 px-2 py-1 text-[10px] font-medium text-foreground/52">
+    <div className="rounded-full bg-white/6 px-2 py-1 text-[10px] font-medium text-foreground/52">
       {children}
     </div>
   );
@@ -1623,7 +1623,7 @@ function Chip({ children }: { children: ReactNode }) {
 
 function EmptyState({ title }: { title: string }) {
   return (
-    <div className="rounded-2xl border border-dashed border-white/10 bg-white/3 px-4 py-5">
+    <div className="rounded-xl bg-white/4 px-4 py-5">
       <div className="text-sm font-medium text-foreground">{title}</div>
     </div>
   );
@@ -1658,7 +1658,7 @@ function CompactSwitch({
   onCheckedChange: (checked: boolean) => void;
 }) {
   return (
-    <div className="flex items-center gap-2 rounded-full border border-white/8 bg-black/10 px-2 py-1">
+    <div className="flex items-center gap-2 rounded-full bg-white/6 px-2 py-1">
       <span className="text-[10px] font-medium text-foreground/44">{label}</span>
       <Switch checked={checked} onCheckedChange={onCheckedChange} />
     </div>
@@ -1679,7 +1679,7 @@ function InfoPopover({
       <PopoverTrigger render={<Button size="icon-xs" type="button" variant="ghost" />}>
         <CircleHelp className="size-3.5 text-foreground/42" />
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 rounded-2xl border border-white/8 bg-[#10161d]/96 p-3">
+      <PopoverContent align="end" className="w-72 rounded-2xl bg-[#10161d]/96 p-3">
         <PopoverHeader>
           <PopoverTitle className="text-sm text-foreground">{title}</PopoverTitle>
           <PopoverDescription className="text-xs leading-5 text-foreground/62">{description}</PopoverDescription>

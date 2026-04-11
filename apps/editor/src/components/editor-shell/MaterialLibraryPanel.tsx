@@ -656,7 +656,7 @@ export function MaterialLibraryPanel({
                 </div>
               </div>
               {selectedNode?.kind === "mesh" ? (
-                <div className="space-y-2 rounded-2xl border border-white/8 bg-white/3 p-3">
+                <div className="space-y-2 rounded-xl bg-white/4 p-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <div className="text-[10px] font-medium tracking-[0.16em] text-foreground/34 uppercase">
@@ -864,7 +864,7 @@ function MaterialEditorForm({
         <PanelLabel>Transparency</PanelLabel>
         <Button
           className={cn(
-            "w-full justify-between rounded-xl border border-white/10 bg-white/4 text-xs text-foreground/70 hover:bg-white/7",
+            "w-full justify-between rounded-xl bg-white/4 text-xs text-foreground/70 hover:bg-white/7",
             draftMaterial.transparent && "bg-emerald-500/14 text-emerald-200"
           )}
           onClick={() =>
@@ -910,7 +910,7 @@ function MaterialEditorForm({
       <div className="space-y-2">
         {TEXTURE_FIELDS.map(({ field, icon: Icon, label }) => (
           <div
-            className="flex items-center gap-2 rounded-2xl border border-white/8 bg-white/3 px-2 py-2"
+            className="flex items-center gap-2 rounded-xl bg-white/4 px-2 py-2"
             key={field}
           >
             <div

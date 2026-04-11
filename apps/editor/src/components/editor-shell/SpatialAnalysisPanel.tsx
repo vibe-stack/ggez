@@ -12,7 +12,7 @@ export function SpatialAnalysisPanel({
   return (
     <div className="pointer-events-none absolute left-4 top-20 z-30 w-80">
       <FloatingPanel className="overflow-hidden">
-        <div className="flex items-center justify-between border-b border-white/8 px-3.5 py-2.5">
+        <div className="flex items-center justify-between px-3.5 py-2.5">
           <div>
             <div className="text-[10px] font-medium tracking-[0.18em] text-foreground/42 uppercase">Spatial Analysis</div>
             <div className="mt-1 text-[11px] text-foreground/58">
@@ -31,7 +31,7 @@ export function SpatialAnalysisPanel({
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2 border-b border-white/8 px-3.5 py-3">
+        <div className="grid grid-cols-3 gap-2 px-3.5 py-3">
           <MetricTile icon={Layers3} label="Bands" value={String(analysis.elevationBands.length)} />
           <MetricTile icon={Route} label="Connectors" value={String(analysis.connectorValidations.length)} />
           <MetricTile icon={SquareStack} label="Walkable" value={String(analysis.walkableSurfaces.length)} />

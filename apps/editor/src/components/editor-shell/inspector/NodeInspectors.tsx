@@ -106,7 +106,7 @@ export function MeshPhysicsInspector({
           physics={physics}
         />
       ) : (
-        <div className="rounded-xl border border-white/8 bg-white/4 px-3 py-2 text-[11px] text-foreground/52">
+        <div className="rounded-xl bg-white/4 px-3 py-2 text-[11px] text-foreground/52">
           Enable physics to simulate this mesh at runtime.
         </div>
       )}
@@ -121,7 +121,7 @@ export function InstancingInspector({
 }) {
   return (
     <ToolSection title="Instancing">
-      <div className="rounded-xl border border-white/8 bg-white/4 px-3 py-2 text-[11px] text-foreground/56">
+      <div className="rounded-xl bg-white/4 px-3 py-2 text-[11px] text-foreground/56">
         This node instances{" "}
         <span className="font-mono text-foreground/72">{node.data.sourceNodeId}</span>. Only
         transform values are editable here.
@@ -386,7 +386,7 @@ function VfxEntityInspector({
 
   return (
     <ToolSection title="VFX">
-      <div className="rounded-lg border border-white/8 bg-black/10 p-3">
+      <div className="rounded-lg bg-white/4 p-3">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="text-[11px] font-medium text-foreground/86">Runtime Bundle</div>

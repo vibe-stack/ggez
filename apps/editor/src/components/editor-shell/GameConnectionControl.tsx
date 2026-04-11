@@ -166,7 +166,7 @@ function ForceSwitchRow(props: {
   const [forceSwitch, setForceSwitch] = React.useState(true);
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl border border-white/8 bg-white/4 px-3 py-2.5">
+    <div className="flex items-center justify-between gap-3 rounded-xl bg-white/5 px-3 py-2.5">
       <div className="min-w-0">
         <div className="text-sm text-foreground">Force Scene Switch</div>
         <div className="text-xs text-foreground/50">Reload the running game into this scene after the files land.</div>

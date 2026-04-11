@@ -59,15 +59,10 @@ export function ModelAssetBrowserPanel({
 
   return (
     <>
-      <div className="flex h-full min-h-0 flex-col gap-3">
-        <div className="flex items-center justify-between gap-2 rounded-2xl border border-white/8 bg-white/4 px-3 py-2.5">
-          <div className="min-w-0">
-            <div className="text-[10px] font-medium tracking-[0.18em] text-foreground/42 uppercase">Model Assets</div>
-            <div className="truncate text-sm text-foreground/84">
-              {selectedItem ? `${selectedItem.label} · ${selectedItem.files.length} file${selectedItem.files.length === 1 ? "" : "s"}` : "No model selected"}
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5">
+      <div className="flex h-full min-h-0 flex-col pt-10">
+        <div className="mb-2.5 flex shrink-0 items-center justify-between gap-2">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-foreground/38">Model Assets</div>
+          <div className="flex shrink-0 items-center gap-1">
             <Button className="gap-1.5" onClick={onImportAsset} size="xs" variant="ghost">
               <Upload className="size-3.5" />
               Import
@@ -79,44 +74,35 @@ export function ModelAssetBrowserPanel({
           </div>
         </div>
 
-        {selectedItem ? (
-          <CompactSelectionCard
-            item={selectedItem}
-            levelDefinitions={levelDefinitions}
-            onAssignAssetLod={onAssignAssetLod}
-            onClearAssetLod={onClearAssetLod}
-            onDeleteAsset={onDeleteAsset}
-            onFocusAssetNodes={onFocusAssetNodes}
-            onInsertAsset={onInsertAsset}
-          />
+        {items.length === 0 ? (
+          <div className="rounded-xl bg-white/4 px-4 py-10 text-center text-xs text-foreground/40">
+            Import a model to get started. Use the library to manage LOD files per asset.
+          </div>
         ) : (
-          <div className="rounded-2xl border border-dashed border-white/8 bg-white/3 px-4 py-8 text-center text-xs text-foreground/48">
-            Import a model once, then manage authored LOD files from the library.
-          </div>
+          <ScrollArea className="min-h-0 flex-1">
+            <div className="space-y-px">
+              {items.map((item) => (
+                <AssetRow
+                  item={item}
+                  key={item.asset.id}
+                  levelDefinitions={levelDefinitions}
+                  onFocusAssetNodes={onFocusAssetNodes}
+                  onInsertAsset={onInsertAsset}
+                  onSelectAsset={onSelectAsset}
+                  selected={selectedItem?.asset.id === item.asset.id}
+                />
+              ))}
+            </div>
+          </ScrollArea>
         )}
-
-        <ScrollArea className="min-h-0 flex-1 pr-1">
-          <div className="space-y-1.5 px-1 pb-1">
-            {items.map((item) => (
-              <AssetRow
-                item={item}
-                key={item.asset.id}
-                onFocusAssetNodes={onFocusAssetNodes}
-                onInsertAsset={onInsertAsset}
-                onSelectAsset={onSelectAsset}
-                selected={selectedItem?.asset.id === item.asset.id}
-              />
-            ))}
-          </div>
-        </ScrollArea>
       </div>
 
-      <Dialog onOpenChange={setLibraryOpen} open={libraryOpen}>
-        <DialogContent className="h-[min(48rem,calc(100vh-2rem))] max-w-[min(84rem,calc(100vw-2rem))] rounded-2xl border border-white/10 bg-[#08110e]/96 p-0 text-foreground shadow-[0_28px_90px_rgba(0,0,0,0.48)]" showCloseButton={false}>
-          <DialogHeader className="flex-row items-center justify-between border-b border-white/8 px-5 py-4">
+      <Dialog onOpenChange={setLibraryOpen} open={libraryOpen} modal>
+        <DialogContent className="flex h-[min(54rem,calc(100vh-2rem))] flex-col rounded-2xl bg-[#08110e]/96 p-0 text-foreground shadow-[0_32px_96px_rgba(0,0,0,0.56)] sm:max-w-[min(90rem,calc(100vw-2rem))]" showCloseButton={false}>
+          <DialogHeader className="flex-row items-center justify-between px-6 py-4">
             <div>
-              <DialogTitle>Model Library</DialogTitle>
-              <div className="mt-1 text-xs text-foreground/58">Author one asset with explicit high, mid, and low source files.</div>
+              <DialogTitle className="text-base">Model Library</DialogTitle>
+              <div className="mt-0.5 text-xs text-foreground/46">Author one asset with explicit high, mid, and low source files.</div>
             </div>
             <div className="flex items-center gap-2">
               <Button className="gap-1.5" onClick={onImportAsset} size="xs" variant="ghost">
@@ -129,14 +115,15 @@ export function ModelAssetBrowserPanel({
             </div>
           </DialogHeader>
 
-          <div className="grid min-h-0 flex-1 gap-0 md:grid-cols-[20rem_minmax(0,1fr)]">
-            <div className="border-r border-white/8 bg-black/14">
+          <div className="flex min-h-0 flex-1 overflow-hidden">
+            <div className="w-72 shrink-0 overflow-hidden bg-black/20">
               <ScrollArea className="h-full px-3 py-3">
-                <div className="space-y-2 pb-2">
+                <div className="space-y-px pb-2">
                   {items.map((item) => (
                     <AssetRow
                       item={item}
                       key={item.asset.id}
+                      levelDefinitions={levelDefinitions}
                       onFocusAssetNodes={onFocusAssetNodes}
                       onInsertAsset={onInsertAsset}
                       onSelectAsset={onSelectAsset}
@@ -147,7 +134,7 @@ export function ModelAssetBrowserPanel({
               </ScrollArea>
             </div>
 
-            <div className="min-h-0">
+            <div className="min-w-0 flex-1">
               {selectedItem ? (
                 <ModelAssetDetailPane
                   item={selectedItem}
@@ -169,119 +156,92 @@ export function ModelAssetBrowserPanel({
   );
 }
 
-function CompactSelectionCard({
-  item,
-  levelDefinitions,
-  onAssignAssetLod,
-  onClearAssetLod,
-  onDeleteAsset,
-  onFocusAssetNodes,
-  onInsertAsset
-}: {
-  item: ModelAssetLibraryItem;
-  levelDefinitions: WorldLodLevelDefinition[];
-  onAssignAssetLod: (assetId: string, level: ModelLodLevel) => void;
-  onClearAssetLod: (assetId: string, level: ModelLodLevel) => void;
-  onDeleteAsset: (assetId: string) => void;
-  onFocusAssetNodes: (assetId: string) => void;
-  onInsertAsset: (assetId: string) => void;
-}) {
-  return (
-    <div className="rounded-2xl border border-white/8 bg-white/4 px-3 py-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-medium text-foreground/88">{item.label}</div>
-          <div className="mt-1 text-xs text-foreground/54">
-            {item.usageCount} placement{item.usageCount === 1 ? "" : "s"} · {item.source}
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <Button className="gap-1.5" onClick={() => onInsertAsset(item.asset.id)} size="xs" variant="ghost">
-            <Plus className="size-3.5" />
-            Place
-          </Button>
-          {item.usageCount > 0 ? (
-            <Button className="gap-1.5" onClick={() => onFocusAssetNodes(item.asset.id)} size="xs" variant="ghost">
-              <Crosshair className="size-3.5" />
-              Focus
-            </Button>
-          ) : (
-            <Button className="gap-1.5 text-destructive" onClick={() => onDeleteAsset(item.asset.id)} size="xs" variant="ghost">
-              <Trash2 className="size-3.5" />
-              Delete
-            </Button>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-2 text-xs">
-        {resolveLevelDefinitionsForItem(levelDefinitions, item.files).map((level) => {
-          const file = item.files.find((entry) => entry.level === level.id);
-          return (
-            <div className="rounded-full border border-white/8 bg-black/18 px-2.5 py-1.5" key={level.id}>
-              <span className="text-foreground/52">{level.label}</span>{" "}
-              <span className="text-foreground/82">{file ? describeAssetFileSource(file) : "Missing"}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 function AssetRow({
   item,
+  levelDefinitions,
   onFocusAssetNodes,
   onInsertAsset,
   onSelectAsset,
   selected
 }: {
   item: ModelAssetLibraryItem;
+  levelDefinitions: WorldLodLevelDefinition[];
   onFocusAssetNodes: (assetId: string) => void;
   onInsertAsset: (assetId: string) => void;
   onSelectAsset: (assetId: string) => void;
   selected: boolean;
 }) {
+  const levelsForItem = useMemo(
+    () => resolveLevelDefinitionsForItem(levelDefinitions, item.files),
+    [levelDefinitions, item.files]
+  );
+
   return (
     <button
       className={cn(
-        "flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 text-left transition-colors",
-        selected ? "border-emerald-400/24 bg-emerald-500/10" : "border-white/8 bg-white/3 hover:border-white/14 hover:bg-white/4"
+        "group flex w-full flex-col gap-1 rounded-lg px-2.5 py-2 text-left transition-colors",
+        selected ? "bg-emerald-500/10" : "hover:bg-white/4"
       )}
       onClick={() => onSelectAsset(item.asset.id)}
       type="button"
     >
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium text-foreground/88">{item.label}</div>
-        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-foreground/54">
-          <span>{item.usageCount} placed</span>
-          <span>{item.files.length} file{item.files.length === 1 ? "" : "s"}</span>
-          <span>{item.source}</span>
+      <div className="flex w-full items-center gap-2">
+        <span
+          className={cn(
+            "flex-1 truncate text-sm font-medium",
+            selected ? "text-foreground/95" : "text-foreground/80"
+          )}
+        >
+          {item.label}
+        </span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {levelsForItem.map((level) => {
+            const hasFile = item.files.some((f) => f.level === level.id);
+            return (
+              <span
+                className={cn(
+                  "text-[9px] font-bold uppercase tracking-wider",
+                  hasFile ? "text-emerald-400/75" : "text-foreground/20"
+                )}
+                key={level.id}
+              >
+                {level.label.charAt(0)}
+              </span>
+            );
+          })}
+        </div>
+        <div className="flex shrink-0 items-center gap-0 opacity-0 transition-opacity group-hover:opacity-100">
+          <Button
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onInsertAsset(item.asset.id);
+            }}
+            size="icon-xs"
+            variant="ghost"
+          >
+            <Plus className="size-3.5" />
+          </Button>
+          <Button
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onFocusAssetNodes(item.asset.id);
+            }}
+            size="icon-xs"
+            variant="ghost"
+          >
+            <Crosshair className="size-3.5" />
+          </Button>
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <Button
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onInsertAsset(item.asset.id);
-          }}
-          size="icon-xs"
-          variant="ghost"
-        >
-          <Plus className="size-3.5" />
-        </Button>
-        <Button
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onFocusAssetNodes(item.asset.id);
-          }}
-          size="icon-xs"
-          variant="ghost"
-        >
-          <Crosshair className="size-3.5" />
-        </Button>
+      <div className="text-[10px] text-foreground/40">
+        {item.usageCount} placed
+        {" · "}
+        {item.files.length} file{item.files.length === 1 ? "" : "s"}
+        {" · "}
+        {item.source}
       </div>
     </button>
   );
@@ -316,21 +276,20 @@ function ModelAssetDetailPane({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="grid gap-5 border-b border-white/8 px-5 py-5 lg:grid-cols-[minmax(18rem,28rem)_minmax(0,1fr)]">
-        <div className="overflow-hidden rounded-3xl border border-white/8 bg-[radial-gradient(circle_at_top,rgba(110,231,183,0.14),transparent_34%),linear-gradient(180deg,#07100d_0%,#050806_100%)]">
-          <div className="flex items-center justify-between border-b border-white/8 px-4 py-3">
-            <div>
-              <div className="text-sm font-medium text-foreground/88">Preview</div>
-              <div className="text-xs text-foreground/52">Single shared canvas with the configured authored level set.</div>
-            </div>
-            <div className="flex items-center gap-1 rounded-xl bg-black/20 p-1">
+      {/* Top section: preview + asset info side by side */}
+      <div className="flex shrink-0 items-start gap-6 px-6 pt-6 pb-5">
+        {/* Preview canvas */}
+        <div className="w-64 shrink-0 overflow-hidden rounded-2xl bg-[radial-gradient(circle_at_top,rgba(110,231,183,0.10),transparent_40%),linear-gradient(180deg,#07100d_0%,#050806_100%)]">
+          <div className="flex items-center justify-between px-3 py-2.5">
+            <div className="text-xs font-medium text-foreground/60">Preview</div>
+            <div className="flex items-center gap-px rounded-lg bg-black/30 p-0.5">
               {resolvedLevelDefinitions.map((level) => {
                 const hasFile = item.files.some((file) => file.level === level.id);
                 return (
                   <Button
                     className={cn(
-                      "px-2.5 uppercase",
-                      previewLevel === level.id && "bg-emerald-500/18 text-emerald-100"
+                      "h-6 min-w-7 px-1.5 text-[9px] font-bold uppercase tracking-wider",
+                      previewLevel === level.id ? "bg-emerald-500/20 text-emerald-200" : "text-foreground/40"
                     )}
                     disabled={!hasFile}
                     key={level.id}
@@ -338,43 +297,44 @@ function ModelAssetDetailPane({
                     size="xs"
                     variant="ghost"
                   >
-                    {level.label}
+                    {level.label.charAt(0)}
                   </Button>
                 );
               })}
             </div>
           </div>
-          <div className="aspect-16/11">
+          <div className="aspect-square">
             {scene ? (
               <Canvas camera={{ fov: 28, position: resolvePreviewCameraPosition(bounds?.size) }} dpr={[1, 1.5]}>
-                <color args={["#09100d"]} attach="background" />
-                <ambientLight intensity={1.15} />
-                <directionalLight intensity={1.8} position={[4, 6, 5]} />
-                <directionalLight intensity={0.65} position={[-4, 2, -3]} />
+                <color args={["#060c0a"]} attach="background" />
+                <ambientLight intensity={1.2} />
+                <directionalLight intensity={2.0} position={[4, 6, 5]} />
+                <directionalLight intensity={0.5} position={[-4, 2, -3]} />
                 <group rotation={[0.18, 0.68, 0]}>
                   <primitive object={scene} position={resolvePreviewOffset(bounds)} />
                 </group>
               </Canvas>
             ) : (
-              <div className="flex h-full items-center justify-center text-foreground/36">
-                <Loader2 className="size-4 animate-spin" />
+              <div className="flex h-full items-center justify-center text-foreground/30">
+                <Loader2 className="size-5 animate-spin" />
               </div>
             )}
           </div>
         </div>
 
-        <div className="min-w-0 space-y-4">
+        {/* Asset info */}
+        <div className="flex min-w-0 flex-1 flex-col gap-5 pt-1">
           <div>
-            <div className="text-[10px] font-medium tracking-[0.18em] text-foreground/42 uppercase">Model Asset</div>
-            <div className="mt-1 text-xl font-medium text-foreground">{item.label}</div>
-            <div className="mt-2 flex flex-wrap gap-2 text-xs text-foreground/56">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-foreground/36">Model Asset</div>
+            <div className="mt-1.5 text-2xl font-semibold leading-tight text-foreground">{item.label}</div>
+            <div className="mt-3 flex flex-wrap gap-1.5 text-xs text-foreground/52">
               <InfoPill>{item.source}</InfoPill>
               <InfoPill>{item.usageCount} placement{item.usageCount === 1 ? "" : "s"}</InfoPill>
               <InfoPill>{item.files.length} authored file{item.files.length === 1 ? "" : "s"}</InfoPill>
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-3 gap-2 max-w-xs">
             <MetricCard label="Width" value={formatAxis(bounds?.size.x)} />
             <MetricCard label="Height" value={formatAxis(bounds?.size.y)} />
             <MetricCard label="Depth" value={formatAxis(bounds?.size.z)} />
@@ -399,23 +359,27 @@ function ModelAssetDetailPane({
         </div>
       </div>
 
-      <ScrollArea className="min-h-0 flex-1 px-5 py-5">
-        <div className="space-y-4 pb-2">
+      {/* Divider */}
+      <div className="mx-6 mb-4 h-px bg-white/6" />
+
+      {/* LOD table */}
+      <ScrollArea className="min-h-0 flex-1 px-6 pb-6">
+        <div className="space-y-3">
           <div>
-            <div className="text-sm font-medium text-foreground/84">Authored LOD Files</div>
-            <div className="mt-1 text-xs text-foreground/54">
-              Configure named authored levels here. The world settings tab controls which levels exist and the distance each one represents.
+            <div className="text-sm font-semibold text-foreground/80">Authored LOD Files</div>
+            <div className="mt-0.5 text-xs text-foreground/46">
+              Configure named mesh tiers here. World settings controls the distance at which each activates.
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-white/8 bg-white/4">
-            <div className="grid grid-cols-[minmax(0,1.25fr)_7rem_9rem_8rem] gap-3 border-b border-white/8 px-4 py-3 text-[10px] font-medium tracking-[0.18em] text-foreground/42 uppercase">
+          <div className="overflow-hidden rounded-xl bg-white/4">
+            <div className="grid grid-cols-[minmax(0,1.25fr)_6rem_9rem_8rem] gap-3 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-foreground/36">
               <div>Level</div>
               <div>Distance</div>
               <div>Source</div>
               <div className="text-right">Actions</div>
             </div>
-            <div className="divide-y divide-white/8">
+            <div className="space-y-px">
               {resolvedLevelDefinitions.map((level) => (
                 <LodSlotRow
                   assetId={item.asset.id}
@@ -448,10 +412,10 @@ function LodSlotRow({
   onClearAssetLod: (assetId: string, level: ModelLodLevel) => void;
 }) {
   return (
-    <div className="grid grid-cols-[minmax(0,1.25fr)_7rem_9rem_8rem] items-center gap-3 px-4 py-3 text-sm">
+    <div className="grid grid-cols-[minmax(0,1.25fr)_6rem_9rem_8rem] items-center gap-3 rounded-lg bg-white/3 px-4 py-3 text-sm">
       <div className="min-w-0">
         <div>
-          <div className="text-[10px] font-medium tracking-[0.18em] text-foreground/42 uppercase">{level.id}</div>
+          <div className="text-[10px] font-medium tracking-[0.14em] text-foreground/40 uppercase">{level.id}</div>
           <div className="mt-1 text-sm font-medium text-foreground/86">{file ? file.format.toUpperCase() : "Not set"}</div>
         </div>
       </div>
@@ -473,15 +437,15 @@ function LodSlotRow({
 
 function MetricCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-white/8 bg-white/4 px-3 py-3">
-      <div className="text-[10px] font-medium tracking-[0.18em] text-foreground/42 uppercase">{label}</div>
+    <div className="rounded-xl bg-white/5 px-3 py-3">
+      <div className="text-[10px] font-medium tracking-[0.14em] text-foreground/40 uppercase">{label}</div>
       <div className="mt-1 text-sm font-medium text-foreground/86">{value}</div>
     </div>
   );
 }
 
 function InfoPill({ children }: { children: ReactNode }) {
-  return <div className="rounded-full border border-white/8 bg-white/4 px-2.5 py-1">{children}</div>;
+  return <div className="rounded-md bg-white/6 px-2.5 py-1">{children}</div>
 }
 
 function useLoadedPreviewScene(file?: ModelAssetFile) {
