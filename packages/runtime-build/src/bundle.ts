@@ -9,6 +9,7 @@ import {
   type WebHammerEngineBundle,
   type WebHammerEngineScene
 } from "@ggez/runtime-format";
+import { createSerializedModelAssetFiles, resolveModelAssetFiles, resolveModelFormat, type ModelAssetFile } from "@ggez/shared";
 
 const TEXTURE_FIELDS = ["baseColorTexture", "metallicRoughnessTexture", "normalTexture"] as const;
 
@@ -67,6 +68,9 @@ export async function externalizeRuntimeAssets(
       continue;
     }
 
+    const authoredFiles = resolveModelAssetFiles(asset);
+    const rewrittenFiles: ModelAssetFile[] = [];
+
     const bundledPath = await materializeSource(asset.path, {
       copyExternalAssets,
       files,
@@ -78,6 +82,46 @@ export async function externalizeRuntimeAssets(
 
     if (bundledPath) {
       asset.path = bundledPath;
+    }
+
+    if (authoredFiles.length > 0) {
+      for (const authoredFile of authoredFiles) {
+        const bundledModelPath = await materializeSource(authoredFile.path, {
+          copyExternalAssets,
+          files,
+          pathBySource,
+          preferredExtension: inferModelExtension(authoredFile.path, authoredFile.format),
+          preferredStem: `${assetDir}/models/${slugify(asset.id)}-${authoredFile.level}`,
+          usedPaths
+        });
+
+        const bundledTexturePath = authoredFile.texturePath
+          ? await materializeSource(authoredFile.texturePath, {
+              copyExternalAssets,
+              files,
+              pathBySource,
+              preferredStem: `${assetDir}/model-textures/${slugify(asset.id)}-${authoredFile.level}`,
+              usedPaths
+            })
+          : undefined;
+
+        rewrittenFiles.push({
+          ...authoredFile,
+          format: resolveModelFormat(authoredFile.format, bundledModelPath ?? authoredFile.path),
+          path: bundledModelPath ?? authoredFile.path,
+          texturePath: bundledTexturePath ?? authoredFile.texturePath
+        });
+      }
+
+      asset.metadata.modelFiles = createSerializedModelAssetFiles(rewrittenFiles);
+      const highFile = rewrittenFiles.find((file) => file.level === "high") ?? rewrittenFiles[0];
+
+      if (highFile) {
+        asset.path = highFile.path;
+        asset.metadata.modelFormat = highFile.format;
+        asset.metadata.materialMtlText = highFile.materialMtlText ?? "";
+        asset.metadata.texturePath = highFile.texturePath ?? "";
+      }
     }
 
     const texturePath = asset.metadata.texturePath;
@@ -93,6 +137,35 @@ export async function externalizeRuntimeAssets(
 
       if (bundledTexturePath) {
         asset.metadata.texturePath = bundledTexturePath;
+      }
+    }
+  }
+
+  for (const node of manifest.nodes) {
+    if (node.kind !== "model" || !node.lods?.length) {
+      continue;
+    }
+
+    for (const lod of node.lods) {
+      lod.path =
+        (await materializeSource(lod.path, {
+          copyExternalAssets,
+          files,
+          pathBySource,
+          preferredExtension: inferModelExtension(lod.path, lod.format),
+          preferredStem: `${assetDir}/models/${slugify(node.id)}-${lod.level}`,
+          usedPaths
+        })) ?? lod.path;
+
+      if (lod.texturePath) {
+        lod.texturePath =
+          (await materializeSource(lod.texturePath, {
+            copyExternalAssets,
+            files,
+            pathBySource,
+            preferredStem: `${assetDir}/model-textures/${slugify(node.id)}-${lod.level}`,
+            usedPaths
+          })) ?? lod.texturePath;
       }
     }
   }

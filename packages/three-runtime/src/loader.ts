@@ -817,7 +817,7 @@ async function createLodObjectForModelNode(
   lod.addLevel(baseModel, 0);
 
   for (const level of node.lods) {
-    const levelModel = await createModelObject(node, assetsById.get(level.assetId), options, level);
+    const levelModel = await createModelObject(node, assetsById.get(level.assetId ?? node.data.assetId), options, level);
     const distance = level.level === "mid" ? lodOptions.midDistance : lodOptions.lowDistance;
     lod.addLevel(levelModel, distance);
   }
@@ -983,13 +983,13 @@ async function createModelObject(
   lodLevel?: WebHammerExportModelLod
 ) {
   const fallback = createMissingModelFallback(asset);
-  const modelPath = asset?.path ?? node.data.path;
+  const modelPath = lodLevel?.path ?? asset?.path ?? node.data.path;
 
   if (!modelPath) {
     return fallback;
   }
 
-  const format = resolveModelFormat(asset?.metadata.modelFormat, modelPath);
+  const format = resolveModelFormat(lodLevel?.format ?? asset?.metadata.modelFormat, modelPath);
   const resolvedPath = options.resolveAssetUrl
     ? await options.resolveAssetUrl({
         asset,
@@ -999,7 +999,7 @@ async function createModelObject(
         path: modelPath
       })
     : modelPath;
-  const texturePath = readAssetString(asset, "texturePath");
+  const texturePath = lodLevel?.texturePath ?? readAssetString(asset, "texturePath");
   const resolvedTexturePath =
     texturePath && options.resolveAssetUrl
       ? await options.resolveAssetUrl({
@@ -1019,7 +1019,7 @@ async function createModelObject(
   try {
     const object =
       format === "obj"
-        ? await loadObjModel(asset, resolvedPath, resolvedTexturePath)
+        ? await loadObjModel(asset, resolvedPath, resolvedTexturePath, lodLevel?.materialMtlText)
         : await loadGltfModel(asset, resolvedPath);
 
     object.name = `${node.name}:${lodLevel?.level ?? "high"}`;
@@ -1040,9 +1040,14 @@ async function createModelObject(
   }
 }
 
-async function loadObjModel(asset: Asset | undefined, resolvedPath: string, resolvedTexturePath?: string) {
+async function loadObjModel(
+  asset: Asset | undefined,
+  resolvedPath: string,
+  resolvedTexturePath?: string,
+  materialMtlText?: string
+) {
   const objLoader = new OBJLoader();
-  const mtlText = readAssetString(asset, "materialMtlText");
+  const mtlText = materialMtlText ?? readAssetString(asset, "materialMtlText");
 
   if (mtlText) {
     const materialCreator = mtlLoader.parse(patchMtlTextureReferences(mtlText, resolvedTexturePath), "");
@@ -1069,24 +1074,17 @@ async function loadObjModel(asset: Asset | undefined, resolvedPath: string, reso
     });
   }
 
-  centerObject(object, readAssetVec3(asset, "nativeCenter"));
   return object;
 }
 
 async function loadGltfModel(asset: Asset | undefined, resolvedPath: string) {
   const gltf = await gltfLoader.loadAsync(resolvedPath);
   const object = gltf.scene;
-  centerObject(object, readAssetVec3(asset, "nativeCenter"));
   object.userData.webHammer = {
     ...(object.userData.webHammer ?? {}),
     animations: gltf.animations
   };
   return object;
-}
-
-function centerObject(object: Object3D, center: Vec3 | undefined) {
-  const resolvedCenter = center ?? computeObjectCenter(object);
-  object.position.set(-resolvedCenter.x, -resolvedCenter.y, -resolvedCenter.z);
 }
 
 function computeObjectCenter(object: Object3D) {

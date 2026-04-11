@@ -1,5 +1,16 @@
 import type { Asset, GeometryNode, PrimitiveNode, Vec3 } from "@ggez/shared";
-import { isModelNode, isPrimitiveNode, vec3 } from "@ggez/shared";
+import {
+  createSerializedModelAssetFiles,
+  isModelNode,
+  isPrimitiveNode,
+  resolveModelAssetFile,
+  resolveModelAssetFiles,
+  resolveModelFormat,
+  vec3,
+  type ModelAssetFile,
+  type ModelFormat,
+  type ModelLodLevel
+} from "@ggez/shared";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { Box3, Vector3 } from "three";
@@ -12,12 +23,11 @@ export type ModelBounds = {
   size: Vec3;
 };
 
-export type ModelFormat = "glb" | "obj";
-
 export type ModelAssetSource = "ai" | "import" | "placeholder" | "unknown";
 
 export type ModelAssetLibraryItem = {
   asset: Asset;
+  files: ModelAssetFile[];
   format: ModelFormat;
   label: string;
   nodeIds: string[];
@@ -65,6 +75,7 @@ export async function analyzeModelSource(input: {
 
 export function createModelAsset(input: {
   center: Vec3;
+  files?: ModelAssetFile[];
   format?: ModelFormat;
   materialMtlText?: string;
   name: string;
@@ -74,11 +85,15 @@ export function createModelAsset(input: {
   prompt?: string;
   texturePath?: string;
 }) {
+  const files = resolveImportedModelFiles(input);
+  const primaryFile = files.find((file) => file.level === "high") ?? files[0];
+
   return {
     id: `asset:model:${slugify(input.name)}:${crypto.randomUUID()}`,
     metadata: {
-      modelFormat: input.format ?? "glb",
-      materialMtlText: input.materialMtlText ?? "",
+      modelFiles: createSerializedModelAssetFiles(files),
+      modelFormat: primaryFile?.format ?? input.format ?? "glb",
+      materialMtlText: primaryFile?.materialMtlText ?? input.materialMtlText ?? "",
       name: input.name,
       nativeCenterX: input.center.x,
       nativeCenterY: input.center.y,
@@ -89,9 +104,9 @@ export function createModelAsset(input: {
       previewColor: input.source === "ai" ? "#9fd0b1" : "#7f8ea3",
       prompt: input.prompt ?? "",
       source: input.source,
-      texturePath: input.texturePath ?? ""
+      texturePath: primaryFile?.texturePath ?? input.texturePath ?? ""
     },
-    path: input.path,
+    path: primaryFile?.path ?? input.path,
     type: "model"
   } satisfies Asset;
 }
@@ -113,13 +128,8 @@ export function resolveModelAssetName(asset: Asset) {
 }
 
 export function resolveModelAssetFormat(asset: Asset): ModelFormat {
-  const format = asset.metadata.modelFormat;
-
-  if (format === "obj") {
-    return "obj";
-  }
-
-  return asset.path.toLowerCase().endsWith(".obj") ? "obj" : "glb";
+  const primaryFile = resolveModelAssetFile(asset, "high");
+  return resolveModelFormat(primaryFile?.format ?? asset.metadata.modelFormat, primaryFile?.path ?? asset.path);
 }
 
 export function resolveModelAssetSource(asset: Asset): ModelAssetSource {
@@ -156,9 +166,11 @@ export function buildModelAssetLibrary(assets: Iterable<Asset>, nodes: Iterable<
     .filter((asset): asset is Asset => asset.type === "model")
     .map((asset) => {
       const nodeIds = usage.get(asset.id) ?? [];
+      const files = resolveModelAssetFiles(asset);
 
       return {
         asset,
+        files,
         format: resolveModelAssetFormat(asset),
         label: resolveModelAssetName(asset),
         nodeIds,
@@ -173,6 +185,66 @@ export function buildModelAssetLibrary(assets: Iterable<Asset>, nodes: Iterable<
 
       return left.label.localeCompare(right.label);
     });
+}
+
+export function inferModelLodLevelFromFileName(fileName: string): ModelLodLevel {
+  const normalized = fileName.toLowerCase();
+
+  if (/(^|[^a-z0-9])(lod0|lod_0|high|hero|base)([^a-z0-9]|$)/.test(normalized)) {
+    return "high";
+  }
+
+  if (/(^|[^a-z0-9])(lod1|lod_1|mid|medium)([^a-z0-9]|$)/.test(normalized)) {
+    return "mid";
+  }
+
+  if (/(^|[^a-z0-9])(lod2|lod_2|low|proxy)([^a-z0-9]|$)/.test(normalized)) {
+    return "low";
+  }
+
+  return "high";
+}
+
+export function resolveImportedModelAssetName(files: File[]) {
+  const baseNames = files.map((file) => file.name.replace(/\.[^.]+$/, ""));
+  const first = baseNames[0] ?? "Imported Model";
+  const stripped = first.replace(/(?:[_\-\s]?lod[0-9]|[_\-\s]?(?:high|mid|medium|low|proxy|hero|base))$/i, "");
+  return stripped.trim() || first || "Imported Model";
+}
+
+function resolveImportedModelFiles(input: {
+  files?: ModelAssetFile[];
+  format?: ModelFormat;
+  materialMtlText?: string;
+  path: string;
+  texturePath?: string;
+}) {
+  if (input.files && input.files.length > 0) {
+    return dedupeModelFiles(input.files);
+  }
+
+  return [
+    {
+      format: input.format ?? "glb",
+      level: "high",
+      materialMtlText: input.materialMtlText,
+      path: input.path,
+      texturePath: input.texturePath
+    } satisfies ModelAssetFile
+  ];
+}
+
+export function dedupeModelFiles(files: ModelAssetFile[]) {
+  const filesByLevel = new Map<ModelLodLevel, ModelAssetFile>();
+
+  files.forEach((file) => {
+    filesByLevel.set(file.level, file);
+  });
+
+  return ["high", "mid", "low"].flatMap((level) => {
+    const file = filesByLevel.get(level as ModelLodLevel);
+    return file ? [file] : [];
+  });
 }
 
 export function resolveModelBoundsFromAsset(asset: Asset | undefined): ModelBounds | undefined {

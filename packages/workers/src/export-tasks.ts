@@ -768,7 +768,9 @@ async function buildModelLods(
     lods: bakedLevels.length
       ? bakedLevels.map((entry) => ({
           assetId: entry.asset.id,
-          level: entry.level
+          format: "glb",
+          level: entry.level,
+          path: entry.asset.path
         }))
       : undefined
   };

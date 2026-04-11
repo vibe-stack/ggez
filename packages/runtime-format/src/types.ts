@@ -15,7 +15,7 @@ import type {
 } from "@ggez/shared";
 
 export const RUNTIME_SCENE_FORMAT = "web-hammer-engine" as const;
-export const CURRENT_RUNTIME_SCENE_VERSION = 6 as const;
+export const CURRENT_RUNTIME_SCENE_VERSION = 7 as const;
 export const MIN_RUNTIME_SCENE_VERSION = 4 as const;
 export const CURRENT_RUNTIME_WORLD_INDEX_VERSION = 1 as const;
 
@@ -55,8 +55,12 @@ export type RuntimeGeometryLod = {
 };
 
 export type RuntimeModelLod = {
-  assetId: string;
+  assetId?: string;
+  format?: "glb" | "gltf" | "obj";
   level: RuntimeLodLevel;
+  materialMtlText?: string;
+  path: string;
+  texturePath?: string;
 };
 
 export type RuntimeGeometryNode =

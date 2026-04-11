@@ -8,6 +8,8 @@ import {
   isModelNode,
   isPrimitiveNode,
   normalizeVec3,
+  resolveModelAssetFile,
+  resolveModelAssetFiles,
   subVec3,
   vec3
 } from "@ggez/shared";
@@ -89,6 +91,7 @@ export type DerivedRenderMesh = {
   scale: Vec3;
   modelAssetId?: AssetID;
   modelCenter?: Vec3;
+  modelFiles?: ReturnType<typeof resolveModelAssetFiles>;
   modelFormat?: string;
   modelMtlText?: string;
   modelPath?: string;
@@ -106,6 +109,9 @@ export function createDerivedRenderMesh(
   assetsById = new Map<AssetID, Asset>(),
   transform = node.transform
 ): DerivedRenderMesh {
+  const modelAsset = isModelNode(node) ? assetsById.get(node.data.assetId) : undefined;
+  const modelPrimaryFile = isModelNode(node) ? resolveModelAssetFile(modelAsset, "high") : undefined;
+  const modelFiles = isModelNode(node) ? resolveModelAssetFiles(modelAsset) : undefined;
   const appearance = getRenderAppearance(node, materialsById, assetsById);
   const surfaceResult = isBrushNode(node)
     ? createBrushSurface(node.data, materialsById)
@@ -135,22 +141,23 @@ export function createDerivedRenderMesh(
     scale: transform.scale,
     modelAssetId: isModelNode(node) ? node.data.assetId : undefined,
     modelCenter: isModelNode(node)
-      ? resolveModelVec3Metadata(assetsById.get(node.data.assetId), "nativeCenter")
+      ? resolveModelVec3Metadata(modelAsset, "nativeCenter")
       : undefined,
+    modelFiles,
     modelFormat: isModelNode(node)
-      ? resolveModelStringMetadata(assetsById.get(node.data.assetId), "modelFormat")
+      ? modelPrimaryFile?.format ?? resolveModelStringMetadata(modelAsset, "modelFormat")
       : undefined,
     modelMtlText: isModelNode(node)
-      ? resolveModelStringMetadata(assetsById.get(node.data.assetId), "materialMtlText")
+      ? modelPrimaryFile?.materialMtlText ?? resolveModelStringMetadata(modelAsset, "materialMtlText")
       : undefined,
     modelPath: isModelNode(node)
-      ? assetsById.get(node.data.assetId)?.path ?? node.data.path
+      ? modelPrimaryFile?.path ?? modelAsset?.path ?? node.data.path
       : undefined,
     modelSize: isModelNode(node)
-      ? resolveModelVec3Metadata(assetsById.get(node.data.assetId), "nativeSize")
+      ? resolveModelVec3Metadata(modelAsset, "nativeSize")
       : undefined,
     modelTexturePath: isModelNode(node)
-      ? resolveModelStringMetadata(assetsById.get(node.data.assetId), "texturePath")
+      ? modelPrimaryFile?.texturePath ?? resolveModelStringMetadata(modelAsset, "texturePath")
       : undefined,
     primitive: resolveNodePrimitive(node, assetsById),
     surface: surfaceResult?.surface,

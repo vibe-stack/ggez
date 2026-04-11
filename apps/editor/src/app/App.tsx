@@ -51,6 +51,7 @@ import {
   type ViewportState
 } from "@ggez/render-pipeline";
 import {
+  createSerializedModelAssetFiles,
   type BrushShape,
   type GeometryNode,
   isBrushNode,
@@ -60,14 +61,19 @@ import {
   isModelNode,
   isPrimitiveNode,
   makeTransform,
+  type ModelAssetFile,
+  type ModelLodLevel,
   type Material,
   type MeshNode,
   type ModelNode,
   type PrimitiveNodeData,
+  resolveModelAssetFiles,
+  resolveModelFormat,
   resolveSceneGraph,
   snapVec3,
   vec2,
   vec3,
+  type Asset,
   type Brush,
   type EditableMesh,
   type Entity,
@@ -117,7 +123,10 @@ import {
   buildModelAssetLibrary,
   createAiModelPlaceholder,
   createModelAsset,
+  dedupeModelFiles,
+  inferModelLodLevelFromFileName,
   readFileAsDataUrl,
+  resolveImportedModelAssetName,
   resolveModelFitScale,
   resolveModelAssetName,
   resolvePrimitiveNodeBounds
@@ -168,7 +177,12 @@ export function App() {
   const latestDraftRef = useRef<ReturnType<typeof buildSceneDraftPayload> | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const glbImportInputRef = useRef<HTMLInputElement | null>(null);
+  const modelLodInputRef = useRef<HTMLInputElement | null>(null);
   const renderSceneCacheRef = useRef(createDerivedRenderSceneCache());
+  const [pendingAssetLodUpload, setPendingAssetLodUpload] = useState<{
+    assetId: string;
+    level: ModelLodLevel;
+  } | null>(null);
   const ui = useSnapshot(uiStore);
   const toolSession = useMemo(() => createToolSession(activeToolId), [activeToolId]);
   const { downloadBinaryFile, downloadTextFile, exportJobs, runWorkerRequest } = useExportWorker();
@@ -832,24 +846,31 @@ export function App() {
   };
 
   const handleGlbFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    const files = Array.from(event.target.files ?? []);
 
-    if (!file) {
+    if (files.length === 0) {
       return;
     }
 
     try {
-      const dataUrl = await readFileAsDataUrl(file);
+      const resolvedFiles = await resolveImportedModelFiles(files);
+      const primaryFile = resolvedFiles.find((entry) => entry.level === "high") ?? resolvedFiles[0];
+
+      if (!primaryFile) {
+        return;
+      }
+
       const bounds = await analyzeModelSource({
-        format: "glb",
-        path: dataUrl
+        format: primaryFile.format,
+        path: primaryFile.path
       });
-      const name = file.name.replace(/\.[^.]+$/, "") || "Imported Model";
+      const name = resolveImportedModelAssetName(files);
       const asset = createModelAsset({
         center: bounds.center,
-        format: "glb",
+        files: resolvedFiles,
+        format: primaryFile.format,
         name,
-        path: dataUrl,
+        path: primaryFile.path,
         size: bounds.size,
         source: "import"
       });
@@ -877,6 +898,66 @@ export function App() {
       uiStore.selectedAssetId = asset.id;
       uiStore.rightPanel = "assets";
       enqueueWorkerJob("GLB import", { task: "triangulation", worker: "geometryWorker" }, 650);
+    } finally {
+      event.target.value = "";
+    }
+  };
+
+  const handleAssignAssetLod = (assetId: string, level: ModelLodLevel) => {
+    setPendingAssetLodUpload({ assetId, level });
+    modelLodInputRef.current?.click();
+  };
+
+  const handleClearAssetLod = (assetId: string, level: Exclude<ModelLodLevel, "high">) => {
+    const asset = editor.scene.assets.get(assetId);
+
+    if (!asset || asset.type !== "model") {
+      return;
+    }
+
+    const nextFiles = dedupeModelFiles(resolveModelAssetFiles(asset).filter((file) => file.level !== level));
+    const nextAsset = updateModelAssetFiles(asset, nextFiles);
+
+    editor.execute(createUpsertAssetCommand(editor.scene, nextAsset));
+  };
+
+  const handleAssetLodFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    const pendingUpload = pendingAssetLodUpload;
+
+    setPendingAssetLodUpload(null);
+
+    if (!file || !pendingUpload) {
+      event.target.value = "";
+      return;
+    }
+
+    try {
+      const asset = editor.scene.assets.get(pendingUpload.assetId);
+
+      if (!asset || asset.type !== "model") {
+        return;
+      }
+
+      const path = await readFileAsDataUrl(file);
+      const format = resolveImportedModelFormat(file.name);
+      const nextFiles = dedupeModelFiles([
+        ...resolveModelAssetFiles(asset).filter((entry) => entry.level !== pendingUpload.level),
+        {
+          format,
+          level: pendingUpload.level,
+          path
+        } satisfies ModelAssetFile
+      ]);
+
+      const bounds = pendingUpload.level === "high"
+        ? await analyzeModelSource({ format, path })
+        : undefined;
+      const nextAsset = updateModelAssetFiles(asset, nextFiles, bounds);
+
+      editor.execute(createUpsertAssetCommand(editor.scene, nextAsset));
+      uiStore.selectedAssetId = nextAsset.id;
+      uiStore.rightPanel = "assets";
     } finally {
       event.target.value = "";
     }
@@ -1782,7 +1863,9 @@ export function App() {
         onInvertSelectionNormals={handleInvertSelectionNormals}
         onInsertAsset={handleInsertAsset}
         onApplyMaterial={handleApplyMaterial}
+        onAssignAssetLod={handleAssignAssetLod}
         onClipSelection={handleClipSelection}
+        onClearAssetLod={handleClearAssetLod}
         onCreateBrush={handleCreateBrush}
         onDeleteAsset={handleDeleteAsset}
         onDeleteSelection={handleDeleteSelection}
@@ -1798,6 +1881,7 @@ export function App() {
         onGroupSelection={handleGroupSelection}
         onGenerateAiModel={handleGenerateAiModel}
         onImportGlb={handleImportGlb}
+        onImportAsset={handleImportGlb}
         onLoadWhmap={handleLoadWhmap}
         onNewFile={handleNewFile}
         onPausePhysics={handlePausePhysics}
@@ -1892,14 +1976,105 @@ export function App() {
         type="file"
       />
       <input
-        accept=".glb,model/gltf-binary"
+        accept=".glb,.gltf,.obj,model/gltf-binary,model/gltf+json"
         hidden
+        multiple
         onChange={handleGlbFileChange}
         ref={glbImportInputRef}
         type="file"
       />
+      <input
+        accept=".glb,.gltf,.obj,model/gltf-binary,model/gltf+json"
+        hidden
+        onChange={handleAssetLodFileChange}
+        ref={modelLodInputRef}
+        type="file"
+      />
     </>
   );
+}
+
+async function resolveImportedModelFiles(files: File[]) {
+  const resolvedEntries = await Promise.all(
+    files.map(async (file) => ({
+      file,
+      format: resolveImportedModelFormat(file.name),
+      path: await readFileAsDataUrl(file)
+    }))
+  );
+  const filesByLevel = new Map<ModelLodLevel, ModelAssetFile>();
+
+  resolvedEntries.forEach((entry, index) => {
+    const inferredLevel = inferModelLodLevelFromFileName(entry.file.name);
+    const fallbackLevel = (["high", "mid", "low"] as ModelLodLevel[]).find((level) => !filesByLevel.has(level));
+    const level = filesByLevel.has(inferredLevel) ? fallbackLevel ?? inferredLevel : inferredLevel;
+
+    filesByLevel.set(level, {
+      format: entry.format,
+      level,
+      path: entry.path
+    });
+
+    if (index === 0 && !filesByLevel.has("high")) {
+      filesByLevel.set("high", {
+        format: entry.format,
+        level: "high",
+        path: entry.path
+      });
+    }
+  });
+
+  if (!filesByLevel.has("high")) {
+    const firstFile = filesByLevel.values().next().value;
+
+    if (firstFile) {
+      filesByLevel.set("high", {
+        ...firstFile,
+        level: "high"
+      });
+    }
+  }
+
+  return dedupeModelFiles(Array.from(filesByLevel.values()));
+}
+
+function resolveImportedModelFormat(fileName: string) {
+  return resolveModelFormat(undefined, fileName);
+}
+
+function updateModelAssetFiles(
+  asset: Asset,
+  files: ModelAssetFile[],
+  bounds?: Awaited<ReturnType<typeof analyzeModelSource>>
+): Asset {
+  const nextFiles = dedupeModelFiles(files);
+  const primaryFile = nextFiles.find((file) => file.level === "high") ?? nextFiles[0];
+
+  if (!primaryFile) {
+    return structuredClone(asset);
+  }
+
+  return {
+    ...structuredClone(asset),
+    metadata: {
+      ...structuredClone(asset.metadata),
+      ...(bounds
+        ? {
+            nativeCenterX: bounds.center.x,
+            nativeCenterY: bounds.center.y,
+            nativeCenterZ: bounds.center.z,
+            nativeSizeX: bounds.size.x,
+            nativeSizeY: bounds.size.y,
+            nativeSizeZ: bounds.size.z
+          }
+        : {}),
+      materialMtlText: primaryFile.materialMtlText ?? "",
+      modelFiles: createSerializedModelAssetFiles(nextFiles),
+      modelFormat: primaryFile.format,
+      texturePath: primaryFile.texturePath ?? ""
+    },
+    path: primaryFile.path
+  };
 }
 
 function preserveMeshMetadata(mesh: EditableMesh, existingMesh?: EditableMesh) {

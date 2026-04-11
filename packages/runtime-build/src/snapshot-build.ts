@@ -11,6 +11,7 @@ import {
   isModelNode,
   isPrimitiveNode,
   normalizeVec3,
+  resolveModelAssetFile,
   resolveInstancingSourceNode,
   subVec3,
   vec3,
@@ -88,21 +89,7 @@ export async function buildRuntimeSceneFromSnapshot(snapshot: SceneDocumentSnaps
   const referencedModelAssetIds = collectReferencedModelAssetIds(snapshot);
   const materialsById = new Map(snapshot.materials.map((material) => [material.id, material]));
   const exportedMaterials = await Promise.all(snapshot.materials.map((material) => resolveRuntimeMaterial(material)));
-  const shouldBakeLods = snapshot.settings.world.lod.enabled;
   const exportedAt = new Date().toISOString();
-  const exportedSettings = shouldBakeLods
-    ? {
-        ...snapshot.settings,
-        world: {
-          ...snapshot.settings.world,
-          lod: {
-            ...snapshot.settings.world.lod,
-            bakedAt: exportedAt
-          }
-        }
-      }
-    : snapshot.settings;
-  const generatedAssets: Asset[] = [];
   const exportedNodes: RuntimeScene["nodes"] = [];
 
   for (const node of snapshot.nodes) {
@@ -129,7 +116,6 @@ export async function buildRuntimeSceneFromSnapshot(snapshot: SceneDocumentSnaps
         hooks: node.hooks,
         id: node.id,
         kind: "brush",
-        lods: shouldBakeLods ? await buildGeometryLods(geometry, snapshot.settings.world.lod) : undefined,
         metadata: node.metadata,
         name: node.name,
         parentId: node.parentId,
@@ -147,7 +133,6 @@ export async function buildRuntimeSceneFromSnapshot(snapshot: SceneDocumentSnaps
         hooks: node.hooks,
         id: node.id,
         kind: "mesh",
-        lods: shouldBakeLods ? await buildGeometryLods(geometry, snapshot.settings.world.lod) : undefined,
         metadata: node.metadata,
         name: node.name,
         parentId: node.parentId,
@@ -165,7 +150,6 @@ export async function buildRuntimeSceneFromSnapshot(snapshot: SceneDocumentSnaps
         hooks: node.hooks,
         id: node.id,
         kind: "primitive",
-        lods: shouldBakeLods ? await buildGeometryLods(geometry, snapshot.settings.world.lod) : undefined,
         metadata: node.metadata,
         name: node.name,
         parentId: node.parentId,
@@ -176,17 +160,13 @@ export async function buildRuntimeSceneFromSnapshot(snapshot: SceneDocumentSnaps
     }
 
     if (isModelNode(node)) {
-      const modelLodBake = shouldBakeLods
-        ? await buildModelLods(node.name, assetsById.get(node.data.assetId), node.id, snapshot.settings.world.lod)
-        : undefined;
-
-      generatedAssets.push(...(modelLodBake?.assets ?? []));
+      const asset = assetsById.get(node.data.assetId);
       exportedNodes.push({
         data: node.data,
         hooks: node.hooks,
         id: node.id,
         kind: "model",
-        lods: modelLodBake?.lods,
+        lods: resolveAuthoredRuntimeModelLods(asset),
         metadata: node.metadata,
         name: node.name,
         parentId: node.parentId,
@@ -232,10 +212,7 @@ export async function buildRuntimeSceneFromSnapshot(snapshot: SceneDocumentSnaps
   }
 
   return {
-    assets: [
-      ...snapshot.assets.filter((asset) => asset.type !== "model" || referencedModelAssetIds.has(asset.id)),
-      ...generatedAssets
-    ],
+    assets: snapshot.assets.filter((asset) => asset.type !== "model" || referencedModelAssetIds.has(asset.id)),
     entities: snapshot.entities,
     layers: snapshot.layers,
     materials: exportedMaterials,
@@ -245,8 +222,38 @@ export async function buildRuntimeSceneFromSnapshot(snapshot: SceneDocumentSnaps
       version: CURRENT_RUNTIME_SCENE_VERSION
     },
     nodes: exportedNodes,
-    settings: exportedSettings
+    settings: snapshot.settings
   } satisfies RuntimeScene;
+}
+
+function resolveAuthoredRuntimeModelLods(asset: Asset | undefined): RuntimeModelLod[] | undefined {
+  const midAsset = resolveModelAssetFile(asset, "mid");
+  const lowAsset = resolveModelAssetFile(asset, "low");
+  const lods: RuntimeModelLod[] = [];
+
+  if (midAsset) {
+    lods.push({
+      assetId: asset?.id,
+      format: midAsset.format,
+      level: "mid",
+      materialMtlText: midAsset.materialMtlText,
+      path: midAsset.path,
+      texturePath: midAsset.texturePath
+    });
+  }
+
+  if (lowAsset) {
+    lods.push({
+      assetId: asset?.id,
+      format: lowAsset.format,
+      level: "low",
+      materialMtlText: lowAsset.materialMtlText,
+      path: lowAsset.path,
+      texturePath: lowAsset.texturePath
+    });
+  }
+
+  return lods.length > 0 ? lods : undefined;
 }
 
 function collectReferencedModelAssetIds(snapshot: SceneDocumentSnapshot) {
@@ -375,76 +382,6 @@ async function buildExportGeometry(
 
   return {
     primitives: Array.from(primitiveByMaterial.values())
-  };
-}
-
-async function buildGeometryLods(
-  geometry: RuntimeGeometry,
-  settings: SceneDocumentSnapshot["settings"]["world"]["lod"]
-): Promise<RuntimeGeometryLod[] | undefined> {
-  if (!geometry.primitives.length) {
-    return undefined;
-  }
-
-  const midGeometry = simplifyExportGeometry(geometry, settings.midDetailRatio);
-  const lowGeometry = simplifyExportGeometry(geometry, settings.lowDetailRatio);
-  const lods: RuntimeGeometryLod[] = [];
-
-  if (midGeometry) {
-    lods.push({
-      geometry: midGeometry,
-      level: "mid"
-    });
-  }
-
-  if (lowGeometry) {
-    lods.push({
-      geometry: lowGeometry,
-      level: "low"
-    });
-  }
-
-  return lods.length ? lods : undefined;
-}
-
-async function buildModelLods(
-  name: string,
-  asset: Asset | undefined,
-  nodeId: string,
-  settings: SceneDocumentSnapshot["settings"]["world"]["lod"]
-): Promise<{ assets: Asset[]; lods?: RuntimeModelLod[] }> {
-  if (!asset?.path) {
-    return { assets: [], lods: undefined };
-  }
-
-  const source = await loadModelSceneForLodBake(asset);
-  const bakedLevels: Array<{ asset: Asset; level: RuntimeModelLod["level"] }> = [];
-
-  for (const [level, ratio] of [
-    ["mid", settings.midDetailRatio],
-    ["low", settings.lowDetailRatio]
-  ] as const) {
-    const simplified = simplifyModelSceneForRatio(source, ratio);
-
-    if (!simplified) {
-      continue;
-    }
-
-    const bytes = await exportModelSceneAsGlb(simplified);
-    bakedLevels.push({
-      asset: createGeneratedModelLodAsset(asset, name, nodeId, level, bytes),
-      level
-    });
-  }
-
-  return {
-    assets: bakedLevels.map((entry) => entry.asset),
-    lods: bakedLevels.length
-      ? bakedLevels.map((entry) => ({
-          assetId: entry.asset.id,
-          level: entry.level
-        }))
-      : undefined
   };
 }
 

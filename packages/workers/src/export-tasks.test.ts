@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { exportEngineBundle, serializeGltfScene } from "./export-tasks";
-import { makeTransform, vec3, type SceneSettings } from "@ggez/shared";
+import { createSerializedModelAssetFiles, makeTransform, vec3, type SceneSettings } from "@ggez/shared";
 import type { SceneDocumentSnapshot } from "@ggez/editor-core";
 import { buildRuntimeBundleFromSnapshot, buildRuntimeSceneFromSnapshot } from "@ggez/runtime-build";
+import { CURRENT_RUNTIME_SCENE_VERSION } from "@ggez/runtime-format";
 
 const settings: SceneSettings = {
   player: {
@@ -315,7 +316,7 @@ describe("exportEngineBundle", () => {
     const group = bundle.manifest.nodes.find((node) => node.id === "node:group");
     const cube = bundle.manifest.nodes.find((node) => node.id === "node:cube");
 
-    expect(bundle.manifest.metadata.version).toBe(6);
+    expect(bundle.manifest.metadata.version).toBe(CURRENT_RUNTIME_SCENE_VERSION);
     expect(group?.kind).toBe("group");
     expect(cube?.parentId).toBe("node:group");
     expect(bundle.manifest.entities[0]?.parentId).toBe("node:group");
@@ -442,7 +443,7 @@ describe("exportEngineBundle", () => {
     expect(platform?.hooks?.map((hook) => hook.type)).toEqual(["trigger_volume", "sequence", "path_mover"]);
   });
 
-  test("bakes authored geometry lods into runtime manifests", async () => {
+  test("does not auto-bake generated geometry lods into runtime manifests", async () => {
     const snapshot: SceneDocumentSnapshot = {
       assets: [],
       entities: [],
@@ -479,9 +480,71 @@ describe("exportEngineBundle", () => {
     const bundle = await exportEngineBundle(snapshot);
     const sphere = bundle.manifest.nodes.find((node) => node.id === "node:sphere" && node.kind === "primitive");
 
-    expect(sphere && "lods" in sphere ? sphere.lods?.map((lod) => lod.level) : []).toEqual(["mid", "low"]);
-    expect(sphere && "lods" in sphere ? sphere.lods?.[0]?.geometry.primitives[0]?.indices.length : 0).toBeGreaterThan(0);
-    expect(bundle.manifest.settings.world.lod.bakedAt).toBe(bundle.manifest.metadata.exportedAt);
+    expect(sphere && "lods" in sphere ? sphere.lods : undefined).toBeUndefined();
+    expect(bundle.manifest.settings.world.lod.bakedAt).toBe("2026-03-15T12:00:00.000Z");
+  });
+
+  test("preserves authored model lod files in runtime manifests", async () => {
+    const snapshot: SceneDocumentSnapshot = {
+      assets: [
+        {
+          id: "asset:model:tower",
+          metadata: {
+            modelFiles: createSerializedModelAssetFiles([
+              {
+                format: "glb",
+                level: "high",
+                path: "data:model/gltf-binary;base64,AA=="
+              },
+              {
+                format: "glb",
+                level: "mid",
+                path: "data:model/gltf-binary;base64,BB=="
+              },
+              {
+                format: "glb",
+                level: "low",
+                path: "data:model/gltf-binary;base64,CC=="
+              }
+            ]),
+            modelFormat: "glb",
+            nativeCenterX: 0,
+            nativeCenterY: 0.5,
+            nativeCenterZ: 0,
+            nativeSizeX: 2,
+            nativeSizeY: 5,
+            nativeSizeZ: 2,
+            previewColor: "#6b7280"
+          },
+          path: "data:model/gltf-binary;base64,AA==",
+          type: "model"
+        }
+      ],
+      entities: [],
+      layers: [],
+      materials: [],
+      nodes: [
+        {
+          data: {
+            assetId: "asset:model:tower",
+            path: "data:model/gltf-binary;base64,AA=="
+          },
+          id: "node:model:tower",
+          kind: "model",
+          name: "Tower",
+          transform: makeTransform(vec3(0, 0, 0))
+        }
+      ],
+      settings,
+      textures: []
+    };
+
+    const bundle = await exportEngineBundle(snapshot);
+    const tower = bundle.manifest.nodes.find((node) => node.id === "node:model:tower" && node.kind === "model");
+
+    expect(tower && "lods" in tower ? tower.lods?.map((lod) => lod.level) : []).toEqual(["mid", "low"]);
+    expect(tower && "lods" in tower ? tower.lods?.[0]?.path : undefined).toBe("assets/models/asset-model-tower-mid.glb");
+    expect(tower && "lods" in tower ? tower.lods?.[1]?.path : undefined).toBe("assets/models/asset-model-tower-low.glb");
   });
 
   test("preserves instancing references in runtime manifests", async () => {

@@ -27,7 +27,7 @@ import {
   BufferGeometry,
   type Side
 } from "three";
-import type { GeometryNode, MaterialRenderSide, SceneHook, Transform, Vec3 } from "@ggez/shared";
+import type { GeometryNode, MaterialRenderSide, ModelAssetFile, ModelLodLevel, SceneHook, Transform, Vec3 } from "@ggez/shared";
 import { MTLLoader } from "three/examples/jsm/loaders/MTLLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
@@ -65,8 +65,11 @@ const tempInstanceObject = new Object3D();
 const tempInstanceMatrix = new Matrix4();
 const tempPivotMatrix = new Matrix4();
 const tempInstanceColor = new Color();
+const modelDistanceVector = new Vector3();
 const NOOP_HOVER_END = () => {};
 const NOOP_HOVER_START = (_nodeId: string) => {};
+const EDITOR_MODEL_MID_DISTANCE = 24;
+const EDITOR_MODEL_LOW_DISTANCE = 64;
 export function ScenePreview({
   hiddenSceneItemIds = [],
   interactive,
@@ -1160,11 +1163,14 @@ function RenderInstancedModelBatch({
   renderMode: ViewportRenderMode;
   selectedNodeIds: Set<string>;
 }) {
+  const batchCenter = useMemo(() => computeBatchCenter(batch), [batch]);
+  const resolvedModelFile = useResolvedModelPreviewFile(
+    batch.mesh.modelFiles,
+    createPrimaryModelFile(batch.mesh),
+    batchCenter
+  );
   const loadedScene = useLoadedModelScene(
-    batch.mesh.modelPath,
-    batch.mesh.modelFormat === "obj" ? "obj" : "glb",
-    batch.mesh.modelTexturePath,
-    batch.mesh.modelMtlText
+    resolvedModelFile
   );
   const loadedBounds = useMemo(
     () => (loadedScene ? computeModelBounds(loadedScene) : undefined),
@@ -1854,11 +1860,9 @@ function RenderModelBody({
   renderMode: ViewportRenderMode;
   selected: boolean;
 }) {
+  const resolvedModelFile = useResolvedModelPreviewFile(mesh.modelFiles, createPrimaryModelFile(mesh), mesh.position);
   const loadedScene = useLoadedModelScene(
-    mesh.modelPath,
-    mesh.modelFormat === "obj" ? "obj" : "glb",
-    mesh.modelTexturePath,
-    mesh.modelMtlText
+    resolvedModelFile
   );
   const loadedBounds = useMemo(
     () => (loadedScene ? computeModelBounds(loadedScene) : undefined),
@@ -1870,7 +1874,7 @@ function RenderModelBody({
         size: mesh.modelSize
       }
     : undefined);
-  const center = modelBounds?.center ?? mesh.modelCenter ?? { x: 0, y: 0, z: 0 };
+  const boundsCenter = modelBounds?.center ?? mesh.modelCenter ?? { x: 0, y: 0, z: 0 };
   const showBoundsOverlay = renderMode === "wireframe" || selected || hovered;
   const overlayColor = selected ? "#f97316" : hovered ? "#67e8f9" : "#94a3b8";
   const showModelSurface = renderModeUsesRenderableSurfaces(renderMode);
@@ -1957,7 +1961,6 @@ function RenderModelBody({
           onDoubleClick={handleDoubleClick}
           onPointerOut={handlePointerOut}
           onPointerOver={handlePointerOver}
-          position={[-center.x, -center.y, -center.z]}
         />
       ) : null}
       {solidScene ? (
@@ -1967,7 +1970,6 @@ function RenderModelBody({
           onDoubleClick={handleDoubleClick}
           onPointerOut={handlePointerOut}
           onPointerOver={handlePointerOver}
-          position={[-center.x, -center.y, -center.z]}
         />
       ) : null}
       {!modelScene && !solidScene && showModelSurface ? (
@@ -1977,6 +1979,7 @@ function RenderModelBody({
           onDoubleClick={handleDoubleClick}
           onPointerOut={handlePointerOut}
           onPointerOver={handlePointerOver}
+          position={[boundsCenter.x, boundsCenter.y, boundsCenter.z]}
           receiveShadow={renderModeUsesShadows(renderMode)}
         >
           <boxGeometry args={toTuple(mesh.modelSize ?? { x: 1.4, y: 1.4, z: 1.4 })} />
@@ -1993,7 +1996,7 @@ function RenderModelBody({
           onDoubleClick={handleDoubleClick}
           onPointerOut={handlePointerOut}
           onPointerOver={handlePointerOver}
-          position={[-center.x, -center.y, -center.z]}
+          position={[boundsCenter.x, boundsCenter.y, boundsCenter.z]}
         >
           <boxGeometry args={toTuple(modelBounds?.size ?? mesh.modelSize ?? { x: 1.4, y: 1.4, z: 1.4 })} />
           <meshBasicMaterial
@@ -2010,21 +2013,16 @@ function RenderModelBody({
   );
 }
 
-function useLoadedModelScene(
-  path?: string,
-  format: "glb" | "obj" = "glb",
-  texturePath?: string,
-  mtlText?: string
-) {
+function useLoadedModelScene(file?: ModelAssetFile) {
   const [scene, setScene] = useState<Object3D>();
 
   useEffect(() => {
-    if (!path) {
+    if (!file?.path) {
       setScene(undefined);
       return;
     }
 
-    const cacheKey = `${format}:${path}:${texturePath ?? ""}:${mtlText ?? ""}`;
+    const cacheKey = `${file.level}:${file.format}:${file.path}:${file.texturePath ?? ""}:${file.materialMtlText ?? ""}`;
     const cachedScene = modelSceneCache.get(cacheKey);
 
     if (cachedScene) {
@@ -2034,7 +2032,7 @@ function useLoadedModelScene(
 
     let cancelled = false;
 
-    void loadModelScene(path, format, texturePath, mtlText)
+    void loadModelScene(file)
       .then((loadedScene) => {
         if (cancelled) {
           return;
@@ -2052,33 +2050,28 @@ function useLoadedModelScene(
     return () => {
       cancelled = true;
     };
-  }, [format, mtlText, path, texturePath]);
+  }, [file]);
 
   return scene;
 }
 
-async function loadModelScene(
-  path: string,
-  format: "glb" | "obj",
-  texturePath?: string,
-  mtlText?: string
-) {
-  if (format === "obj") {
+async function loadModelScene(file: ModelAssetFile) {
+  if (file.format === "obj") {
     const objLoader = new OBJLoader();
 
-    if (mtlText) {
+    if (file.materialMtlText) {
       const materialCreator = mtlLoader.parse(
-        patchMtlTextureReferences(mtlText, texturePath),
+        patchMtlTextureReferences(file.materialMtlText, file.texturePath),
         ""
       );
       materialCreator.preload();
       objLoader.setMaterials(materialCreator);
     }
 
-    const object = await objLoader.loadAsync(path);
+    const object = await objLoader.loadAsync(file.path);
 
-    if (!mtlText && texturePath) {
-      const texture = await loadModelTexture(texturePath);
+    if (!file.materialMtlText && file.texturePath) {
+      const texture = await loadModelTexture(file.texturePath);
 
       object.traverse((child) => {
         if (child instanceof Mesh) {
@@ -2094,8 +2087,78 @@ async function loadModelScene(
     return object;
   }
 
-  const gltf = await gltfLoader.loadAsync(path);
+  const gltf = await gltfLoader.loadAsync(file.path);
   return gltf.scene;
+}
+
+function useResolvedModelPreviewFile(files: ModelAssetFile[] | undefined, fallbackFile: ModelAssetFile | undefined, position: Vec3) {
+  const { camera } = useThree();
+  const [requestedLevel, setRequestedLevel] = useState<ModelLodLevel>("high");
+
+  useFrame(() => {
+    const nextLevel = resolveEditorModelLodLevel(files, camera.position.distanceTo(modelDistanceVector.set(position.x, position.y, position.z)));
+
+    setRequestedLevel((current) => (current === nextLevel ? current : nextLevel));
+  });
+
+  useEffect(() => {
+    setRequestedLevel("high");
+  }, [fallbackFile?.path, files]);
+
+  return useMemo(() => {
+    const matchingFile = files?.find((file) => file.level === requestedLevel);
+    return matchingFile ?? fallbackFile;
+  }, [fallbackFile, files, requestedLevel]);
+}
+
+function createPrimaryModelFile(mesh: DerivedRenderMesh): ModelAssetFile | undefined {
+  if (!mesh.modelPath) {
+    return undefined;
+  }
+
+  return {
+    format: mesh.modelFormat === "obj" ? "obj" : mesh.modelFormat === "gltf" ? "gltf" : "glb",
+    level: "high",
+    materialMtlText: mesh.modelMtlText,
+    path: mesh.modelPath,
+    texturePath: mesh.modelTexturePath
+  };
+}
+
+function resolveEditorModelLodLevel(files: ModelAssetFile[] | undefined, distance: number): ModelLodLevel {
+  const hasLow = files?.some((file) => file.level === "low");
+  const hasMid = files?.some((file) => file.level === "mid");
+
+  if (hasLow && distance >= EDITOR_MODEL_LOW_DISTANCE) {
+    return "low";
+  }
+
+  if (hasMid && distance >= EDITOR_MODEL_MID_DISTANCE) {
+    return "mid";
+  }
+
+  return "high";
+}
+
+function computeBatchCenter(batch: DerivedInstancedMesh) {
+  if (batch.instances.length === 0) {
+    return { x: 0, y: 0, z: 0 } satisfies Vec3;
+  }
+
+  const total = batch.instances.reduce(
+    (accumulator, instance) => ({
+      x: accumulator.x + instance.position.x,
+      y: accumulator.y + instance.position.y,
+      z: accumulator.z + instance.position.z
+    }),
+    { x: 0, y: 0, z: 0 } satisfies Vec3
+  );
+
+  return {
+    x: total.x / batch.instances.length,
+    y: total.y / batch.instances.length,
+    z: total.z / batch.instances.length
+  } satisfies Vec3;
 }
 
 async function loadModelTexture(path: string) {
@@ -2148,7 +2211,7 @@ function computeModelBounds(scene: Object3D) {
   };
 }
 
-function buildModelParts(scene: Object3D | undefined, center: { x: number; y: number; z: number }, renderMode: ViewportRenderMode) {
+function buildModelParts(scene: Object3D | undefined, _center: { x: number; y: number; z: number }, renderMode: ViewportRenderMode) {
   if (!scene) {
     return [] as Array<{
       disposeGeometry?: boolean;
@@ -2161,7 +2224,6 @@ function buildModelParts(scene: Object3D | undefined, center: { x: number; y: nu
   }
 
   const root = cloneModelSceneGraph(scene);
-  root.position.set(-center.x, -center.y, -center.z);
   root.updateMatrixWorld(true);
 
   const parts: Array<{

@@ -6,6 +6,7 @@ import {
   Box3,
   BoxGeometry,
   BufferGeometry,
+  Camera,
   DirectionalLight,
   DoubleSide,
   Euler,
@@ -60,10 +61,17 @@ type ModelReference = {
   center?: Vec3;
   fallbackName: string;
   format: "gltf" | "obj";
+  materialMtlText?: string;
   modelPath?: string;
   nodeId: string;
   nodeName: string;
   texturePath?: string;
+};
+
+type RuntimeModelLevelDescriptor = {
+  distance: number;
+  key: "high" | WebHammerExportModelLod["level"];
+  reference?: WebHammerExportModelLod;
 };
 
 type WebHammerSceneObjectFactoryResources = {
@@ -173,9 +181,7 @@ async function createObjectForNode(
   }
 
   if (node.kind === "model") {
-    const modelObject = await createModelObject(node, resources, options);
-    const lodObject = await createLodObjectForModelNode(node, modelObject, resources, options);
-    content.add(lodObject ?? modelObject);
+    content.add(createLazyModelObject(node, resources, options));
     return anchor;
   }
 
@@ -347,30 +353,7 @@ async function createInstancedObjectForModelNode(
   resources: WebHammerSceneObjectFactoryResources,
   options: WebHammerSceneObjectFactoryOptions
 ) {
-  const baseGroup = await createInstancedModelObject(sourceNode, instances, sceneGraph, resources, options);
-  const lodOptions = resolveSceneLodOptions(options.lod);
-
-  if (!lodOptions || !sourceNode.lods?.length) {
-    return baseGroup;
-  }
-
-  const lod = new LOD();
-  lod.name = `${sourceNode.name}:InstancingLOD`;
-  lod.autoUpdate = true;
-  lod.addLevel(baseGroup, 0);
-
-  for (const level of sourceNode.lods) {
-    const levelGroup = await createInstancedModelObject(sourceNode, instances, sceneGraph, resources, options, level);
-    const distance = level.level === "mid" ? lodOptions.midDistance : lodOptions.lowDistance;
-    lod.addLevel(levelGroup, distance);
-  }
-
-  lod.userData.webHammer = {
-    instanceNodeIds: instances.map((instance) => instance.id),
-    levelOrder: ["high", ...(sourceNode.lods ?? []).map((level) => level.level)],
-    sourceNodeId: sourceNode.id
-  };
-  return lod;
+  return createLazyInstancedModelObject(sourceNode, instances, sceneGraph, resources, options);
 }
 
 async function createInstancedModelObject(
@@ -446,36 +429,6 @@ async function createLodObjectForGeometryNode(
     const levelGroup = await createGeometryObject(level.geometry, node, resources, options, level);
     const distance = level.level === "mid" ? lodOptions.midDistance : lodOptions.lowDistance;
     lod.addLevel(levelGroup, distance);
-  }
-
-  lod.userData.webHammer = {
-    levelOrder: ["high", ...(node.lods ?? []).map((level) => level.level)],
-    nodeId: node.id
-  };
-  return lod;
-}
-
-async function createLodObjectForModelNode(
-  node: WebHammerEngineModelNode,
-  baseModel: Object3D,
-  resources: WebHammerSceneObjectFactoryResources,
-  options: WebHammerSceneObjectFactoryOptions
-) {
-  const lodOptions = resolveSceneLodOptions(options.lod);
-
-  if (!lodOptions || !node.lods?.length) {
-    return undefined;
-  }
-
-  const lod = new LOD();
-  lod.name = `${node.name}:LOD`;
-  lod.autoUpdate = true;
-  lod.addLevel(baseModel, 0);
-
-  for (const level of node.lods) {
-    const levelModel = await createModelObject(node, resources, options, level);
-    const distance = level.level === "mid" ? lodOptions.midDistance : lodOptions.lowDistance;
-    lod.addLevel(levelModel, distance);
   }
 
   lod.userData.webHammer = {
@@ -643,19 +596,21 @@ function resolveModelReference(
   assetsById: Map<string, Asset>,
   lodLevel?: WebHammerExportModelLod
 ): ModelReference {
-  const asset = lodLevel ? assetsById.get(lodLevel.assetId) : assetsById.get(node.data.assetId);
-  const modelPath = asset?.path ?? node.data.path;
+  const asset = assetsById.get(node.data.assetId);
+  const modelPath = lodLevel?.path ?? asset?.path ?? node.data.path;
+  const modelFormat = lodLevel?.format ?? asset?.metadata.modelFormat;
 
   return {
     asset,
-    assetId: asset?.id ?? (lodLevel ? lodLevel.assetId : node.data.assetId),
+    assetId: lodLevel?.assetId ?? asset?.id ?? node.data.assetId,
     center: readAssetVec3(asset, "nativeCenter"),
     fallbackName: `${node.name}:${lodLevel?.level ?? "high"}:fallback`,
-    format: resolveModelFormat(asset?.metadata.modelFormat, modelPath),
+    format: resolveModelFormat(modelFormat, modelPath),
+    materialMtlText: lodLevel?.materialMtlText ?? readAssetString(asset, "materialMtlText"),
     modelPath,
     nodeId: node.id,
     nodeName: node.name,
-    texturePath: readAssetString(asset, "texturePath")
+    texturePath: lodLevel?.texturePath ?? readAssetString(asset, "texturePath")
   };
 }
 
@@ -705,7 +660,7 @@ async function loadModelTemplate(
           slot: "baseColorTexture"
         })
       : reference.texturePath;
-  const cacheKey = `${reference.format}:${resolvedPath}:${resolvedTexturePath ?? ""}:${readAssetString(reference.asset, "materialMtlText") ?? ""}`;
+  const cacheKey = `${reference.format}:${resolvedPath}:${resolvedTexturePath ?? ""}:${reference.materialMtlText ?? ""}`;
   const cached = resources.modelTemplateCache.get(cacheKey);
 
   if (cached) {
@@ -716,9 +671,8 @@ async function loadModelTemplate(
     try {
       const object =
         reference.format === "obj"
-          ? await loadObjModel(reference.asset, resolvedPath, resolvedTexturePath)
+          ? await loadObjModel(reference.asset, resolvedPath, resolvedTexturePath, reference.materialMtlText)
           : await loadGltfModel(reference.asset, resolvedPath);
-      centerObject(object, reference.center);
       return object;
     } catch (error) {
       console.warn(
@@ -733,9 +687,14 @@ async function loadModelTemplate(
   return pending;
 }
 
-async function loadObjModel(asset: Asset | undefined, resolvedPath: string, resolvedTexturePath?: string) {
+async function loadObjModel(
+  asset: Asset | undefined,
+  resolvedPath: string,
+  resolvedTexturePath?: string,
+  materialMtlText?: string
+) {
   const objLoader = new OBJLoader();
-  const mtlText = readAssetString(asset, "materialMtlText");
+  const mtlText = materialMtlText ?? readAssetString(asset, "materialMtlText");
 
   if (mtlText) {
     const materialCreator = mtlLoader.parse(patchMtlTextureReferences(mtlText, resolvedTexturePath), "");
@@ -792,22 +751,6 @@ async function loadModelTexture(path: string) {
   return texture;
 }
 
-function centerObject(object: Object3D, center: Vec3 | undefined) {
-  const resolvedCenter = center ?? computeObjectCenter(object);
-  object.position.set(-resolvedCenter.x, -resolvedCenter.y, -resolvedCenter.z);
-}
-
-function computeObjectCenter(object: Object3D) {
-  const box = new Box3().setFromObject(object);
-  const center = box.getCenter(new Vector3());
-
-  return {
-    x: center.x,
-    y: center.y,
-    z: center.z
-  };
-}
-
 function createMissingModelFallback(asset: Asset | undefined, name = "Missing Model") {
   const previewColor = readAssetString(asset, "previewColor") ?? "#7f8ea3";
   const size = readAssetVec3(asset, "nativeSize") ?? { x: 1.4, y: 1.4, z: 1.4 };
@@ -821,6 +764,198 @@ function createMissingModelFallback(asset: Asset | undefined, name = "Missing Mo
 
   mesh.name = name;
   return mesh;
+}
+
+function createLazyModelObject(
+  node: WebHammerEngineModelNode,
+  resources: WebHammerSceneObjectFactoryResources,
+  options: WebHammerSceneObjectFactoryOptions
+) {
+  const fallback = createMissingModelFallback(resources.assetsById.get(node.data.assetId), `${node.name}:loading`);
+  const descriptors = resolveRuntimeModelLevelDescriptors(node, options.lod);
+
+  return createLazyRuntimeModelGroup({
+    descriptors,
+    fallback,
+    name: `${node.name}:LOD`,
+    onLoadLevel: (descriptor) =>
+      createModelObject(
+        node,
+        resources,
+        options,
+        descriptor.reference
+      ),
+    resolveDistance: (camera, group) => camera.position.distanceTo(group.getWorldPosition(new Vector3()))
+  });
+}
+
+function createLazyInstancedModelObject(
+  sourceNode: WebHammerEngineModelNode,
+  instances: Array<Extract<WebHammerEngineNode, { kind: "instancing" }>>,
+  sceneGraph: ReturnType<typeof resolveSceneGraph>,
+  resources: WebHammerSceneObjectFactoryResources,
+  options: WebHammerSceneObjectFactoryOptions
+) {
+  const descriptors = resolveRuntimeModelLevelDescriptors(sourceNode, options.lod);
+  const fallback = new Group();
+  const center = computeInstancedBatchCenter(instances, sceneGraph);
+
+  fallback.userData.webHammer = {
+    instanceNodeIds: instances.map((instance) => instance.id),
+    sourceNodeId: sourceNode.id
+  };
+
+  return createLazyRuntimeModelGroup({
+    descriptors,
+    fallback,
+    name: `${sourceNode.name}:InstancingLOD`,
+    onLoadLevel: (descriptor) =>
+      createInstancedModelObject(
+        sourceNode,
+        instances,
+        sceneGraph,
+        resources,
+        options,
+        descriptor.reference
+      ),
+    resolveDistance: (camera) => camera.position.distanceTo(center)
+  });
+}
+
+function createLazyRuntimeModelGroup(input: {
+  descriptors: RuntimeModelLevelDescriptor[];
+  fallback: Object3D;
+  name: string;
+  onLoadLevel: (descriptor: RuntimeModelLevelDescriptor) => Promise<Object3D>;
+  resolveDistance: (camera: Camera, group: Group) => number;
+}) {
+  const group = new Group();
+  const loaded = new Map<string, Object3D>();
+  const loading = new Map<string, Promise<void>>();
+
+  group.name = input.name;
+  group.add(input.fallback);
+
+  const updateVisibleLevel = (desiredKey: RuntimeModelLevelDescriptor["key"]) => {
+    const preferred = loaded.get(desiredKey);
+    const visible = preferred ?? loaded.values().next().value;
+
+    loaded.forEach((object, key) => {
+      object.visible = key === desiredKey || object === visible;
+    });
+    input.fallback.visible = !visible;
+  };
+
+  const ensureLoaded = (descriptor: RuntimeModelLevelDescriptor) => {
+    if (loaded.has(descriptor.key) || loading.has(descriptor.key)) {
+      return;
+    }
+
+    const pending = input
+      .onLoadLevel(descriptor)
+      .then((object) => {
+        object.visible = false;
+        group.add(object);
+        loaded.set(descriptor.key, object);
+      })
+      .finally(() => {
+        loading.delete(descriptor.key);
+      });
+
+    loading.set(descriptor.key, pending);
+  };
+
+  group.onBeforeRender = (_renderer, _scene, camera) => {
+    if (!(camera instanceof Camera) || input.descriptors.length === 0) {
+      return;
+    }
+
+    const desiredDescriptor = resolveDesiredRuntimeModelLevelDescriptor(input.descriptors, input.resolveDistance(camera, group));
+
+    ensureLoaded(desiredDescriptor);
+    updateVisibleLevel(desiredDescriptor.key);
+  };
+
+  group.userData.webHammer = {
+    ...(group.userData.webHammer ?? {}),
+    levelOrder: input.descriptors.map((descriptor) => descriptor.key)
+  };
+
+  return group;
+}
+
+function resolveDesiredRuntimeModelLevelDescriptor(
+  descriptors: RuntimeModelLevelDescriptor[],
+  distance: number
+) {
+  let resolved = descriptors[0]!;
+
+  for (const descriptor of descriptors) {
+    if (distance >= descriptor.distance) {
+      resolved = descriptor;
+    }
+  }
+
+  return resolved;
+}
+
+function resolveRuntimeModelLevelDescriptors(
+  node: WebHammerEngineModelNode,
+  lod?: WebHammerSceneLodOptions
+) {
+  const lodOptions = resolveSceneLodOptions(lod);
+  const descriptors: RuntimeModelLevelDescriptor[] = [
+    {
+      distance: 0,
+      key: "high"
+    }
+  ];
+
+  if (!lodOptions) {
+    return descriptors;
+  }
+
+  const mid = node.lods?.find((level) => level.level === "mid");
+  const low = node.lods?.find((level) => level.level === "low");
+
+  if (mid) {
+    descriptors.push({
+      distance: lodOptions.midDistance,
+      key: "mid",
+      reference: mid
+    });
+  }
+
+  if (low) {
+    descriptors.push({
+      distance: lodOptions.lowDistance,
+      key: "low",
+      reference: low
+    });
+  }
+
+  return descriptors;
+}
+
+function computeInstancedBatchCenter(
+  instances: Array<Extract<WebHammerEngineNode, { kind: "instancing" }>>,
+  sceneGraph: ReturnType<typeof resolveSceneGraph>
+) {
+  if (instances.length === 0) {
+    return new Vector3();
+  }
+
+  const center = new Vector3();
+
+  instances.forEach((instance) => {
+    const transform = sceneGraph.nodeWorldTransforms.get(instance.id) ?? instance.transform;
+    center.x += transform.position.x;
+    center.y += transform.position.y;
+    center.z += transform.position.z;
+  });
+
+  center.multiplyScalar(1 / instances.length);
+  return center;
 }
 
 function isJsonGltfPath(path: string) {

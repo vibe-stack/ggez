@@ -9,6 +9,7 @@ import type {
   GeometryNode,
   LightNodeData,
   LightType,
+  ModelLodLevel,
   Material,
   SceneSettings,
   TextureRecord,
@@ -86,6 +87,7 @@ type EditorShellProps = {
   onCommitMeshTopology: (nodeId: string, mesh: EditableMesh) => void;
   onCreateBrush: () => void;
   onDeleteAsset: (assetId: string) => void;
+  onClearAssetLod: (assetId: string, level: Exclude<ModelLodLevel, "high">) => void;
   onDeleteSelection: () => void;
   onDuplicateSelection: () => void;
   onGroupSelection: () => void;
@@ -113,6 +115,8 @@ type EditorShellProps = {
   onMirrorSelection: (axis: TransformAxis) => void;
   onGenerateAiModel: () => void;
   onImportGlb: () => void;
+  onImportAsset: () => void;
+  onAssignAssetLod: (assetId: string, level: ModelLodLevel) => void;
   onPlaceAsset: (position: { x: number; y: number; z: number }) => void;
   onPlaceAiModelPlaceholder: (position: { x: number; y: number; z: number }) => void;
   onPlaceBrush: (brush: Brush, transform: Transform) => void;
@@ -220,6 +224,8 @@ export function EditorShell({
   onClipSelection,
   onCommitMeshTopology,
   onCreateBrush,
+  onAssignAssetLod,
+  onClearAssetLod,
   onDeleteAsset,
   onDeleteSelection,
   onDuplicateSelection,
@@ -248,6 +254,7 @@ export function EditorShell({
   onMirrorSelection,
   onGenerateAiModel,
   onImportGlb,
+  onImportAsset,
   onPlaceAsset,
   onPlaceAiModelPlaceholder,
   onPlaceBrush,
@@ -516,12 +523,15 @@ export function EditorShell({
           onApplyMaterial={onApplyMaterial}
           onChangeRightPanel={onSetRightPanel}
           onClipSelection={onClipSelection}
+          onAssignAssetLod={onAssignAssetLod}
+          onClearAssetLod={onClearAssetLod}
           onDeleteAsset={onDeleteAsset}
           onDeleteMaterial={onDeleteMaterial}
           onDeleteTexture={onDeleteTexture}
           onExtrudeSelection={onExtrudeSelection}
           onFocusAssetNodes={onFocusAssetNodes}
           onFocusNode={onFocusNode}
+          onImportAsset={onImportAsset}
           onInsertAsset={onInsertAsset}
           onMeshEditToolbarAction={onMeshEditToolbarAction}
           onMirrorSelection={onMirrorSelection}

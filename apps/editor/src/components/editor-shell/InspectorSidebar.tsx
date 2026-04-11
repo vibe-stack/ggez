@@ -6,6 +6,7 @@ import {
   isInstancingNode,
   isLightNode,
   isPrimitiveNode,
+  type ModelLodLevel,
   vec3,
   type Entity,
   type GeometryNode,
@@ -54,12 +55,15 @@ type InspectorSidebarProps = {
   onApplyMaterial: (materialId: string, scope: "faces" | "object", faceIds: string[]) => void;
   onChangeRightPanel: (panel: RightPanelId | null) => void;
   onClipSelection: (axis: "x" | "y" | "z") => void;
+  onAssignAssetLod: (assetId: string, level: ModelLodLevel) => void;
+  onClearAssetLod: (assetId: string, level: Exclude<ModelLodLevel, "high">) => void;
   onDeleteAsset: (assetId: string) => void;
   onDeleteMaterial: (materialId: string) => void;
   onDeleteTexture: (textureId: string) => void;
   onExtrudeSelection: (axis: "x" | "y" | "z", direction: -1 | 1) => void;
   onFocusAssetNodes: (assetId: string) => void;
   onFocusNode: (nodeId: string) => void;
+  onImportAsset: () => void;
   onInsertAsset: (assetId: string) => void;
   onMeshEditToolbarAction: (action: MeshEditToolbarActionRequest["kind"]) => void;
   onMirrorSelection: (axis: "x" | "y" | "z") => void;
@@ -123,11 +127,14 @@ export function InspectorSidebar({
   onChangeRightPanel,
   onClipSelection,
   onDeleteAsset,
+  onAssignAssetLod,
+  onClearAssetLod,
   onDeleteMaterial,
   onDeleteTexture,
   onExtrudeSelection,
   onFocusAssetNodes,
   onFocusNode,
+  onImportAsset,
   onInsertAsset,
   onMeshEditToolbarAction,
   onMirrorSelection,
@@ -543,71 +550,14 @@ export function InspectorSidebar({
                   />
                 </ToolSection>
 
-                <ToolSection title="LOD Bake">
-                  <BooleanField
-                    label="Bake Runtime LODs"
-                    onCheckedChange={(checked) =>
-                      setDraftWorldSettingsState((current) => ({
-                        ...current,
-                        lod: {
-                          ...current.lod,
-                          enabled: checked
-                        }
-                      }))
-                    }
-                    checked={draftWorldSettings.lod.enabled}
-                  />
-                  <div className="rounded-xl border border-white/8 bg-white/4 px-3 py-2 text-[11px] text-foreground/56">
-                    Runtime bundle export keeps the authored mesh as high detail and generates `mid` + `low` variants from
-                    these ratios. Games choose the switch distances at load time.
+                <ToolSection title="Model LODs">
+                  <div className="rounded-xl border border-white/8 bg-white/4 px-3 py-2 text-[11px] text-foreground/60">
+                    Automatic runtime LOD generation is disabled. Author explicit high, mid, and low model files from the
+                    Assets library instead.
                   </div>
-                  <DragInput
-                    className="w-full"
-                    compact
-                    label="Mid Detail"
-                    max={0.95}
-                    min={0.1}
-                    onChange={(value) =>
-                      setDraftWorldSettingsState((current) => ({
-                        ...current,
-                        lod: {
-                          ...current.lod,
-                          midDetailRatio: Math.max(Math.max(0.1, value), current.lod.lowDetailRatio)
-                        }
-                      }))
-                    }
-                    onValueCommit={commitWorldSettings}
-                    precision={2}
-                    step={0.02}
-                    value={draftWorldSettings.lod.midDetailRatio}
-                  />
-                  <DragInput
-                    className="w-full"
-                    compact
-                    label="Low Detail"
-                    max={draftWorldSettings.lod.midDetailRatio}
-                    min={0.05}
-                    onChange={(value) =>
-                      setDraftWorldSettingsState((current) => ({
-                        ...current,
-                        lod: {
-                          ...current.lod,
-                          lowDetailRatio: Math.min(current.lod.midDetailRatio, Math.max(0.05, value))
-                        }
-                      }))
-                    }
-                    onValueCommit={commitWorldSettings}
-                    precision={2}
-                    step={0.02}
-                    value={draftWorldSettings.lod.lowDetailRatio}
-                  />
-                  <div className="rounded-xl bg-white/3 px-3 py-2 text-[11px] text-foreground/60">
-                    There is no separate editor bake step. The runtime export writes the baked LOD tiers into the bundle.
-                  </div>
-                  <div className="flex justify-end">
-                    <Button onClick={commitWorldSettings} size="xs" variant="ghost">
-                      Save LOD Settings
-                    </Button>
+                  <div className="rounded-xl bg-white/3 px-3 py-2 text-[11px] text-foreground/56">
+                    The runtime still uses distance-based switching, but the files now come from your authored asset tiers
+                    rather than editor-side mesh simplification.
                   </div>
                 </ToolSection>
 
@@ -1130,8 +1080,11 @@ export function InspectorSidebar({
           <TabsContent className="min-h-0 flex-1 px-3 pb-3" value="assets">
             <ModelAssetBrowserPanel
               items={modelAssets}
+              onAssignAssetLod={onAssignAssetLod}
+              onClearAssetLod={onClearAssetLod}
               onDeleteAsset={onDeleteAsset}
               onFocusAssetNodes={onFocusAssetNodes}
+              onImportAsset={onImportAsset}
               onInsertAsset={onInsertAsset}
               onSelectAsset={onSelectAsset}
               selectedAssetId={selectedAssetId}

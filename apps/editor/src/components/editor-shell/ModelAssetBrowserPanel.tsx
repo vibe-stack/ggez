@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Canvas } from "@react-three/fiber";
-import { Crosshair, Loader2, Plus, Trash2 } from "lucide-react";
+import { Crosshair, Expand, Loader2, Plus, Trash2, Upload, X } from "lucide-react";
 import { Mesh, MeshStandardMaterial, Object3D, SRGBColorSpace, Texture, TextureLoader } from "three";
 import { MTLLoader } from "three/examples/jsm/loaders/MTLLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import type { ModelAssetFile, ModelLodLevel } from "@ggez/shared";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import type { ModelAssetLibraryItem } from "@/lib/model-assets";
@@ -13,8 +15,11 @@ import { resolveModelBoundsFromAsset } from "@/lib/model-assets";
 
 type ModelAssetBrowserPanelProps = {
   items: ModelAssetLibraryItem[];
+  onAssignAssetLod: (assetId: string, level: ModelLodLevel) => void;
+  onClearAssetLod: (assetId: string, level: Exclude<ModelLodLevel, "high">) => void;
   onDeleteAsset: (assetId: string) => void;
   onFocusAssetNodes: (assetId: string) => void;
+  onImportAsset: () => void;
   onInsertAsset: (assetId: string) => void;
   onSelectAsset: (assetId: string) => void;
   selectedAssetId: string;
@@ -25,148 +30,496 @@ const mtlLoader = new MTLLoader();
 const objTextureLoader = new TextureLoader();
 const previewSceneCache = new Map<string, Promise<Object3D>>();
 const previewTextureCache = new Map<string, Promise<Texture>>();
+const MODEL_LEVEL_ORDER: ModelLodLevel[] = ["high", "mid", "low"];
 
 export function ModelAssetBrowserPanel({
   items,
+  onAssignAssetLod,
+  onClearAssetLod,
   onDeleteAsset,
   onFocusAssetNodes,
+  onImportAsset,
   onInsertAsset,
   onSelectAsset,
   selectedAssetId
 }: ModelAssetBrowserPanelProps) {
-  return (
-    <ScrollArea className="h-full pr-1">
-      <div className="space-y-3 px-1 pb-1">
-        {items.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-white/8 bg-white/3 px-4 py-8 text-center text-xs text-foreground/48">
-            Import a model once, then place it from here.
-          </div>
-        ) : null}
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const selectedItem = useMemo(
+    () => items.find((item) => item.asset.id === selectedAssetId) ?? items[0],
+    [items, selectedAssetId]
+  );
 
-        {items.map((item) => (
-          <ModelAssetCard
-            item={item}
-            key={item.asset.id}
+  return (
+    <>
+      <div className="flex h-full min-h-0 flex-col gap-3">
+        <div className="flex items-center justify-between gap-2 rounded-2xl border border-white/8 bg-white/4 px-3 py-2.5">
+          <div className="min-w-0">
+            <div className="text-[10px] font-medium tracking-[0.18em] text-foreground/42 uppercase">Model Assets</div>
+            <div className="truncate text-sm text-foreground/84">
+              {selectedItem ? `${selectedItem.label} · ${selectedItem.files.length} file${selectedItem.files.length === 1 ? "" : "s"}` : "No model selected"}
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Button className="gap-1.5" onClick={onImportAsset} size="xs" variant="ghost">
+              <Upload className="size-3.5" />
+              Import
+            </Button>
+            <Button className="gap-1.5" onClick={() => setLibraryOpen(true)} size="xs" variant="ghost">
+              <Expand className="size-3.5" />
+              Library
+            </Button>
+          </div>
+        </div>
+
+        {selectedItem ? (
+          <CompactSelectionCard
+            item={selectedItem}
+            onAssignAssetLod={onAssignAssetLod}
+            onClearAssetLod={onClearAssetLod}
             onDeleteAsset={onDeleteAsset}
             onFocusAssetNodes={onFocusAssetNodes}
             onInsertAsset={onInsertAsset}
-            onSelectAsset={onSelectAsset}
-            selected={selectedAssetId === item.asset.id}
           />
-        ))}
+        ) : (
+          <div className="rounded-2xl border border-dashed border-white/8 bg-white/3 px-4 py-8 text-center text-xs text-foreground/48">
+            Import a model once, then manage authored LOD files from the library.
+          </div>
+        )}
+
+        <ScrollArea className="min-h-0 flex-1 pr-1">
+          <div className="space-y-1.5 px-1 pb-1">
+            {items.map((item) => (
+              <AssetRow
+                item={item}
+                key={item.asset.id}
+                onFocusAssetNodes={onFocusAssetNodes}
+                onInsertAsset={onInsertAsset}
+                onSelectAsset={onSelectAsset}
+                selected={selectedItem?.asset.id === item.asset.id}
+              />
+            ))}
+          </div>
+        </ScrollArea>
       </div>
-    </ScrollArea>
+
+      <Dialog onOpenChange={setLibraryOpen} open={libraryOpen}>
+        <DialogContent className="h-[min(48rem,calc(100vh-2rem))] max-w-[min(84rem,calc(100vw-2rem))] rounded-2xl border border-white/10 bg-[#08110e]/96 p-0 text-foreground shadow-[0_28px_90px_rgba(0,0,0,0.48)]" showCloseButton={false}>
+          <DialogHeader className="flex-row items-center justify-between border-b border-white/8 px-5 py-4">
+            <div>
+              <DialogTitle>Model Library</DialogTitle>
+              <div className="mt-1 text-xs text-foreground/58">Author one asset with explicit high, mid, and low source files.</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button className="gap-1.5" onClick={onImportAsset} size="xs" variant="ghost">
+                <Upload className="size-3.5" />
+                Import Model
+              </Button>
+              <Button onClick={() => setLibraryOpen(false)} size="icon-xs" variant="ghost">
+                <X className="size-3.5" />
+              </Button>
+            </div>
+          </DialogHeader>
+
+          <div className="grid min-h-0 flex-1 gap-0 md:grid-cols-[20rem_minmax(0,1fr)]">
+            <div className="border-r border-white/8 bg-black/14">
+              <ScrollArea className="h-full px-3 py-3">
+                <div className="space-y-2 pb-2">
+                  {items.map((item) => (
+                    <AssetRow
+                      item={item}
+                      key={item.asset.id}
+                      onFocusAssetNodes={onFocusAssetNodes}
+                      onInsertAsset={onInsertAsset}
+                      onSelectAsset={onSelectAsset}
+                      selected={selectedItem?.asset.id === item.asset.id}
+                    />
+                  ))}
+                </div>
+              </ScrollArea>
+            </div>
+
+            <div className="min-h-0">
+              {selectedItem ? (
+                <ModelAssetDetailPane
+                  item={selectedItem}
+                  onAssignAssetLod={onAssignAssetLod}
+                  onClearAssetLod={onClearAssetLod}
+                  onDeleteAsset={onDeleteAsset}
+                  onFocusAssetNodes={onFocusAssetNodes}
+                  onInsertAsset={onInsertAsset}
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center text-sm text-foreground/52">Select a model asset.</div>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
-function ModelAssetCard({
+function CompactSelectionCard({
   item,
+  onAssignAssetLod,
+  onClearAssetLod,
   onDeleteAsset,
+  onFocusAssetNodes,
+  onInsertAsset
+}: {
+  item: ModelAssetLibraryItem;
+  onAssignAssetLod: (assetId: string, level: ModelLodLevel) => void;
+  onClearAssetLod: (assetId: string, level: Exclude<ModelLodLevel, "high">) => void;
+  onDeleteAsset: (assetId: string) => void;
+  onFocusAssetNodes: (assetId: string) => void;
+  onInsertAsset: (assetId: string) => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/8 bg-white/4 px-3 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium text-foreground/88">{item.label}</div>
+          <div className="mt-1 text-xs text-foreground/54">
+            {item.usageCount} placement{item.usageCount === 1 ? "" : "s"} · {item.source}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Button className="gap-1.5" onClick={() => onInsertAsset(item.asset.id)} size="xs" variant="ghost">
+            <Plus className="size-3.5" />
+            Place
+          </Button>
+          {item.usageCount > 0 ? (
+            <Button className="gap-1.5" onClick={() => onFocusAssetNodes(item.asset.id)} size="xs" variant="ghost">
+              <Crosshair className="size-3.5" />
+              Focus
+            </Button>
+          ) : (
+            <Button className="gap-1.5 text-destructive" onClick={() => onDeleteAsset(item.asset.id)} size="xs" variant="ghost">
+              <Trash2 className="size-3.5" />
+              Delete
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        {MODEL_LEVEL_ORDER.map((level) => (
+          <CompactLodBadge
+            assetId={item.asset.id}
+            file={item.files.find((file) => file.level === level)}
+            key={level}
+            level={level}
+            onAssignAssetLod={onAssignAssetLod}
+            onClearAssetLod={onClearAssetLod}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CompactLodBadge({
+  assetId,
+  file,
+  level,
+  onAssignAssetLod,
+  onClearAssetLod
+}: {
+  assetId: string;
+  file?: ModelAssetFile;
+  level: ModelLodLevel;
+  onAssignAssetLod: (assetId: string, level: ModelLodLevel) => void;
+  onClearAssetLod: (assetId: string, level: Exclude<ModelLodLevel, "high">) => void;
+}) {
+  return (
+    <div className="rounded-xl border border-white/8 bg-black/18 px-2.5 py-2 text-xs">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-medium uppercase text-foreground/58">{level}</span>
+        {file ? <span className="text-foreground/72">{file.format}</span> : null}
+      </div>
+      <div className="mt-1 truncate text-foreground/76">{file ? shortenAssetPath(file.path) : "No file"}</div>
+      <div className="mt-2 flex gap-1.5">
+        <Button className="flex-1" onClick={() => onAssignAssetLod(assetId, level)} size="xs" variant="ghost">
+          {file ? "Replace" : "Add"}
+        </Button>
+        {level !== "high" && file ? (
+          <Button className="px-2 text-foreground/62" onClick={() => onClearAssetLod(assetId, level)} size="xs" variant="ghost">
+            Clear
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function AssetRow({
+  item,
   onFocusAssetNodes,
   onInsertAsset,
   onSelectAsset,
   selected
 }: {
   item: ModelAssetLibraryItem;
-  onDeleteAsset: (assetId: string) => void;
   onFocusAssetNodes: (assetId: string) => void;
   onInsertAsset: (assetId: string) => void;
   onSelectAsset: (assetId: string) => void;
   selected: boolean;
 }) {
-  const scene = useLoadedPreviewScene(item);
+  return (
+    <button
+      className={cn(
+        "flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 text-left transition-colors",
+        selected ? "border-emerald-400/24 bg-emerald-500/10" : "border-white/8 bg-white/3 hover:border-white/14 hover:bg-white/4"
+      )}
+      onClick={() => onSelectAsset(item.asset.id)}
+      type="button"
+    >
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium text-foreground/88">{item.label}</div>
+        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-foreground/54">
+          <span>{item.usageCount} placed</span>
+          <span>{item.files.length} file{item.files.length === 1 ? "" : "s"}</span>
+          <span>{item.source}</span>
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        <Button
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onInsertAsset(item.asset.id);
+          }}
+          size="icon-xs"
+          variant="ghost"
+        >
+          <Plus className="size-3.5" />
+        </Button>
+        <Button
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onFocusAssetNodes(item.asset.id);
+          }}
+          size="icon-xs"
+          variant="ghost"
+        >
+          <Crosshair className="size-3.5" />
+        </Button>
+      </div>
+    </button>
+  );
+}
+
+function ModelAssetDetailPane({
+  item,
+  onAssignAssetLod,
+  onClearAssetLod,
+  onDeleteAsset,
+  onFocusAssetNodes,
+  onInsertAsset
+}: {
+  item: ModelAssetLibraryItem;
+  onAssignAssetLod: (assetId: string, level: ModelLodLevel) => void;
+  onClearAssetLod: (assetId: string, level: Exclude<ModelLodLevel, "high">) => void;
+  onDeleteAsset: (assetId: string) => void;
+  onFocusAssetNodes: (assetId: string) => void;
+  onInsertAsset: (assetId: string) => void;
+}) {
   const bounds = resolveModelBoundsFromAsset(item.asset);
+  const [previewLevel, setPreviewLevel] = useState<ModelLodLevel>("high");
+  const previewFile = item.files.find((file) => file.level === previewLevel) ?? item.files[0];
+  const scene = useLoadedPreviewScene(previewFile);
+
+  useEffect(() => {
+    setPreviewLevel("high");
+  }, [item.asset.id]);
 
   return (
-    <div
-      className={cn(
-        "group rounded-2xl border bg-white/3 transition-colors",
-        selected ? "border-emerald-400/22 bg-emerald-500/10" : "border-white/8 hover:border-white/14 hover:bg-white/4"
-      )}
-    >
-      <button
-        className="block w-full text-left"
-        onClick={() => onSelectAsset(item.asset.id)}
-        onDoubleClick={() => onInsertAsset(item.asset.id)}
-        type="button"
-      >
-        <div className="relative aspect-16/11 overflow-hidden rounded-t-[15px] bg-[radial-gradient(circle_at_top,rgba(110,231,183,0.14),transparent_36%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.01))]">
-          <div className="absolute right-2 top-2 z-10 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-            <IconActionButton ariaLabel="Add asset to scene" onClick={() => onInsertAsset(item.asset.id)}>
-              <Plus className="size-3.5" />
-            </IconActionButton>
-            {item.usageCount > 0 ? (
-              <IconActionButton ariaLabel="Focus placed asset" onClick={() => onFocusAssetNodes(item.asset.id)}>
-                <Crosshair className="size-3.5" />
-              </IconActionButton>
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="grid gap-5 border-b border-white/8 px-5 py-5 lg:grid-cols-[minmax(18rem,28rem)_minmax(0,1fr)]">
+        <div className="overflow-hidden rounded-3xl border border-white/8 bg-[radial-gradient(circle_at_top,rgba(110,231,183,0.14),transparent_34%),linear-gradient(180deg,#07100d_0%,#050806_100%)]">
+          <div className="flex items-center justify-between border-b border-white/8 px-4 py-3">
+            <div>
+              <div className="text-sm font-medium text-foreground/88">Preview</div>
+              <div className="text-xs text-foreground/52">Single shared canvas. No more per-card WebGL pileup.</div>
+            </div>
+            <div className="flex items-center gap-1 rounded-xl bg-black/20 p-1">
+              {MODEL_LEVEL_ORDER.map((level) => {
+                const hasFile = item.files.some((file) => file.level === level);
+                return (
+                  <Button
+                    className={cn(
+                      "px-2.5 uppercase",
+                      previewLevel === level && "bg-emerald-500/18 text-emerald-100"
+                    )}
+                    disabled={!hasFile}
+                    key={level}
+                    onClick={() => setPreviewLevel(level)}
+                    size="xs"
+                    variant="ghost"
+                  >
+                    {level}
+                  </Button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="aspect-16/11">
+            {scene ? (
+              <Canvas camera={{ fov: 28, position: resolvePreviewCameraPosition(bounds?.size) }} dpr={[1, 1.5]}>
+                <color args={["#09100d"]} attach="background" />
+                <ambientLight intensity={1.15} />
+                <directionalLight intensity={1.8} position={[4, 6, 5]} />
+                <directionalLight intensity={0.65} position={[-4, 2, -3]} />
+                <group rotation={[0.18, 0.68, 0]}>
+                  <primitive object={scene} position={resolvePreviewOffset(bounds)} />
+                </group>
+              </Canvas>
             ) : (
-              <IconActionButton ariaLabel="Delete unused asset" onClick={() => onDeleteAsset(item.asset.id)} destructive>
-                <Trash2 className="size-3.5" />
-              </IconActionButton>
+              <div className="flex h-full items-center justify-center text-foreground/36">
+                <Loader2 className="size-4 animate-spin" />
+              </div>
             )}
           </div>
-
-          {scene ? (
-            <Canvas camera={{ fov: 28, position: resolvePreviewCameraPosition(bounds?.size) }} dpr={[1, 1.5]}>
-              <color args={["#09100d"]} attach="background" />
-              <ambientLight intensity={1.15} />
-              <directionalLight intensity={1.8} position={[4, 6, 5]} />
-              <directionalLight intensity={0.65} position={[-4, 2, -3]} />
-              <group rotation={[0.18, 0.68, 0]}>
-                <primitive object={scene} position={resolvePreviewOffset(bounds)} />
-              </group>
-            </Canvas>
-          ) : (
-            <div className="flex h-full items-center justify-center text-foreground/36">
-              <Loader2 className="size-4 animate-spin" />
-            </div>
-          )}
         </div>
-        <div className="px-3 py-2.5 text-sm font-medium text-foreground/88">{item.label}</div>
-      </button>
+
+        <div className="min-w-0 space-y-4">
+          <div>
+            <div className="text-[10px] font-medium tracking-[0.18em] text-foreground/42 uppercase">Model Asset</div>
+            <div className="mt-1 text-xl font-medium text-foreground">{item.label}</div>
+            <div className="mt-2 flex flex-wrap gap-2 text-xs text-foreground/56">
+              <InfoPill>{item.source}</InfoPill>
+              <InfoPill>{item.usageCount} placement{item.usageCount === 1 ? "" : "s"}</InfoPill>
+              <InfoPill>{item.files.length} authored file{item.files.length === 1 ? "" : "s"}</InfoPill>
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <MetricCard label="Width" value={formatAxis(bounds?.size.x)} />
+            <MetricCard label="Height" value={formatAxis(bounds?.size.y)} />
+            <MetricCard label="Depth" value={formatAxis(bounds?.size.z)} />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button className="gap-1.5" onClick={() => onInsertAsset(item.asset.id)} size="xs" variant="ghost">
+              <Plus className="size-3.5" />
+              Place Asset
+            </Button>
+            <Button className="gap-1.5" onClick={() => onFocusAssetNodes(item.asset.id)} size="xs" variant="ghost">
+              <Crosshair className="size-3.5" />
+              Focus Placements
+            </Button>
+            {item.usageCount === 0 ? (
+              <Button className="gap-1.5 text-destructive" onClick={() => onDeleteAsset(item.asset.id)} size="xs" variant="ghost">
+                <Trash2 className="size-3.5" />
+                Delete Asset
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      <ScrollArea className="min-h-0 flex-1 px-5 py-5">
+        <div className="space-y-4 pb-2">
+          <div>
+            <div className="text-sm font-medium text-foreground/84">Authored LOD Files</div>
+            <div className="mt-1 text-xs text-foreground/54">
+              Upload hand-authored tiers here. Export and runtime loading use these files directly instead of auto-generating broken meshes.
+            </div>
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-3">
+            {MODEL_LEVEL_ORDER.map((level) => (
+              <LodSlotCard
+                assetId={item.asset.id}
+                file={item.files.find((entry) => entry.level === level)}
+                key={level}
+                level={level}
+                onAssignAssetLod={onAssignAssetLod}
+                onClearAssetLod={onClearAssetLod}
+              />
+            ))}
+          </div>
+        </div>
+      </ScrollArea>
     </div>
   );
 }
 
-function IconActionButton({
-  ariaLabel,
-  children,
-  destructive = false,
-  onClick
+function LodSlotCard({
+  assetId,
+  file,
+  level,
+  onAssignAssetLod,
+  onClearAssetLod
 }: {
-  ariaLabel: string;
-  children: React.ReactNode;
-  destructive?: boolean;
-  onClick: () => void;
+  assetId: string;
+  file?: ModelAssetFile;
+  level: ModelLodLevel;
+  onAssignAssetLod: (assetId: string, level: ModelLodLevel) => void;
+  onClearAssetLod: (assetId: string, level: Exclude<ModelLodLevel, "high">) => void;
 }) {
   return (
-    <Button
-      aria-label={ariaLabel}
-      className={cn(
-        "pointer-events-auto border border-white/10 bg-black/36 text-foreground/76 backdrop-blur-md hover:bg-white/10 hover:text-foreground",
-        destructive && "text-destructive hover:bg-destructive/14 hover:text-destructive"
-      )}
-      onClick={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        onClick();
-      }}
-      size="icon-xs"
-      type="button"
-      variant="ghost"
-    >
-      {children}
-    </Button>
+    <div className="rounded-2xl border border-white/8 bg-white/4 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-[10px] font-medium tracking-[0.18em] text-foreground/42 uppercase">{level}</div>
+          <div className="mt-1 text-sm font-medium text-foreground/86">{file ? file.format.toUpperCase() : "Not set"}</div>
+        </div>
+        <Button onClick={() => onAssignAssetLod(assetId, level)} size="xs" variant="ghost">
+          {file ? "Replace" : "Add"}
+        </Button>
+      </div>
+
+      <div className="mt-3 space-y-2 text-xs text-foreground/58">
+        <div className="rounded-xl bg-black/16 px-3 py-2.5">
+          <div className="text-[10px] uppercase tracking-[0.16em] text-foreground/36">Source</div>
+          <div className="mt-1 break-all text-foreground/76">{file ? shortenAssetPath(file.path) : "No file assigned"}</div>
+        </div>
+        {file?.texturePath ? (
+          <div className="rounded-xl bg-black/16 px-3 py-2.5">
+            <div className="text-[10px] uppercase tracking-[0.16em] text-foreground/36">Texture</div>
+            <div className="mt-1 break-all text-foreground/72">{shortenAssetPath(file.texturePath)}</div>
+          </div>
+        ) : null}
+      </div>
+
+      {level !== "high" && file ? (
+        <div className="mt-3 flex justify-end">
+          <Button className="text-foreground/60" onClick={() => onClearAssetLod(assetId, level)} size="xs" variant="ghost">
+            Clear {level}
+          </Button>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
-function useLoadedPreviewScene(item: ModelAssetLibraryItem) {
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-white/8 bg-white/4 px-3 py-3">
+      <div className="text-[10px] font-medium tracking-[0.18em] text-foreground/42 uppercase">{label}</div>
+      <div className="mt-1 text-sm font-medium text-foreground/86">{value}</div>
+    </div>
+  );
+}
+
+function InfoPill({ children }: { children: ReactNode }) {
+  return <div className="rounded-full border border-white/8 bg-white/4 px-2.5 py-1">{children}</div>;
+}
+
+function useLoadedPreviewScene(file?: ModelAssetFile) {
   const [scene, setScene] = useState<Object3D>();
 
   useEffect(() => {
+    if (!file?.path) {
+      setScene(undefined);
+      return;
+    }
+
     let cancelled = false;
 
-    void loadPreviewScene(item)
+    void loadPreviewScene(file)
       .then((loaded) => {
         if (cancelled) {
           return;
@@ -183,15 +536,13 @@ function useLoadedPreviewScene(item: ModelAssetLibraryItem) {
     return () => {
       cancelled = true;
     };
-  }, [item]);
+  }, [file]);
 
   return scene;
 }
 
-async function loadPreviewScene(item: ModelAssetLibraryItem) {
-  const texturePath = typeof item.asset.metadata.texturePath === "string" ? item.asset.metadata.texturePath : undefined;
-  const mtlText = typeof item.asset.metadata.materialMtlText === "string" ? item.asset.metadata.materialMtlText : undefined;
-  const cacheKey = `${item.format}:${item.asset.path}:${texturePath ?? ""}:${mtlText ?? ""}`;
+async function loadPreviewScene(file: ModelAssetFile) {
+  const cacheKey = `${file.level}:${file.format}:${file.path}:${file.texturePath ?? ""}:${file.materialMtlText ?? ""}`;
   const cached = previewSceneCache.get(cacheKey);
 
   if (cached) {
@@ -199,19 +550,19 @@ async function loadPreviewScene(item: ModelAssetLibraryItem) {
   }
 
   const pending = (async () => {
-    if (item.format === "obj") {
+    if (file.format === "obj") {
       const objLoader = new OBJLoader();
 
-      if (mtlText) {
-        const materialCreator = mtlLoader.parse(patchMtlTextureReferences(mtlText, texturePath), "");
+      if (file.materialMtlText) {
+        const materialCreator = mtlLoader.parse(patchMtlTextureReferences(file.materialMtlText, file.texturePath), "");
         materialCreator.preload();
         objLoader.setMaterials(materialCreator);
       }
 
-      const object = await objLoader.loadAsync(item.asset.path);
+      const object = await objLoader.loadAsync(file.path);
 
-      if (!mtlText && texturePath) {
-        const texture = await loadTexture(texturePath);
+      if (!file.materialMtlText && file.texturePath) {
+        const texture = await loadTexture(file.texturePath);
         object.traverse((child) => {
           if (child instanceof Mesh) {
             child.material = new MeshStandardMaterial({
@@ -226,7 +577,7 @@ async function loadPreviewScene(item: ModelAssetLibraryItem) {
       return object;
     }
 
-    const gltf = await gltfLoader.loadAsync(item.asset.path);
+    const gltf = await gltfLoader.loadAsync(file.path);
     return gltf.scene;
   })();
 
@@ -255,7 +606,7 @@ function resolvePreviewCameraPosition(size?: { x: number; y: number; z: number }
 }
 
 function resolvePreviewOffset(bounds?: { center: { x: number; y: number; z: number } }) {
-  return bounds ? [-bounds.center.x, -bounds.center.y, -bounds.center.z] as [number, number, number] : [0, 0, 0];
+  return bounds ? ([-bounds.center.x, -bounds.center.y, -bounds.center.z] as [number, number, number]) : [0, 0, 0];
 }
 
 function patchMtlTextureReferences(mtlText: string, texturePath?: string) {
@@ -274,4 +625,17 @@ function patchMtlTextureReferences(mtlText: string, texturePath?: string) {
   });
 
   return hasDiffuseMap ? normalized : `${normalized.trim()}\nmap_Kd ${texturePath}\n`;
+}
+
+function shortenAssetPath(path: string) {
+  if (path.startsWith("data:")) {
+    const separatorIndex = path.indexOf(",");
+    return separatorIndex >= 0 ? `${path.slice(0, separatorIndex)}...` : path;
+  }
+
+  return path.split("/").slice(-2).join("/");
+}
+
+function formatAxis(value?: number) {
+  return typeof value === "number" ? value.toFixed(2) : "-";
 }
