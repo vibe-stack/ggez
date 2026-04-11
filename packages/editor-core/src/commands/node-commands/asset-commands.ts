@@ -26,3 +26,25 @@ export function createUpsertAssetCommand(
     }
   };
 }
+
+export function createDeleteAssetCommand(
+  scene: SceneDocument,
+  assetId: string
+): Command {
+  const before = scene.assets.get(assetId);
+  const beforeAsset = before ? structuredClone(before) : undefined;
+
+  return {
+    label: "delete asset",
+    execute(nextScene) {
+      nextScene.removeAsset(assetId);
+    },
+    undo(nextScene) {
+      if (!beforeAsset) {
+        return;
+      }
+
+      nextScene.setAsset(structuredClone(beforeAsset));
+    }
+  };
+}

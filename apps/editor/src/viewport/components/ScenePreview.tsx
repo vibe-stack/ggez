@@ -44,7 +44,15 @@ import {
 } from "@ggez/render-pipeline";
 import { createBlockoutTextureDataUri, resolveTransformPivot, toTuple } from "@ggez/shared";
 import { createIndexedGeometry } from "@/viewport/utils/geometry";
-import type { ViewportRenderMode } from "@/viewport/viewports";
+import {
+  renderModeUsesFullLighting,
+  renderModeUsesPreviewMaterials,
+  renderModeUsesRenderableSurfaces,
+  renderModeUsesSceneLights,
+  renderModeUsesShadows,
+  renderModeUsesSolidMaterials,
+  type ViewportRenderMode
+} from "@/viewport/viewports";
 import type { SceneSettings } from "@ggez/shared";
 import { VfxSceneRuntime } from "@/viewport/components/VfxSceneRuntime";
 
@@ -57,6 +65,8 @@ const tempInstanceObject = new Object3D();
 const tempInstanceMatrix = new Matrix4();
 const tempPivotMatrix = new Matrix4();
 const tempInstanceColor = new Color();
+const NOOP_HOVER_END = () => {};
+const NOOP_HOVER_START = (_nodeId: string) => {};
 export function ScenePreview({
   hiddenSceneItemIds = [],
   interactive,
@@ -66,7 +76,7 @@ export function ScenePreview({
   pathDefinitions,
   physicsPlayback,
   physicsRevision,
-  renderMode = "lit",
+  renderMode = "preview",
   renderScene,
   sceneSettings,
   selectedHookNodes = [],
@@ -88,11 +98,10 @@ export function ScenePreview({
   selectedPathId?: string;
   selectedNodeIds: string[];
 }) {
-  const [hoveredNodeId, setHoveredNodeId] = useState<string>();
   const hiddenIds = useMemo(() => new Set(hiddenSceneItemIds), [hiddenSceneItemIds]);
   const selectedIdSet = useMemo(() => new Set(selectedNodeIds), [selectedNodeIds]);
-  const physicsActive = renderMode === "lit" && physicsPlayback !== "stopped" && sceneSettings.world.physicsEnabled;
-  const vfxPlaybackActive = renderMode === "lit" && physicsPlayback !== "stopped";
+  const physicsActive = renderModeUsesRenderableSurfaces(renderMode) && physicsPlayback !== "stopped" && sceneSettings.world.physicsEnabled;
+  const vfxPlaybackActive = renderModeUsesFullLighting(renderMode) && physicsPlayback !== "stopped";
   const { physicsPropMeshes, playerSpawn, staticMeshes, visibleEntityMarkers, visibleGroups, visibleInstancedMeshes, visibleLights } = useMemo(() => {
     const nextPlayerSpawn = physicsActive
       ? renderScene.entityMarkers.find((entity) => entity.entityType === "player-spawn")
@@ -135,13 +144,13 @@ export function ScenePreview({
 
       {staticMeshes.map((mesh) => (
         <RenderStaticMesh
-          hovered={hoveredNodeId === mesh.nodeId}
+          hovered={false}
           interactive={interactive}
           key={mesh.nodeId}
           mesh={mesh}
           onFocusNode={onFocusNode}
-          onHoverEnd={() => setHoveredNodeId(undefined)}
-          onHoverStart={setHoveredNodeId}
+          onHoverEnd={NOOP_HOVER_END}
+          onHoverStart={NOOP_HOVER_START}
           onMeshObjectChange={onMeshObjectChange}
           onSelectNodes={onSelectNode}
           renderMode={renderMode}
@@ -152,12 +161,12 @@ export function ScenePreview({
       {visibleInstancedMeshes.map((batch) => (
         <RenderInstancedMeshBatch
           batch={batch}
-          hoveredNodeId={hoveredNodeId}
+          hoveredNodeId={undefined}
           interactive={interactive}
           key={batch.batchId}
           onFocusNode={onFocusNode}
-          onHoverEnd={() => setHoveredNodeId(undefined)}
-          onHoverStart={setHoveredNodeId}
+          onHoverEnd={NOOP_HOVER_END}
+          onHoverStart={NOOP_HOVER_START}
           onMeshObjectChange={onMeshObjectChange}
           onSelectNodes={onSelectNode}
           renderMode={renderMode}
@@ -177,13 +186,13 @@ export function ScenePreview({
           ))}
           {physicsPropMeshes.map((mesh) => (
             <PhysicsPropMesh
-              hovered={hoveredNodeId === mesh.nodeId}
+              hovered={false}
               interactive={interactive}
               key={`prop:${mesh.nodeId}`}
               mesh={mesh}
               onFocusNode={onFocusNode}
-              onHoverEnd={() => setHoveredNodeId(undefined)}
-              onHoverStart={setHoveredNodeId}
+              onHoverEnd={NOOP_HOVER_END}
+              onHoverStart={NOOP_HOVER_START}
               onMeshObjectChange={onMeshObjectChange}
               onSelectNodes={onSelectNode}
               renderMode={renderMode}
@@ -284,13 +293,13 @@ export function ScenePreview({
 
       {visibleGroups.map((group) => (
         <RenderGroupNode
-          hovered={hoveredNodeId === group.nodeId}
+          hovered={false}
           interactive={interactive}
           key={group.nodeId}
           group={group}
           onFocusNode={onFocusNode}
-          onHoverEnd={() => setHoveredNodeId(undefined)}
-          onHoverStart={setHoveredNodeId}
+          onHoverEnd={NOOP_HOVER_END}
+          onHoverStart={NOOP_HOVER_START}
           onSelectNodes={onSelectNode}
           selected={selectedIdSet.has(group.nodeId)}
         />
@@ -298,13 +307,13 @@ export function ScenePreview({
 
       {visibleLights.map((light) => (
         <RenderLightNode
-          hovered={hoveredNodeId === light.nodeId}
+          hovered={false}
           interactive={interactive}
           key={light.nodeId}
           light={light}
           onFocusNode={onFocusNode}
-          onHoverEnd={() => setHoveredNodeId(undefined)}
-          onHoverStart={setHoveredNodeId}
+          onHoverEnd={NOOP_HOVER_END}
+          onHoverStart={NOOP_HOVER_START}
           onSelectNodes={onSelectNode}
           renderMode={renderMode}
           selected={selectedIdSet.has(light.nodeId)}
@@ -1046,7 +1055,7 @@ function RenderInstancedMeshBatch({
   return (
     <instancedMesh
       args={[geometry, previewMaterials.length === 1 ? previewMaterials[0] : previewMaterials, batch.instances.length]}
-      castShadow={renderMode === "lit"}
+      castShadow={renderModeUsesShadows(renderMode)}
       name={`node:${batch.batchId}`}
       onPointerDown={(event) => {
         if (!interactive || event.button !== 0) {
@@ -1112,7 +1121,7 @@ function RenderInstancedMeshBatch({
         event.stopPropagation();
         onHoverStart(nodeId);
       }}
-      receiveShadow={renderMode === "lit"}
+      receiveShadow={renderModeUsesShadows(renderMode)}
       ref={(object) => {
         if (object) {
           object.userData.webHammer = {
@@ -1162,13 +1171,17 @@ function RenderInstancedModelBatch({
     [loadedScene]
   );
   const center = loadedBounds?.center ?? batch.mesh.modelCenter ?? { x: 0, y: 0, z: 0 };
-  const modelParts = useMemo(() => buildModelParts(loadedScene, center), [center.x, center.y, center.z, loadedScene]);
+  const modelParts = useMemo(() => buildModelParts(loadedScene, center, renderMode), [center.x, center.y, center.z, loadedScene, renderMode]);
 
   useEffect(() => {
     return () => {
       modelParts.forEach((part) => {
         if (part.disposeGeometry) {
           part.geometry.dispose();
+        }
+
+        if (part.ownedMaterial) {
+          disposeOwnedMaterial(part.material);
         }
       });
     };
@@ -1290,7 +1303,7 @@ function RenderInstancedModelPart({
   return (
     <instancedMesh
       args={[sourceGeometry, material, batch.instances.length]}
-      castShadow={renderMode === "lit"}
+      castShadow={renderModeUsesShadows(renderMode)}
       name={`node:${batch.batchId}:${partKey}`}
       onPointerDown={(event) => {
         if (!interactive || event.button !== 0) {
@@ -1356,7 +1369,7 @@ function RenderInstancedModelPart({
         event.stopPropagation();
         onHoverStart(nodeId);
       }}
-      receiveShadow={renderMode === "lit"}
+      receiveShadow={renderModeUsesShadows(renderMode)}
       ref={(object) => {
         if (object) {
           object.userData.webHammer = {
@@ -1455,7 +1468,7 @@ function RenderInstancedModelBoundsBatch({
   return (
     <instancedMesh
       args={[geometry, material, batch.instances.length]}
-      castShadow={renderMode === "lit"}
+      castShadow={renderModeUsesShadows(renderMode)}
       name={`node:${batch.batchId}`}
       onPointerDown={(event) => {
         if (!interactive || event.button !== 0) {
@@ -1521,7 +1534,7 @@ function RenderInstancedModelBoundsBatch({
         event.stopPropagation();
         onHoverStart(nodeId);
       }}
-      receiveShadow={renderMode === "lit"}
+      receiveShadow={renderModeUsesShadows(renderMode)}
       ref={(object) => {
         if (object) {
           object.userData.webHammer = {
@@ -1671,7 +1684,7 @@ function TrimeshPhysicsCollider({
 }
 
 function useTrimeshColliderArgs(mesh: DerivedRenderMesh): [ArrayLike<number>, ArrayLike<number>] | undefined {
-  const geometry = useRenderableGeometry(mesh, "lit");
+  const geometry = useRenderableGeometry(mesh, "full");
   const fallbackIndices = useMemo(() => {
     if (!geometry) {
       return new Uint32Array();
@@ -1760,7 +1773,7 @@ function RenderMeshBody({
   return (
     <group position={[-pivot.x, -pivot.y, -pivot.z]}>
       <mesh
-        castShadow={renderMode === "lit"}
+        castShadow={renderModeUsesShadows(renderMode)}
         onClick={(event) => {
           if (!interactive) {
             return;
@@ -1804,7 +1817,7 @@ function RenderMeshBody({
           onHoverStart(mesh.nodeId);
         }}
         ref={setMeshObject}
-        receiveShadow={renderMode === "lit"}
+        receiveShadow={renderModeUsesShadows(renderMode)}
       >
         <primitive attach="geometry" object={geometry} />
         {renderMode === "wireframe" ? (
@@ -1851,20 +1864,6 @@ function RenderModelBody({
     () => (loadedScene ? computeModelBounds(loadedScene) : undefined),
     [loadedScene]
   );
-  const modelScene = useMemo(() => {
-    if (!loadedScene) {
-      return undefined;
-    }
-
-    const clone = cloneModelSceneGraph(loadedScene);
-    clone.traverse((child) => {
-      if (child instanceof Mesh) {
-        child.castShadow = renderMode === "lit";
-        child.receiveShadow = renderMode === "lit";
-      }
-    });
-    return clone;
-  }, [loadedScene, renderMode]);
   const modelBounds = loadedBounds ?? (mesh.modelSize && mesh.modelCenter
     ? {
         center: mesh.modelCenter,
@@ -1872,15 +1871,29 @@ function RenderModelBody({
       }
     : undefined);
   const center = modelBounds?.center ?? mesh.modelCenter ?? { x: 0, y: 0, z: 0 };
-  const showOverlay = renderMode === "wireframe" || selected || hovered;
+  const showBoundsOverlay = renderMode === "wireframe" || selected || hovered;
   const overlayColor = selected ? "#f97316" : hovered ? "#67e8f9" : "#94a3b8";
-  const overlayScene = useMemo(() => {
-    if (!loadedScene || !showOverlay) {
+  const showModelSurface = renderModeUsesRenderableSurfaces(renderMode);
+  const modelScene = useMemo(() => {
+    if (!loadedScene || !showModelSurface || renderModeUsesSolidMaterials(renderMode)) {
       return undefined;
     }
 
     const clone = cloneModelSceneGraph(loadedScene);
+    clone.traverse((child) => {
+      if (child instanceof Mesh) {
+        child.castShadow = renderModeUsesShadows(renderMode);
+        child.receiveShadow = renderModeUsesShadows(renderMode);
+      }
+    });
+    return clone;
+  }, [loadedScene, renderMode, showModelSurface]);
+  const solidScene = useMemo(() => {
+    if (!loadedScene || !renderModeUsesSolidMaterials(renderMode)) {
+      return undefined;
+    }
 
+    const clone = cloneModelSceneGraph(loadedScene);
     clone.traverse((child) => {
       if (!(child instanceof Mesh)) {
         return;
@@ -1888,18 +1901,16 @@ function RenderModelBody({
 
       child.castShadow = false;
       child.receiveShadow = false;
-      child.renderOrder = renderMode === "wireframe" ? 0 : 6;
-      child.material = createModelOverlayMaterial(child.material, overlayColor, renderMode);
+      child.material = createSolidModelMaterial(child.material, selected, hovered);
     });
-
     return clone;
-  }, [loadedScene, overlayColor, renderMode, showOverlay]);
+  }, [hovered, loadedScene, renderMode, selected]);
 
   useEffect(() => {
     return () => {
-      disposeOverlaySceneMaterials(overlayScene);
+      disposeOwnedSceneMaterials(solidScene);
     };
-  }, [overlayScene]);
+  }, [solidScene]);
 
   const handleClick = useCallback((event: any) => {
     if (!interactive) {
@@ -1939,7 +1950,7 @@ function RenderModelBody({
 
   return (
     <group>
-      {modelScene && renderMode === "lit" ? (
+      {modelScene ? (
         <primitive
           object={modelScene}
           onClick={handleClick}
@@ -1949,9 +1960,9 @@ function RenderModelBody({
           position={[-center.x, -center.y, -center.z]}
         />
       ) : null}
-      {overlayScene ? (
+      {solidScene ? (
         <primitive
-          object={overlayScene}
+          object={solidScene}
           onClick={handleClick}
           onDoubleClick={handleDoubleClick}
           onPointerOut={handlePointerOut}
@@ -1959,20 +1970,24 @@ function RenderModelBody({
           position={[-center.x, -center.y, -center.z]}
         />
       ) : null}
-      {!modelScene ? (
+      {!modelScene && !solidScene && showModelSurface ? (
         <mesh
-          castShadow={renderMode === "lit"}
+          castShadow={renderModeUsesShadows(renderMode)}
           onClick={handleClick}
           onDoubleClick={handleDoubleClick}
           onPointerOut={handlePointerOut}
           onPointerOver={handlePointerOver}
-          receiveShadow={renderMode === "lit"}
+          receiveShadow={renderModeUsesShadows(renderMode)}
         >
           <boxGeometry args={toTuple(mesh.modelSize ?? { x: 1.4, y: 1.4, z: 1.4 })} />
-          <meshStandardMaterial color={mesh.material.color} metalness={0.08} roughness={0.72} />
+          {renderModeUsesSolidMaterials(renderMode) ? (
+            <meshStandardMaterial color={selected ? "#ffb35a" : "#d8dee6"} metalness={0.06} roughness={0.84} />
+          ) : (
+            <meshStandardMaterial color={mesh.material.color} metalness={0.08} roughness={0.72} />
+          )}
         </mesh>
       ) : null}
-      {!modelScene && showOverlay ? (
+      {showBoundsOverlay ? (
         <mesh
           onClick={handleClick}
           onDoubleClick={handleDoubleClick}
@@ -2133,7 +2148,7 @@ function computeModelBounds(scene: Object3D) {
   };
 }
 
-function buildModelParts(scene: Object3D | undefined, center: { x: number; y: number; z: number }) {
+function buildModelParts(scene: Object3D | undefined, center: { x: number; y: number; z: number }, renderMode: ViewportRenderMode) {
   if (!scene) {
     return [] as Array<{
       disposeGeometry?: boolean;
@@ -2141,6 +2156,7 @@ function buildModelParts(scene: Object3D | undefined, center: { x: number; y: nu
       key: string;
       localMatrix: Matrix4;
       material: Mesh["material"];
+      ownedMaterial?: boolean;
     }>;
   }
 
@@ -2154,6 +2170,7 @@ function buildModelParts(scene: Object3D | undefined, center: { x: number; y: nu
     key: string;
     localMatrix: Matrix4;
     material: Mesh["material"];
+    ownedMaterial?: boolean;
   }> = [];
   let partIndex = 0;
 
@@ -2169,7 +2186,8 @@ function buildModelParts(scene: Object3D | undefined, center: { x: number; y: nu
       geometry,
       key: `${partIndex}:${child.name || "mesh"}`,
       localMatrix: child.matrixWorld.clone(),
-      material: child.material
+      material: renderModeUsesSolidMaterials(renderMode) ? createSolidModelMaterial(child.material, false, false) : child.material,
+      ownedMaterial: renderModeUsesSolidMaterials(renderMode)
     });
     partIndex += 1;
   });
@@ -2208,27 +2226,7 @@ function bakeSkinnedMeshGeometry(mesh: SkinnedMesh) {
   return bakedGeometry;
 }
 
-function createModelOverlayMaterial(material: Mesh["material"], color: string, renderMode: ViewportRenderMode) {
-  if (Array.isArray(material)) {
-    return material.map((entry) => createSingleModelOverlayMaterial(entry, color, renderMode));
-  }
-
-  return createSingleModelOverlayMaterial(material, color, renderMode);
-}
-
-function createSingleModelOverlayMaterial(material: Mesh["material"], color: string, renderMode: ViewportRenderMode) {
-  return new MeshBasicMaterial({
-    color,
-    depthWrite: false,
-    opacity: renderMode === "wireframe" ? 1 : 0.85,
-    side: material instanceof MeshBasicMaterial || material instanceof MeshStandardMaterial ? material.side : DoubleSide,
-    toneMapped: false,
-    transparent: renderMode !== "wireframe",
-    wireframe: true
-  });
-}
-
-function disposeOverlaySceneMaterials(scene: Object3D | undefined) {
+function disposeOwnedSceneMaterials(scene: Object3D | undefined) {
   if (!scene) {
     return;
   }
@@ -2238,12 +2236,7 @@ function disposeOverlaySceneMaterials(scene: Object3D | undefined) {
       return;
     }
 
-    if (Array.isArray(child.material)) {
-      child.material.forEach((entry) => entry.dispose());
-      return;
-    }
-
-    child.material.dispose();
+    disposeOwnedMaterial(child.material);
   });
 }
 
@@ -2327,7 +2320,7 @@ function RenderLightNode({
         <meshStandardMaterial color="#d8e0ea" metalness={0.1} roughness={0.55} />
       </mesh>
 
-      {renderMode === "lit" && light.data.enabled ? (
+      {renderModeUsesSceneLights(renderMode) && light.data.enabled ? (
         <>
           {light.data.type === "ambient" ? (
             <ambientLight color={light.data.color} intensity={light.data.intensity} />
@@ -2453,7 +2446,7 @@ function useRenderableGeometry(mesh: DerivedRenderMesh, renderMode: ViewportRend
       return undefined;
     }
 
-    if (renderMode === "lit") {
+    if (renderModeUsesRenderableSurfaces(renderMode)) {
       bufferGeometry.computeVertexNormals();
     }
     bufferGeometry.computeBoundingBox();
@@ -2470,12 +2463,17 @@ function usePreviewMaterials(
   hovered: boolean
 ) {
   return useMemo(() => {
-    if (renderMode !== "lit") {
-      return [];
+    if (renderModeUsesPreviewMaterials(renderMode)) {
+      const specs = mesh.materials ?? [mesh.material];
+      return specs.map((spec) => createPreviewMaterial(spec, selected, hovered));
     }
 
-    const specs = mesh.materials ?? [mesh.material];
-    return specs.map((spec) => createPreviewMaterial(spec, selected, hovered));
+    if (renderModeUsesSolidMaterials(renderMode)) {
+      const specs = mesh.materials ?? [mesh.material];
+      return specs.map((spec) => createSolidSurfaceMaterial(spec, selected, hovered));
+    }
+
+    return [];
   }, [hovered, mesh.material, mesh.materials, renderMode, selected]);
 }
 
@@ -2483,8 +2481,12 @@ function useInstancedPreviewMaterials(mesh: DerivedRenderMesh, renderMode: Viewp
   return useMemo(() => {
     const specs = mesh.materials ?? [mesh.material];
 
-    if (renderMode === "lit") {
+    if (renderModeUsesPreviewMaterials(renderMode)) {
       return specs.map((spec) => createPreviewMaterial(spec, false, false));
+    }
+
+    if (renderModeUsesSolidMaterials(renderMode)) {
+      return specs.map((spec) => createSolidSurfaceMaterial(spec, false, false, true));
     }
 
     return specs.map((spec) => new MeshBasicMaterial({
@@ -2591,6 +2593,42 @@ function createPreviewMaterial(spec: DerivedRenderMesh["material"], selected: bo
   });
 }
 
+function createSolidSurfaceMaterial(
+  spec: DerivedRenderMesh["material"],
+  selected: boolean,
+  hovered: boolean,
+  useInstanceColors = false
+) {
+  return new MeshStandardMaterial({
+    color: useInstanceColors ? "#ffffff" : selected ? "#ffb35a" : hovered ? "#d8f4f0" : "#d9e1e8",
+    emissive: selected ? "#f69036" : hovered ? "#2a7f74" : "#000000",
+    emissiveIntensity: selected ? 0.24 : hovered ? 0.08 : 0,
+    flatShading: spec.flatShaded,
+    metalness: 0.04,
+    roughness: 0.88,
+    side: resolvePreviewMaterialSide(spec.side)
+  });
+}
+
+function createSolidModelMaterial(material: Mesh["material"], selected: boolean, hovered: boolean) {
+  if (Array.isArray(material)) {
+    return material.map((entry) => createSolidSingleModelMaterial(entry, selected, hovered));
+  }
+
+  return createSolidSingleModelMaterial(material, selected, hovered);
+}
+
+function createSolidSingleModelMaterial(material: Mesh["material"], selected: boolean, hovered: boolean) {
+  return new MeshStandardMaterial({
+    color: selected ? "#ffb35a" : hovered ? "#d8f4f0" : "#d9e1e8",
+    emissive: selected ? "#f69036" : hovered ? "#2a7f74" : "#000000",
+    emissiveIntensity: selected ? 0.24 : hovered ? 0.08 : 0,
+    metalness: 0.04,
+    roughness: 0.88,
+    side: material instanceof MeshBasicMaterial || material instanceof MeshStandardMaterial ? material.side : DoubleSide
+  });
+}
+
 function resolvePreviewMaterialSide(side?: MaterialRenderSide): Side {
   switch (side) {
     case "back":
@@ -2603,6 +2641,15 @@ function resolvePreviewMaterialSide(side?: MaterialRenderSide): Side {
 }
 
 function disposePreviewMaterial(material: MeshStandardMaterial) {
+  material.dispose();
+}
+
+function disposeOwnedMaterial(material: Mesh["material"]) {
+  if (Array.isArray(material)) {
+    material.forEach((entry) => entry.dispose());
+    return;
+  }
+
   material.dispose();
 }
 

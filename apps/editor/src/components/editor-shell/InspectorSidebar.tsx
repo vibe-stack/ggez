@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { parseVfxRuntimeBundleZip } from "@ggez/vfx-exporter";
-import { BellRing, Cable, FolderTree, Globe2, SlidersHorizontal, SwatchBook, User } from "lucide-react";
+import { BellRing, Cable, FolderTree, Globe2, Package, SlidersHorizontal, SwatchBook, User } from "lucide-react";
 import {
   type EditableMesh,
   isInstancingNode,
@@ -29,9 +29,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FloatingPanel } from "@/components/editor-shell/FloatingPanel";
 import { EventsPanel, HooksPanel, PathsPanel } from "@/components/editor-shell/GameplayPanels";
 import { MaterialLibraryPanel } from "@/components/editor-shell/MaterialLibraryPanel";
+import { ModelAssetBrowserPanel } from "@/components/editor-shell/ModelAssetBrowserPanel";
 import { SceneHierarchyPanel } from "@/components/editor-shell/SceneHierarchyPanel";
 import { rebaseTransformPivot } from "@/viewport/utils/geometry";
 import { readFileAsDataUrl } from "@/lib/model-assets";
+import type { ModelAssetLibraryItem } from "@/lib/model-assets";
 import { cn } from "@/lib/utils";
 import type { MeshEditMode } from "@/viewport/editing";
 import type { MeshEditToolbarActionRequest } from "@/viewport/types";
@@ -40,7 +42,6 @@ import type { RightPanelId } from "@/state/ui-store";
 type InspectorSidebarProps = {
   activeRightPanel: RightPanelId | null;
   activeToolId: ToolId;
-  assets: Array<{ id: string; path: string; type: string }>;
   effectiveHiddenSceneItemIds: string[];
   effectiveLockedSceneItemIds: string[];
   entities: Entity[];
@@ -48,14 +49,18 @@ type InspectorSidebarProps = {
   lockedSceneItemIds: string[];
   materials: Material[];
   meshEditMode: MeshEditMode;
+  modelAssets: ModelAssetLibraryItem[];
   nodes: GeometryNode[];
   onApplyMaterial: (materialId: string, scope: "faces" | "object", faceIds: string[]) => void;
   onChangeRightPanel: (panel: RightPanelId | null) => void;
   onClipSelection: (axis: "x" | "y" | "z") => void;
+  onDeleteAsset: (assetId: string) => void;
   onDeleteMaterial: (materialId: string) => void;
   onDeleteTexture: (textureId: string) => void;
   onExtrudeSelection: (axis: "x" | "y" | "z", direction: -1 | 1) => void;
+  onFocusAssetNodes: (assetId: string) => void;
   onFocusNode: (nodeId: string) => void;
+  onInsertAsset: (assetId: string) => void;
   onMeshEditToolbarAction: (action: MeshEditToolbarActionRequest["kind"]) => void;
   onMirrorSelection: (axis: "x" | "y" | "z") => void;
   onPlaceAsset: (position: Vec3) => void;
@@ -105,7 +110,6 @@ function inferSkyboxFormat(file: File): SceneSettings["world"]["skybox"]["format
 export function InspectorSidebar({
   activeRightPanel,
   activeToolId,
-  assets,
   effectiveHiddenSceneItemIds,
   effectiveLockedSceneItemIds,
   entities,
@@ -113,14 +117,18 @@ export function InspectorSidebar({
   lockedSceneItemIds,
   materials,
   meshEditMode,
+  modelAssets,
   nodes,
   onApplyMaterial,
   onChangeRightPanel,
   onClipSelection,
+  onDeleteAsset,
   onDeleteMaterial,
   onDeleteTexture,
   onExtrudeSelection,
+  onFocusAssetNodes,
   onFocusNode,
+  onInsertAsset,
   onMeshEditToolbarAction,
   onMirrorSelection,
   onPlaceAsset,
@@ -397,32 +405,36 @@ export function InspectorSidebar({
           value={activeRightPanel ?? ""}
         >
           <div className={cn("px-3 pt-3", collapsed ? "pb-3" : "pb-2")}>
-            <TabsList className="!grid !h-14 !w-full !grid-cols-7 !items-stretch rounded-xl bg-white/5 p-0.5" variant="default">
-              <TabsTrigger className={cn(RIGHT_PANEL_TAB_TRIGGER_CLASS, "!flex-col")} value="scene" onClick={() => handleTabClick("scene")}>
+            <TabsList className="grid h-14 w-full grid-cols-8 items-stretch rounded-xl bg-white/5 p-0.5" variant="default">
+              <TabsTrigger className={cn(RIGHT_PANEL_TAB_TRIGGER_CLASS, "flex-col")} value="scene" onClick={() => handleTabClick("scene")}>
                 <FolderTree />
                 <span className={RIGHT_PANEL_TAB_LABEL_CLASS}>Scene</span>
               </TabsTrigger>
-              <TabsTrigger className={cn(RIGHT_PANEL_TAB_TRIGGER_CLASS, "!flex-col")} value="world" onClick={() => handleTabClick("world")}>
+              <TabsTrigger className={cn(RIGHT_PANEL_TAB_TRIGGER_CLASS, "flex-col")} value="world" onClick={() => handleTabClick("world")}>
                 <Globe2 />
                 <span className={RIGHT_PANEL_TAB_LABEL_CLASS}>World</span>
               </TabsTrigger>
-              <TabsTrigger className={cn(RIGHT_PANEL_TAB_TRIGGER_CLASS, "!flex-col")} value="player" onClick={() => handleTabClick("player")}>
+              <TabsTrigger className={cn(RIGHT_PANEL_TAB_TRIGGER_CLASS, "flex-col")} value="player" onClick={() => handleTabClick("player")}>
                 <User />
                 <span className={RIGHT_PANEL_TAB_LABEL_CLASS}>Player</span>
               </TabsTrigger>
-              <TabsTrigger className={cn(RIGHT_PANEL_TAB_TRIGGER_CLASS, "!flex-col")} value="inspector" onClick={() => handleTabClick("inspector")}>
+              <TabsTrigger className={cn(RIGHT_PANEL_TAB_TRIGGER_CLASS, "flex-col")} value="inspector" onClick={() => handleTabClick("inspector")}>
                 <SlidersHorizontal />
                 <span className={RIGHT_PANEL_TAB_LABEL_CLASS}>Inspect</span>
               </TabsTrigger>
-              <TabsTrigger className={cn(RIGHT_PANEL_TAB_TRIGGER_CLASS, "!flex-col")} value="hooks" onClick={() => handleTabClick("hooks")}>
+              <TabsTrigger className={cn(RIGHT_PANEL_TAB_TRIGGER_CLASS, "flex-col")} value="hooks" onClick={() => handleTabClick("hooks")}>
                 <Cable />
                 <span className={RIGHT_PANEL_TAB_LABEL_CLASS}>Hooks</span>
               </TabsTrigger>
-              <TabsTrigger className={cn(RIGHT_PANEL_TAB_TRIGGER_CLASS, "!flex-col")} value="events" onClick={() => handleTabClick("events")}>
+              <TabsTrigger className={cn(RIGHT_PANEL_TAB_TRIGGER_CLASS, "flex-col")} value="events" onClick={() => handleTabClick("events")}>
                 <BellRing />
                 <span className={RIGHT_PANEL_TAB_LABEL_CLASS}>Events</span>
               </TabsTrigger>
-              <TabsTrigger className={cn(RIGHT_PANEL_TAB_TRIGGER_CLASS, "!flex-col")} value="materials" onClick={() => handleTabClick("materials")}>
+              <TabsTrigger className={cn(RIGHT_PANEL_TAB_TRIGGER_CLASS, "flex-col")} value="assets" onClick={() => handleTabClick("assets")}>
+                <Package />
+                <span className={RIGHT_PANEL_TAB_LABEL_CLASS}>Assets</span>
+              </TabsTrigger>
+              <TabsTrigger className={cn(RIGHT_PANEL_TAB_TRIGGER_CLASS, "flex-col")} value="materials" onClick={() => handleTabClick("materials")}>
                 <SwatchBook />
                 <span className={RIGHT_PANEL_TAB_LABEL_CLASS}>Mats</span>
               </TabsTrigger>
@@ -1113,6 +1125,17 @@ export function InspectorSidebar({
             <ScrollArea className="h-full pr-1">
               <EventsPanel onUpdateSceneSettings={onUpdateSceneSettings} sceneSettings={sceneSettings} />
             </ScrollArea>
+          </TabsContent>
+
+          <TabsContent className="min-h-0 flex-1 px-3 pb-3" value="assets">
+            <ModelAssetBrowserPanel
+              items={modelAssets}
+              onDeleteAsset={onDeleteAsset}
+              onFocusAssetNodes={onFocusAssetNodes}
+              onInsertAsset={onInsertAsset}
+              onSelectAsset={onSelectAsset}
+              selectedAssetId={selectedAssetId}
+            />
           </TabsContent>
 
           <TabsContent className="flex min-h-0 flex-1 px-3 pb-3" value="materials">

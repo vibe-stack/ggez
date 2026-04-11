@@ -1,7 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import type { SceneDocumentSnapshot } from "@ggez/editor-core";
 import { makeTransform, vec3 } from "@ggez/shared";
 import { CURRENT_RUNTIME_SCENE_VERSION, type RuntimeScene } from "@ggez/runtime-format";
-import { buildRuntimeWorldIndex, externalizeRuntimeAssets, packRuntimeBundle, unpackRuntimeBundle } from "./index";
+import {
+  buildRuntimeSceneFromSnapshot,
+  buildRuntimeWorldIndex,
+  externalizeRuntimeAssets,
+  packRuntimeBundle,
+  unpackRuntimeBundle
+} from "./index";
 
 const runtimeScene: RuntimeScene = {
   assets: [],
@@ -117,5 +124,89 @@ describe("runtime-build", () => {
     ]);
 
     expect(worldIndex.chunks[0]?.id).toBe("hub");
+  });
+
+  test("omits orphaned model assets from runtime scenes", async () => {
+    const snapshot: SceneDocumentSnapshot = {
+      assets: [
+        {
+          id: "asset:model:used",
+          metadata: {
+            modelFormat: "glb"
+          },
+          path: "data:model/gltf-binary;base64,AA==",
+          type: "model"
+        },
+        {
+          id: "asset:model:orphaned",
+          metadata: {
+            modelFormat: "glb"
+          },
+          path: "data:model/gltf-binary;base64,BB==",
+          type: "model"
+        }
+      ],
+      entities: [],
+      layers: [],
+      materials: [],
+      metadata: {},
+      nodes: [
+        {
+          data: {
+            assetId: "asset:model:used",
+            path: "data:model/gltf-binary;base64,AA=="
+          },
+          id: "node:model:used",
+          kind: "model",
+          name: "Used Model",
+          transform: makeTransform(vec3(0, 0, 0))
+        }
+      ],
+      settings: {
+        player: {
+          cameraMode: "fps",
+          canCrouch: true,
+          canInteract: true,
+          canJump: true,
+          canRun: true,
+          crouchHeight: 1.2,
+          height: 1.8,
+          interactKey: "KeyE",
+          jumpHeight: 1,
+          movementSpeed: 4,
+          runningSpeed: 6
+        },
+        world: {
+          ambientColor: "#ffffff",
+          ambientIntensity: 0,
+          fogColor: "#000000",
+          fogFar: 0,
+          fogNear: 0,
+          gravity: vec3(0, -9.81, 0),
+          lod: {
+            bakedAt: "",
+            enabled: false,
+            lowDetailRatio: 0.2,
+            midDetailRatio: 0.5
+          },
+          physicsEnabled: true,
+          skybox: {
+            affectsLighting: false,
+            blur: 0,
+            enabled: false,
+            format: "image",
+            intensity: 1,
+            lightingIntensity: 1,
+            name: "",
+            source: ""
+          }
+        }
+      },
+      textures: []
+    };
+
+    const runtimeSceneFromSnapshot = await buildRuntimeSceneFromSnapshot(snapshot);
+
+    expect(runtimeSceneFromSnapshot.assets.map((asset) => asset.id)).toEqual(["asset:model:used"]);
   });
 });

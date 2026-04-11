@@ -6,11 +6,12 @@ import { CreationToolBar } from "@/components/editor-shell/CreationToolBar";
 import { MeshEditToolBars } from "@/components/editor-shell/MeshEditToolBars";
 import { PhysicsPlaybackControl } from "@/components/editor-shell/PhysicsPlaybackControl";
 import { PrimaryToolBar } from "@/components/editor-shell/PrimaryToolBar";
+import { RenderModeControl } from "@/components/editor-shell/RenderModeControl";
 import { SnapControl } from "@/components/editor-shell/SnapControl";
 import { ViewModeControl } from "@/components/editor-shell/ViewModeControl";
 import type { MeshEditMode } from "@/viewport/editing";
 import type { MeshEditToolbarActionRequest } from "@/viewport/types";
-import type { ViewModeId } from "@/viewport/viewports";
+import type { ViewModeId, ViewportRenderMode } from "@/viewport/viewports";
 
 type ToolPaletteProps = {
   activeBrushShape: BrushShape;
@@ -43,8 +44,10 @@ type ToolPaletteProps = {
   onStopPhysics: () => void;
   onSetToolId: (toolId: ToolId) => void;
   onSetTransformMode: (mode: "rotate" | "scale" | "translate") => void;
+  onSetRenderMode: (renderMode: ViewportRenderMode) => void;
   onSetViewMode: (viewMode: ViewModeId) => void;
   physicsPlayback: "paused" | "running" | "stopped";
+  renderMode: ViewportRenderMode;
   sculptMode?: "deflate" | "inflate" | null;
   sculptBrushRadius: number;
   sculptBrushStrength: number;
@@ -87,8 +90,10 @@ export function ToolPalette({
   onStopPhysics,
   onSetToolId,
   onSetTransformMode,
+  onSetRenderMode,
   onSetViewMode,
   physicsPlayback,
+  renderMode,
   sculptMode,
   sculptBrushRadius,
   sculptBrushStrength,
@@ -102,6 +107,7 @@ export function ToolPalette({
   return (
     <div className="pointer-events-none absolute left-1/2 top-4 z-20 flex -translate-x-1/2 flex-col items-center gap-2">
       <div className="flex items-stretch gap-3">
+        <RenderModeControl currentRenderMode={renderMode} onSetRenderMode={onSetRenderMode} />
         <ViewModeControl currentViewMode={viewMode} onSetViewMode={onSetViewMode} />
         <PrimaryToolBar activeToolId={activeToolId} onSetToolId={onSetToolId} tools={tools} />
         <SnapControl currentSnapSize={currentSnapSize} gridSnapValues={gridSnapValues} onSetSnapEnabled={onSetSnapEnabled} onSetSnapSize={onSetSnapSize} snapEnabled={snapEnabled} />

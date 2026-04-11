@@ -33,6 +33,7 @@ export type SceneDocument = {
   setMaterial: (material: Material) => void;
   removeTexture: (id: string) => TextureRecord | undefined;
   setTexture: (texture: TextureRecord) => void;
+  removeAsset: (id: AssetID) => Asset | undefined;
   setAsset: (asset: Asset) => void;
   setLayer: (layer: Layer) => void;
   setSettings: (settings: SceneSettings) => void;
@@ -169,6 +170,18 @@ export function createSceneDocument(): SceneDocument {
     setTexture(texture) {
       textures.set(texture.id, texture);
       document.touch();
+    },
+    removeAsset(id) {
+      const asset = assets.get(id);
+
+      if (!asset) {
+        return undefined;
+      }
+
+      assets.delete(id);
+      document.touch();
+
+      return asset;
     },
     setAsset(asset) {
       assets.set(asset.id, asset);

@@ -4,11 +4,13 @@ import type { EditorCore } from "@ggez/editor-core";
 export function useEditorSubscriptions(
   editor: EditorCore,
   setSceneRevision: React.Dispatch<React.SetStateAction<number>>,
+  setCommittedSceneRevision: React.Dispatch<React.SetStateAction<number>>,
   setSelectionRevision: React.Dispatch<React.SetStateAction<number>>
 ) {
   useEffect(() => {
     const unsubscribeScene = editor.events.on("scene:changed", () => {
       setSceneRevision((revision) => revision + 1);
+      setCommittedSceneRevision((revision) => revision + 1);
     });
     const unsubscribeSelection = editor.events.on("selection:changed", () => {
       setSelectionRevision((revision) => revision + 1);
@@ -26,5 +28,5 @@ export function useEditorSubscriptions(
       unsubscribeScene();
       unsubscribeSelection();
     };
-  }, [editor, setSceneRevision, setSelectionRevision]);
+  }, [editor, setCommittedSceneRevision, setSceneRevision, setSelectionRevision]);
 }

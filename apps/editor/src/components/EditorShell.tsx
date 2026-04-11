@@ -29,6 +29,7 @@ import { StatusBar } from "@/components/editor-shell/StatusBar";
 import { ToolPalette } from "@/components/editor-shell/ToolPalette";
 import { LogicViewerSheet } from "@/components/editor-shell/logic-viewer/LogicViewerSheet";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import type { ModelAssetLibraryItem } from "@/lib/model-assets";
 import { ViewportCanvas } from "@/viewport/ViewportCanvas";
 import type { MeshEditMode } from "@/viewport/editing";
 import type { MeshEditToolbarActionRequest } from "@/viewport/types";
@@ -37,7 +38,8 @@ import {
   getViewModePreset,
   viewportPaneDefinitions,
   type ViewModeId,
-  type ViewportPaneId
+  type ViewportPaneId,
+  type ViewportRenderMode
 } from "@/viewport/viewports";
 import { cn } from "@/lib/utils";
 
@@ -74,6 +76,7 @@ type EditorShellProps = {
   lockedSceneItemIds: string[];
   meshEditMode: MeshEditMode;
   meshEditToolbarAction?: MeshEditToolbarActionRequest;
+  modelAssets: ModelAssetLibraryItem[];
   sculptMode?: "deflate" | "inflate" | null;
   sculptBrushRadius: number;
   sculptBrushStrength: number;
@@ -82,6 +85,7 @@ type EditorShellProps = {
   onClipSelection: (axis: TransformAxis) => void;
   onCommitMeshTopology: (nodeId: string, mesh: EditableMesh) => void;
   onCreateBrush: () => void;
+  onDeleteAsset: (assetId: string) => void;
   onDeleteSelection: () => void;
   onDuplicateSelection: () => void;
   onGroupSelection: () => void;
@@ -89,6 +93,7 @@ type EditorShellProps = {
   onExportEngine: () => void;
   onExportGltf: () => void;
   onExtrudeSelection: (axis: TransformAxis, direction: -1 | 1) => void;
+  onFocusAssetNodes: (assetId: string) => void;
   onFocusNode: (nodeId: string) => void;
   onDeleteMaterial: (materialId: string) => void;
   onDeleteTexture: (textureId: string) => void;
@@ -97,6 +102,7 @@ type EditorShellProps = {
   onNewFile: () => void;
   onInvertSelectionNormals: () => void;
   onPausePhysics: () => void;
+  onInsertAsset: (assetId: string) => void;
   onMeshEditToolbarAction: (action: MeshEditToolbarActionRequest["kind"]) => void;
   onPlaceEntity: (type: EntityType) => void;
   onPlaceLight: (type: LightType) => void;
@@ -139,6 +145,7 @@ type EditorShellProps = {
   onSetSnapSize: (snapSize: GridSnapValue) => void;
   onStopPhysics: () => void;
   onSetTransformMode: (mode: "rotate" | "scale" | "translate") => void;
+  onSetRenderMode: (renderMode: ViewportRenderMode) => void;
   onSetToolId: (toolId: ToolId) => void;
   onToggleCopilot: () => void;
   onToggleLogicViewer: () => void;
@@ -164,6 +171,7 @@ type EditorShellProps = {
   physicsPlayback: "paused" | "running" | "stopped";
   physicsRevision: number;
   renderScene: DerivedRenderScene;
+  renderMode: ViewportRenderMode;
   sceneSettings: SceneSettings;
   selectedScenePathId?: string;
   selectedAssetId: string;
@@ -203,6 +211,7 @@ export function EditorShell({
   lockedSceneItemIds,
   meshEditMode,
   meshEditToolbarAction,
+  modelAssets,
   sculptMode,
   sculptBrushRadius,
   sculptBrushStrength,
@@ -211,6 +220,7 @@ export function EditorShell({
   onClipSelection,
   onCommitMeshTopology,
   onCreateBrush,
+  onDeleteAsset,
   onDeleteSelection,
   onDuplicateSelection,
   onGroupSelection,
@@ -218,6 +228,7 @@ export function EditorShell({
   onExportEngine,
   onExportGltf,
   onExtrudeSelection,
+  onFocusAssetNodes,
   onFocusNode,
   onDeleteMaterial,
   onDeleteTexture,
@@ -226,6 +237,7 @@ export function EditorShell({
   onNewFile,
   onInvertSelectionNormals,
   onPausePhysics,
+  onInsertAsset,
   onMeshEditToolbarAction,
   onPlaceEntity,
   onPlaceLight,
@@ -268,6 +280,7 @@ export function EditorShell({
   onSetSnapSize,
   onStopPhysics,
   onSetTransformMode,
+  onSetRenderMode,
   onSetToolId,
   onToggleCopilot,
   onToggleLogicViewer,
@@ -293,6 +306,7 @@ export function EditorShell({
   physicsPlayback,
   physicsRevision,
   renderScene,
+  renderMode,
   sceneSettings,
   selectedScenePathId,
   selectedAssetId,
@@ -370,7 +384,7 @@ export function EditorShell({
           onViewportChange={onUpdateViewport}
           physicsPlayback={physicsPlayback}
           physicsRevision={physicsRevision}
-          renderMode={definition.renderMode}
+          renderMode={renderMode}
           renderScene={renderScene}
           sceneSettings={sceneSettings}
           selectedScenePathId={selectedScenePathId}
@@ -460,8 +474,10 @@ export function EditorShell({
           onStopPhysics={onStopPhysics}
           onSetTransformMode={onSetTransformMode}
           onSetToolId={onSetToolId}
+          onSetRenderMode={onSetRenderMode}
           onSetViewMode={onSetViewMode}
           physicsPlayback={physicsPlayback}
+          renderMode={renderMode}
           sculptMode={sculptMode}
           sculptBrushRadius={sculptBrushRadius}
           sculptBrushStrength={sculptBrushStrength}
@@ -485,11 +501,9 @@ export function EditorShell({
         />
 
         {/* <SpatialAnalysisPanel analysis={analysis} /> */}
-
         <InspectorSidebar
           activeRightPanel={activeRightPanel}
           activeToolId={activeToolId}
-          assets={assets}
           effectiveHiddenSceneItemIds={effectiveHiddenSceneItemIds}
           effectiveLockedSceneItemIds={effectiveLockedSceneItemIds}
           entities={entities}
@@ -497,14 +511,18 @@ export function EditorShell({
           lockedSceneItemIds={lockedSceneItemIds}
           materials={materials}
           meshEditMode={meshEditMode}
+          modelAssets={modelAssets}
           nodes={nodes}
           onApplyMaterial={onApplyMaterial}
           onChangeRightPanel={onSetRightPanel}
           onClipSelection={onClipSelection}
+          onDeleteAsset={onDeleteAsset}
           onDeleteMaterial={onDeleteMaterial}
           onDeleteTexture={onDeleteTexture}
           onExtrudeSelection={onExtrudeSelection}
+          onFocusAssetNodes={onFocusAssetNodes}
           onFocusNode={onFocusNode}
+          onInsertAsset={onInsertAsset}
           onMeshEditToolbarAction={onMeshEditToolbarAction}
           onMirrorSelection={onMirrorSelection}
           onPlaceAsset={onPlaceAsset}
@@ -670,7 +688,7 @@ function ViewportPaneFrame({
 function ViewportSplitHandle({ direction = "vertical" }: { direction?: "horizontal" | "vertical" }) {
   return (
     <ResizableHandle
-      className="bg-white/8 after:bg-transparent hover:bg-emerald-400/22 data-[dragging]:bg-emerald-400/28"
+      className="bg-white/8 after:bg-transparent hover:bg-emerald-400/22 data-dragging:bg-emerald-400/28"
       withHandle={direction === "vertical"}
     />
   );

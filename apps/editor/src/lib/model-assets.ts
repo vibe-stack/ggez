@@ -1,5 +1,5 @@
 import type { Asset, GeometryNode, PrimitiveNode, Vec3 } from "@ggez/shared";
-import { isPrimitiveNode, vec3 } from "@ggez/shared";
+import { isModelNode, isPrimitiveNode, vec3 } from "@ggez/shared";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { Box3, Vector3 } from "three";
@@ -13,6 +13,17 @@ export type ModelBounds = {
 };
 
 export type ModelFormat = "glb" | "obj";
+
+export type ModelAssetSource = "ai" | "import" | "placeholder" | "unknown";
+
+export type ModelAssetLibraryItem = {
+  asset: Asset;
+  format: ModelFormat;
+  label: string;
+  nodeIds: string[];
+  source: ModelAssetSource;
+  usageCount: number;
+};
 
 export async function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -68,6 +79,7 @@ export function createModelAsset(input: {
     metadata: {
       modelFormat: input.format ?? "glb",
       materialMtlText: input.materialMtlText ?? "",
+      name: input.name,
       nativeCenterX: input.center.x,
       nativeCenterY: input.center.y,
       nativeCenterZ: input.center.z,
@@ -82,6 +94,85 @@ export function createModelAsset(input: {
     path: input.path,
     type: "model"
   } satisfies Asset;
+}
+
+export function resolveModelAssetName(asset: Asset) {
+  const metadataName = asset.metadata.name;
+
+  if (typeof metadataName === "string" && metadataName.trim().length > 0) {
+    return metadataName.trim();
+  }
+
+  const slug = asset.id.split(":")[2] ?? asset.id;
+
+  return slug
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+export function resolveModelAssetFormat(asset: Asset): ModelFormat {
+  const format = asset.metadata.modelFormat;
+
+  if (format === "obj") {
+    return "obj";
+  }
+
+  return asset.path.toLowerCase().endsWith(".obj") ? "obj" : "glb";
+}
+
+export function resolveModelAssetSource(asset: Asset): ModelAssetSource {
+  const source = asset.metadata.source;
+
+  return source === "ai" || source === "import" || source === "placeholder" ? source : "unknown";
+}
+
+export function collectModelAssetUsage(nodes: Iterable<GeometryNode>) {
+  const usage = new Map<string, string[]>();
+
+  for (const node of nodes) {
+    if (!isModelNode(node)) {
+      continue;
+    }
+
+    const existing = usage.get(node.data.assetId);
+
+    if (existing) {
+      existing.push(node.id);
+      continue;
+    }
+
+    usage.set(node.data.assetId, [node.id]);
+  }
+
+  return usage;
+}
+
+export function buildModelAssetLibrary(assets: Iterable<Asset>, nodes: Iterable<GeometryNode>): ModelAssetLibraryItem[] {
+  const usage = collectModelAssetUsage(nodes);
+
+  return Array.from(assets)
+    .filter((asset): asset is Asset => asset.type === "model")
+    .map((asset) => {
+      const nodeIds = usage.get(asset.id) ?? [];
+
+      return {
+        asset,
+        format: resolveModelAssetFormat(asset),
+        label: resolveModelAssetName(asset),
+        nodeIds,
+        source: resolveModelAssetSource(asset),
+        usageCount: nodeIds.length
+      } satisfies ModelAssetLibraryItem;
+    })
+    .sort((left, right) => {
+      if (right.usageCount !== left.usageCount) {
+        return right.usageCount - left.usageCount;
+      }
+
+      return left.label.localeCompare(right.label);
+    });
 }
 
 export function resolveModelBoundsFromAsset(asset: Asset | undefined): ModelBounds | undefined {

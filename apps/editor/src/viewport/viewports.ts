@@ -7,7 +7,7 @@ import { addVec3, subVec3, vec3, type Vec3 } from "@ggez/shared";
 
 export type ViewportPaneId = "perspective" | "top" | "front" | "side";
 export type ViewModeId = "3d-only" | "split-top" | "split-front" | "split-side" | "quad";
-export type ViewportRenderMode = "lit" | "wireframe";
+export type ViewportRenderMode = "full" | "preview" | "solid" | "wireframe";
 export type ConstructionPlane = "xy" | "xz" | "yz";
 
 export type ViewModePreset =
@@ -39,7 +39,6 @@ export const viewportPaneDefinitions: Record<
     id: ViewportPaneId;
     label: string;
     plane: ConstructionPlane;
-    renderMode: ViewportRenderMode;
     shortLabel: string;
   }
 > = {
@@ -47,31 +46,55 @@ export const viewportPaneDefinitions: Record<
     id: "perspective",
     label: "3D View",
     plane: "xz",
-    renderMode: "lit",
     shortLabel: "3D"
   },
   top: {
     id: "top",
     label: "Top",
     plane: "xz",
-    renderMode: "wireframe",
     shortLabel: "Top"
   },
   front: {
     id: "front",
     label: "Front",
     plane: "xy",
-    renderMode: "wireframe",
     shortLabel: "Front"
   },
   side: {
     id: "side",
     label: "Side",
     plane: "yz",
-    renderMode: "wireframe",
     shortLabel: "Side"
   }
 };
+
+export function renderModeUsesEditorLighting(renderMode: ViewportRenderMode) {
+  return renderMode === "preview" || renderMode === "solid";
+}
+
+export function renderModeUsesFullLighting(renderMode: ViewportRenderMode) {
+  return renderMode === "full";
+}
+
+export function renderModeUsesPreviewMaterials(renderMode: ViewportRenderMode) {
+  return renderMode === "full" || renderMode === "preview";
+}
+
+export function renderModeUsesSolidMaterials(renderMode: ViewportRenderMode) {
+  return renderMode === "solid";
+}
+
+export function renderModeUsesShadows(renderMode: ViewportRenderMode) {
+  return renderMode === "full";
+}
+
+export function renderModeUsesSceneLights(renderMode: ViewportRenderMode) {
+  return renderMode === "full";
+}
+
+export function renderModeUsesRenderableSurfaces(renderMode: ViewportRenderMode) {
+  return renderMode !== "wireframe";
+}
 
 export const viewModePresets: ViewModePreset[] = [
   {

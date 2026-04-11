@@ -4,6 +4,7 @@ import {
   analyzeSceneSpatialLayout,
   axisDelta,
   createAssignMaterialCommand,
+  createDeleteAssetCommand,
   createDeleteMaterialCommand,
   createUpsertAssetCommand,
   createDeleteTextureCommand,
@@ -113,10 +114,12 @@ import type { ObjectGenerationResponse } from "@/lib/object-generation-contract"
 import { convertPrimitiveNodeToMeshNode } from "@/lib/primitive-to-mesh";
 import {
   analyzeModelSource,
+  buildModelAssetLibrary,
   createAiModelPlaceholder,
   createModelAsset,
   readFileAsDataUrl,
   resolveModelFitScale,
+  resolveModelAssetName,
   resolvePrimitiveNodeBounds
 } from "@/lib/model-assets";
 import { createEditableMeshFromPlane, createEditableMeshFromPrimitiveData } from "@/lib/primitive-to-mesh";
@@ -126,7 +129,8 @@ import {
   resolveVisibleViewportPaneIds,
   viewportPaneIds,
   type ViewModeId,
-  type ViewportPaneId
+  type ViewportPaneId,
+  type ViewportRenderMode
 } from "@/viewport/viewports";
 import { loadStoredSceneEditorDraft, saveSceneEditorDraft } from "@/lib/draft-storage";
 
@@ -148,6 +152,7 @@ export function App() {
   const [transformMode, setTransformMode] = useState<"rotate" | "scale" | "translate">("translate");
   const [workerManager] = useState(() => createWorkerTaskManager());
   const [workerJobs, setWorkerJobs] = useState<WorkerJob[]>([]);
+  const [committedSceneRevision, setCommittedSceneRevision] = useState(0);
   const [sceneRevision, setSceneRevision] = useState(0);
   const [selectionRevision, setSelectionRevision] = useState(0);
   const [sculptMode, setSculptMode] = useState<"deflate" | "inflate" | null>(null);
@@ -179,9 +184,13 @@ export function App() {
       ),
     [editor, sceneRevision]
   );
-  const spatialAnalysis = useMemo(() => analyzeSceneSpatialLayout(editor.scene), [editor, sceneRevision]);
-  const sceneNodes = useMemo(() => Array.from(editor.scene.nodes.values()), [editor, sceneRevision]);
-  const sceneEntities = useMemo(() => Array.from(editor.scene.entities.values()), [editor, sceneRevision]);
+  const spatialAnalysis = useMemo(() => analyzeSceneSpatialLayout(editor.scene), [editor, committedSceneRevision]);
+  const sceneNodes = useMemo(() => Array.from(editor.scene.nodes.values()), [editor, committedSceneRevision]);
+  const sceneEntities = useMemo(() => Array.from(editor.scene.entities.values()), [editor, committedSceneRevision]);
+  const modelAssets = useMemo(
+    () => buildModelAssetLibrary(editor.scene.assets.values(), editor.scene.nodes.values()),
+    [editor, committedSceneRevision]
+  );
   const sceneItemIdSet = useMemo(
     () => new Set<string>([...sceneNodes.map((node) => node.id), ...sceneEntities.map((entity) => entity.id)]),
     [sceneEntities, sceneNodes]
@@ -201,7 +210,7 @@ export function App() {
   const resolvedProjectName = projectName.trim() || "Untitled Scene";
   const resolvedProjectSlug = slugifyProjectName(projectSlug.trim() || resolvedProjectName);
 
-  useEditorSubscriptions(editor, setSceneRevision, setSelectionRevision);
+  useEditorSubscriptions(editor, setSceneRevision, setCommittedSceneRevision, setSelectionRevision);
 
   useEffect(() => workerManager.subscribe(setWorkerJobs), [workerManager]);
 
@@ -242,7 +251,13 @@ export function App() {
 
     setAiModelDraft(null);
     setAiModelPlacementArmed(false);
-  }, [aiModelDraft, editor, sceneRevision]);
+  }, [aiModelDraft, committedSceneRevision, editor]);
+
+  useEffect(() => {
+    if (uiStore.selectedAssetId && !editor.scene.assets.has(uiStore.selectedAssetId)) {
+      uiStore.selectedAssetId = "";
+    }
+  }, [committedSceneRevision, editor]);
 
   useEffect(() => {
     const scenePaths = editor.scene.settings.paths ?? [];
@@ -255,7 +270,7 @@ export function App() {
     if (!selectedScenePathId || !scenePaths.some((pathDefinition) => pathDefinition.id === selectedScenePathId)) {
       setSelectedScenePathId(scenePaths[0]?.id);
     }
-  }, [editor, sceneRevision, selectedScenePathId]);
+  }, [committedSceneRevision, editor, selectedScenePathId]);
 
   const handleSelectNodes = (nodeIds: string[]) => {
     if (physicsPlayback !== "stopped") {
@@ -297,7 +312,7 @@ export function App() {
         "promote prop to mesh"
       )
     );
-  }, [activeToolId, editor, sceneRevision, selectionRevision]);
+  }, [activeToolId, committedSceneRevision, editor, selectionRevision]);
 
   const handleSetRightPanel = (panel: RightPanelId | null) => {
     uiStore.rightPanel = panel;
@@ -357,6 +372,10 @@ export function App() {
           : uiStore.viewportQuality === 1
             ? 1.5
             : 0.5;
+  };
+
+  const handleSetRenderMode = (renderMode: ViewportRenderMode) => {
+    uiStore.renderMode = renderMode;
   };
 
   const handleClearSelection = () => {
@@ -773,15 +792,15 @@ export function App() {
     }
   };
 
-  const handlePlaceAsset = (position: Vec3) => {
+  const placeAssetAtPosition = (assetId: string, position: Vec3) => {
     const snapped = snapVec3(position, resolveViewportSnapSize(resolveActiveViewportState()));
-    const asset = editor.scene.assets.get(uiStore.selectedAssetId);
+    const asset = editor.scene.assets.get(assetId);
 
     if (!asset || asset.type !== "model") {
       return;
     }
 
-    const label = asset.id.endsWith("barrel") ? "Barrel Prop" : "Crate Prop";
+    const label = resolveModelAssetName(asset) || "Model Prop";
     const { command, nodeId } = createPlaceModelNodeCommand(editor.scene, vec3(snapped.x, 1.1, snapped.z), {
       data: {
         assetId: asset.id,
@@ -792,7 +811,20 @@ export function App() {
 
     editor.execute(command);
     editor.select([nodeId], "object");
+    uiStore.selectedAssetId = asset.id;
     enqueueWorkerJob("Asset placement", { task: "triangulation", worker: "geometryWorker" }, 650);
+  };
+
+  const handlePlaceAsset = (position: Vec3) => {
+    if (!uiStore.selectedAssetId) {
+      return;
+    }
+
+    placeAssetAtPosition(uiStore.selectedAssetId, position);
+  };
+
+  const handleInsertAsset = (assetId: string) => {
+    placeAssetAtPosition(assetId, resolvePlacementTarget());
   };
 
   const handleImportGlb = () => {
@@ -843,6 +875,7 @@ export function App() {
       editor.execute(command);
       editor.select([nodeId], "object");
       uiStore.selectedAssetId = asset.id;
+      uiStore.rightPanel = "assets";
       enqueueWorkerJob("GLB import", { task: "triangulation", worker: "geometryWorker" }, 650);
     } finally {
       event.target.value = "";
@@ -1008,6 +1041,7 @@ export function App() {
         editor.select([replacement.id], "object");
       }
       uiStore.selectedAssetId = asset.id;
+      uiStore.rightPanel = "assets";
       enqueueWorkerJob("AI model generation", { task: "triangulation", worker: "geometryWorker" }, 700);
     } catch (error) {
       setAiModelDraft({
@@ -1313,6 +1347,33 @@ export function App() {
     uiStore.selectedAssetId = assetId;
   };
 
+  const handleFocusAssetNodes = (assetId: string) => {
+    const assetEntry = modelAssets.find((item) => item.asset.id === assetId);
+
+    if (!assetEntry || assetEntry.nodeIds.length === 0) {
+      return;
+    }
+
+    uiStore.selectedAssetId = assetId;
+    editor.select(assetEntry.nodeIds, "object");
+    handleFocusNode(assetEntry.nodeIds[0]);
+  };
+
+  const handleDeleteAsset = (assetId: string) => {
+    const assetEntry = modelAssets.find((item) => item.asset.id === assetId);
+
+    if (!assetEntry || assetEntry.usageCount > 0) {
+      return;
+    }
+
+    editor.execute(createDeleteAssetCommand(editor.scene, assetId));
+
+    if (uiStore.selectedAssetId === assetId) {
+      const nextSelectedAsset = modelAssets.find((item) => item.asset.id !== assetId);
+      uiStore.selectedAssetId = nextSelectedAsset?.asset.id ?? "";
+    }
+  };
+
   const handleSelectMaterial = (materialId: string) => {
     uiStore.selectedMaterialId = materialId;
   };
@@ -1448,7 +1509,7 @@ export function App() {
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [draftHydrated, projectSlugDirty, resolvedProjectName, resolvedProjectSlug, sceneRevision]);
+  }, [committedSceneRevision, draftHydrated, projectSlugDirty, resolvedProjectName, resolvedProjectSlug]);
 
   useEffect(() => {
     return () => {
@@ -1716,11 +1777,14 @@ export function App() {
         gridSnapValues={gridSnapValues}
         jobs={[...workerJobs, ...exportJobs]}
         meshEditToolbarAction={meshEditToolbarAction}
+        modelAssets={modelAssets}
         onActivateViewport={handleActivateViewport}
         onInvertSelectionNormals={handleInvertSelectionNormals}
+        onInsertAsset={handleInsertAsset}
         onApplyMaterial={handleApplyMaterial}
         onClipSelection={handleClipSelection}
         onCreateBrush={handleCreateBrush}
+        onDeleteAsset={handleDeleteAsset}
         onDeleteSelection={handleDeleteSelection}
         onDuplicateSelection={handleDuplicateSelection}
         onClearSelection={handleClearSelection}
@@ -1729,6 +1793,7 @@ export function App() {
         onExportEngine={handleExportEngine}
         onExportGltf={handleExportGltf}
         onExtrudeSelection={handleExtrudeSelection}
+        onFocusAssetNodes={handleFocusAssetNodes}
         onFocusNode={handleFocusNode}
         onGroupSelection={handleGroupSelection}
         onGenerateAiModel={handleGenerateAiModel}
@@ -1777,6 +1842,7 @@ export function App() {
         onSetSnapEnabled={handleSetSnapEnabled}
         onSetSnapSize={handleSetSnapSize}
         onStopPhysics={handleStopPhysics}
+        onSetRenderMode={handleSetRenderMode}
         onSetTransformMode={setTransformMode}
         onSetToolId={handleSetToolId}
         onToggleViewportQuality={handleToggleViewportQuality}
@@ -1805,6 +1871,7 @@ export function App() {
         physicsPlayback={physicsPlayback}
         physicsRevision={physicsRevision}
         renderScene={renderScene}
+        renderMode={ui.renderMode}
         sceneSettings={editor.scene.settings}
         selectedScenePathId={selectedScenePathId}
         selectedAssetId={ui.selectedAssetId}

@@ -48,6 +48,20 @@ export function ObjectTransformGizmo({
   selectedWorldNodes: GeometryNode[];
 }) {
   const baselineTransformRef = useRef<Transform | undefined>(undefined);
+  const previewFrameRef = useRef<number | null>(null);
+  const pendingPreviewRef = useRef<
+    | {
+        entityId: string;
+        kind: "entity";
+        transform: Transform;
+      }
+    | {
+        kind: "node";
+        nodeId: string;
+        transform: Transform;
+      }
+    | null
+  >(null);
   const [pivotTarget, setPivotTarget] = useState<ThreeGroup | null>(null);
   const [transformTarget, setTransformTarget] = useState<ThreeGroup | null>(null);
   const [activePivotNodeId, setActivePivotNodeId] = useState<string>();
@@ -71,6 +85,56 @@ export function ObjectTransformGizmo({
     setTransformTarget(object);
   }, []);
 
+  const cancelScheduledPreview = useCallback(() => {
+    if (previewFrameRef.current !== null) {
+      cancelAnimationFrame(previewFrameRef.current);
+      previewFrameRef.current = null;
+    }
+
+    pendingPreviewRef.current = null;
+  }, []);
+
+  const schedulePreview = useCallback(
+    (
+      pendingPreview:
+        | {
+            entityId: string;
+            kind: "entity";
+            transform: Transform;
+          }
+        | {
+            kind: "node";
+            nodeId: string;
+            transform: Transform;
+          }
+    ) => {
+      pendingPreviewRef.current = pendingPreview;
+
+      if (previewFrameRef.current !== null) {
+        return;
+      }
+
+      previewFrameRef.current = requestAnimationFrame(() => {
+        previewFrameRef.current = null;
+        const nextPreview = pendingPreviewRef.current;
+
+        if (!nextPreview) {
+          return;
+        }
+
+        pendingPreviewRef.current = null;
+
+        if (nextPreview.kind === "node") {
+          onPreviewNodeTransform(nextPreview.nodeId, nextPreview.transform);
+          return;
+        }
+
+        onPreviewEntityTransform(nextPreview.entityId, nextPreview.transform);
+      });
+    },
+    [onPreviewEntityTransform, onPreviewNodeTransform]
+  );
+
   useEffect(() => {
     if (!pivotEditingEnabled) {
       setActivePivotNodeId(undefined);
@@ -88,6 +152,12 @@ export function ObjectTransformGizmo({
   useEffect(() => {
     baselineTransformRef.current = undefined;
   }, [selectedObjectId]);
+
+  useEffect(() => {
+    return () => {
+      cancelScheduledPreview();
+    };
+  }, [cancelScheduledPreview]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -179,6 +249,7 @@ export function ObjectTransformGizmo({
           }}
           onMouseUp={() => {
             if (!baselineTransformRef.current || !pivotTarget) {
+              cancelScheduledPreview();
               onDragStateChange?.(false);
               return;
             }
@@ -189,6 +260,7 @@ export function ObjectTransformGizmo({
               activePivotWorldNode.transform
             );
 
+            cancelScheduledPreview();
             onUpdateNodeTransform(
               activePivotNode.id,
               rebaseTransformPivot(baselineTransformRef.current, nextPivot),
@@ -208,7 +280,11 @@ export function ObjectTransformGizmo({
               activePivotWorldNode.transform
             );
 
-            onPreviewNodeTransform(activePivotNode.id, rebaseTransformPivot(baselineTransformRef.current, nextPivot));
+            schedulePreview({
+              kind: "node",
+              nodeId: activePivotNode.id,
+              transform: rebaseTransformPivot(baselineTransformRef.current, nextPivot)
+            });
           }}
           showX
           showY
@@ -228,6 +304,7 @@ export function ObjectTransformGizmo({
           }}
           onMouseUp={() => {
             if (!baselineTransformRef.current) {
+              cancelScheduledPreview();
               onDragStateChange?.(false);
               return;
             }
@@ -239,8 +316,10 @@ export function ObjectTransformGizmo({
             const nextTransform = localizeTransform(nextWorldTransform, parentWorldTransform);
 
             if (selectedNode) {
+              cancelScheduledPreview();
               onUpdateNodeTransform(selectedObjectId, nextTransform, baselineTransformRef.current);
             } else if (selectedEntity) {
+              cancelScheduledPreview();
               onUpdateEntityTransform(selectedObjectId, nextTransform, baselineTransformRef.current);
             }
 
@@ -255,9 +334,17 @@ export function ObjectTransformGizmo({
             const nextTransform = localizeTransform(nextWorldTransform, parentWorldTransform);
 
             if (selectedNode) {
-              onPreviewNodeTransform(selectedObjectId, nextTransform);
+              schedulePreview({
+                kind: "node",
+                nodeId: selectedObjectId,
+                transform: nextTransform
+              });
             } else if (selectedEntity) {
-              onPreviewEntityTransform(selectedObjectId, nextTransform);
+              schedulePreview({
+                entityId: selectedObjectId,
+                kind: "entity",
+                transform: nextTransform
+              });
             }
           }}
           rotationSnap={Math.PI / 12}

@@ -85,6 +85,7 @@ export async function serializeRuntimeScene(snapshot: SceneDocumentSnapshot): Pr
 
 export async function buildRuntimeSceneFromSnapshot(snapshot: SceneDocumentSnapshot): Promise<RuntimeScene> {
   const assetsById = new Map(snapshot.assets.map((asset) => [asset.id, asset]));
+  const referencedModelAssetIds = collectReferencedModelAssetIds(snapshot);
   const materialsById = new Map(snapshot.materials.map((material) => [material.id, material]));
   const exportedMaterials = await Promise.all(snapshot.materials.map((material) => resolveRuntimeMaterial(material)));
   const shouldBakeLods = snapshot.settings.world.lod.enabled;
@@ -231,7 +232,10 @@ export async function buildRuntimeSceneFromSnapshot(snapshot: SceneDocumentSnaps
   }
 
   return {
-    assets: [...snapshot.assets, ...generatedAssets],
+    assets: [
+      ...snapshot.assets.filter((asset) => asset.type !== "model" || referencedModelAssetIds.has(asset.id)),
+      ...generatedAssets
+    ],
     entities: snapshot.entities,
     layers: snapshot.layers,
     materials: exportedMaterials,
@@ -243,6 +247,20 @@ export async function buildRuntimeSceneFromSnapshot(snapshot: SceneDocumentSnaps
     nodes: exportedNodes,
     settings: exportedSettings
   } satisfies RuntimeScene;
+}
+
+function collectReferencedModelAssetIds(snapshot: SceneDocumentSnapshot) {
+  const referencedAssetIds = new Set<string>();
+
+  for (const node of snapshot.nodes) {
+    if (!isModelNode(node)) {
+      continue;
+    }
+
+    referencedAssetIds.add(node.data.assetId);
+  }
+
+  return referencedAssetIds;
 }
 
 function isSceneDocumentSnapshotLike(value: unknown): value is SceneDocumentSnapshot {

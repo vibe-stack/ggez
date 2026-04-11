@@ -94,6 +94,11 @@ import {
 } from "@/viewport/utils/screen-space";
 import { composeTransformRotation, rebaseTransformPivot } from "@/viewport/utils/geometry";
 import { resolveViewportSnapSize } from "@/viewport/utils/snap";
+import {
+  renderModeUsesEditorLighting,
+  renderModeUsesFullLighting,
+  renderModeUsesShadows
+} from "@/viewport/viewports";
 import { useEffect, useMemo, useRef, useState, type PointerEventHandler } from "react";
 import { BufferGeometry, Camera, Color, Float32BufferAttribute, Matrix4, Object3D, Plane, Raycaster, Vector2, Vector3 } from "three";
 import { WebGPURenderer } from "three/webgpu";
@@ -134,9 +139,9 @@ function ViewportWorldSettings({ renderMode, sceneSettings }: Pick<ViewportCanva
   const { scene } = useThree();
 
   useEffect(() => {
-    if (renderMode !== "lit") {
+    if (!renderModeUsesFullLighting(renderMode)) {
       clearWebHammerWorldSettings(scene);
-      scene.background = new Color("#091018");
+      scene.background = new Color(renderMode === "wireframe" ? "#091018" : "#0b1016");
       scene.environment = null;
       return;
     }
@@ -3007,14 +3012,14 @@ export function ViewportCanvas({
 
           onClearSelection();
         }}
-        shadows={renderMode === "lit"}
+        shadows={renderModeUsesShadows(renderMode)}
       >
         <ViewportWorldSettings renderMode={renderMode} sceneSettings={sceneSettings} />
-        {renderMode === "lit" ? (
+        {renderModeUsesEditorLighting(renderMode) ? (
           <ambientLight color={sceneSettings.world.ambientColor} intensity={sceneSettings.world.ambientIntensity} />
         ) : null}
-        {renderMode === "lit" ? <hemisphereLight args={["#9ec5f8", "#0f1721", 0.7]} /> : null}
-        {renderMode === "lit" ? <DefaultViewportSun center={renderScene.boundsCenter} /> : null}
+        {renderModeUsesEditorLighting(renderMode) ? <hemisphereLight args={["#9ec5f8", "#0f1721", 0.7]} /> : null}
+        {renderModeUsesEditorLighting(renderMode) ? <DefaultViewportSun center={renderScene.boundsCenter} /> : null}
         <EditorCameraRig
           controlsEnabled={
             isActiveViewport &&
@@ -3035,7 +3040,7 @@ export function ViewportCanvas({
         {editorInteractionEnabled ? (
           <ConstructionGrid activeToolId={activeToolId} onPlaceAsset={onPlaceAsset} viewport={viewport} viewportPlane={viewportPlane} />
         ) : null}
-        {renderMode === "lit" && editorInteractionEnabled ? <axesHelper args={[3]} /> : null}
+        {renderMode !== "wireframe" && editorInteractionEnabled ? <axesHelper args={[3]} /> : null}
         <ScenePreview
           hiddenSceneItemIds={
             selectedNode &&
@@ -3043,7 +3048,15 @@ export function ViewportCanvas({
               ? [...hiddenSceneItemIds, selectedNode.id]
               : hiddenSceneItemIds
           }
-          interactive={activeToolId !== "brush" && activeToolId !== "mesh-edit" && activeToolId !== "path-add" && activeToolId !== "path-edit" && viewport.projection === "perspective" && editorInteractionEnabled}
+          interactive={
+            activeToolId !== "brush" &&
+            activeToolId !== "mesh-edit" &&
+            activeToolId !== "path-add" &&
+            activeToolId !== "path-edit" &&
+            !transformDragging &&
+            viewport.projection === "perspective" &&
+            editorInteractionEnabled
+          }
           onFocusNode={onFocusNode}
           onMeshObjectChange={handleMeshObjectChange}
           onSelectNode={handleSceneSelectNodes}
