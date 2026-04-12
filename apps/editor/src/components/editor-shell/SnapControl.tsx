@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { GridSnapValue } from "@ggez/render-pipeline";
 import { FloatingPanel } from "@/components/editor-shell/FloatingPanel";
 import { Grid3X3 } from "@/components/editor-shell/icons";
@@ -8,7 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { formatSnapValue } from "@/viewport/utils/snap";
 
-export function SnapControl({
+function SnapControlInner({
   currentSnapSize,
   gridSnapValues,
   onSetSnapEnabled,
@@ -104,6 +105,31 @@ export function SnapControl({
         </PopoverContent>
       </Popover>
     </FloatingPanel>
+  );
+}
+
+export const SnapControl = memo(SnapControlInner, areSnapControlPropsEqual);
+
+function areSnapControlPropsEqual(
+  previous: {
+    currentSnapSize: GridSnapValue;
+    gridSnapValues: readonly GridSnapValue[];
+    onSetSnapEnabled: (enabled: boolean) => void;
+    onSetSnapSize: (snapSize: GridSnapValue) => void;
+    snapEnabled: boolean;
+  },
+  next: {
+    currentSnapSize: GridSnapValue;
+    gridSnapValues: readonly GridSnapValue[];
+    onSetSnapEnabled: (enabled: boolean) => void;
+    onSetSnapSize: (snapSize: GridSnapValue) => void;
+    snapEnabled: boolean;
+  }
+) {
+  return (
+    previous.currentSnapSize === next.currentSnapSize &&
+    previous.gridSnapValues === next.gridSnapValues &&
+    previous.snapEnabled === next.snapEnabled
   );
 }
 

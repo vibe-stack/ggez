@@ -1,17 +1,26 @@
-import type { SceneDocumentSnapshot } from "@ggez/editor-core";
+import { createWorldBundleFromLegacyScene, type SceneDocumentSnapshot, type WorldPersistenceBundle } from "@ggez/editor-core";
 
 const DATABASE_NAME = "web-hammer-editor-drafts";
 const DATABASE_VERSION = 1;
 const STORE_NAME = "drafts";
 const ACTIVE_DRAFT_KEY = "trident:active";
 
-export type StoredSceneEditorDraft = {
+type LegacyStoredSceneEditorDraft = {
   projectName: string;
   projectSlug: string;
   projectSlugDirty: boolean;
   snapshot: SceneDocumentSnapshot;
   updatedAt: number;
   version: 1;
+};
+
+export type StoredSceneEditorDraft = {
+  projectName: string;
+  projectSlug: string;
+  projectSlugDirty: boolean;
+  snapshot: WorldPersistenceBundle;
+  updatedAt: number;
+  version: 2;
 };
 
 export async function loadStoredSceneEditorDraft(): Promise<StoredSceneEditorDraft | null> {
@@ -28,8 +37,23 @@ export async function loadStoredSceneEditorDraft(): Promise<StoredSceneEditorDra
 
     request.onsuccess = () => {
       database.close();
-      const result = request.result as StoredSceneEditorDraft | undefined;
-      resolve(result?.version === 1 ? result : null);
+      const result = request.result as LegacyStoredSceneEditorDraft | StoredSceneEditorDraft | undefined;
+
+      if (!result) {
+        resolve(null);
+        return;
+      }
+
+      if (result.version === 1) {
+        resolve({
+          ...result,
+          snapshot: createWorldBundleFromLegacyScene(result.snapshot),
+          version: 2
+        });
+        return;
+      }
+
+      resolve(result.version === 2 ? result : null);
     };
     request.onerror = () => {
       database.close();

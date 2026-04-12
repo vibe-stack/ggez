@@ -4,6 +4,7 @@ import {
   analyzeSceneSpatialLayout,
   axisDelta,
   createAssignMaterialCommand,
+  createSceneEditorAdapter,
   createDeleteAssetCommand,
   createDeleteMaterialCommand,
   createUpsertAssetCommand,
@@ -12,7 +13,6 @@ import {
   createExtrudeBrushNodesCommand,
   createDuplicateNodesCommand,
   createInstanceNodesCommand,
-  createEditorCore,
   createGroupSelectionCommand,
   createPlaceLightNodeCommand,
   createPlaceBlockoutPlatformCommand,
@@ -33,6 +33,7 @@ import {
   createPlaceModelNodeCommand,
   createSceneDocumentSnapshot,
   createSeedSceneDocument,
+  createWorldEditorCore,
   createSetUvOffsetCommand,
   createSetUvScaleCommand,
   createSplitBrushNodeAtCoordinateCommand,
@@ -41,15 +42,14 @@ import {
   createTranslateNodesCommand,
   createUpsertMaterialCommand,
   createUpsertTextureCommand,
-  type TransformAxis
+  type AuthoringDocumentSnapshot,
+  type SceneDocumentSnapshot,
+  type TransformAxis,
+  type WorldPersistenceBundle
 } from "@ggez/editor-core";
 import { convertBrushToEditableMesh, invertEditableMeshNormals } from "@ggez/geometry-kernel";
-import {
-  createDerivedRenderSceneCache,
-  deriveRenderSceneCached,
-  gridSnapValues,
-  type ViewportState
-} from "@ggez/render-pipeline";
+import { createRuntimeWorldBundleZip, type RuntimeWorldBundle } from "@ggez/runtime-build";
+import { createDerivedRenderSceneCache, deriveRenderSceneCached, gridSnapValues, type ViewportState } from "@ggez/render-pipeline";
 import {
   buildModelLodLevelOrder,
   createSerializedModelAssetFiles,
@@ -99,7 +99,7 @@ import {
   isWebHammerEngineBundle
 } from "@ggez/three-runtime";
 import { slugifyProjectName, type EditorFileMetadata } from "@ggez/dev-sync";
-import { EditorShell } from "@/components/EditorShell";
+import { WorldEditorShell } from "@/components/WorldEditorShell";
 import { useGameConnection } from "@/app/hooks/useGameConnection";
 import { uiStore, type RightPanelId } from "@/state/ui-store";
 import type { Transform } from "@ggez/shared";
@@ -147,7 +147,8 @@ import {
 import { loadStoredSceneEditorDraft, saveSceneEditorDraft } from "@/lib/draft-storage";
 
 export function App() {
-  const [editor] = useState(() => createEditorCore(createSeedSceneDocument()));
+  const [worldEditor] = useState(() => createWorldEditorCore(createSceneDocumentSnapshot(createSeedSceneDocument())));
+  const [editor] = useState(() => createSceneEditorAdapter(worldEditor));
   const [activeToolId, setActiveToolId] = useState<ToolId>(defaultToolId);
   const [activeBrushShape, setActiveBrushShape] = useState<BrushShape>("cube");
   const [aiModelPlacementArmed, setAiModelPlacementArmed] = useState(false);
@@ -167,6 +168,7 @@ export function App() {
   const [committedSceneRevision, setCommittedSceneRevision] = useState(0);
   const [sceneRevision, setSceneRevision] = useState(0);
   const [selectionRevision, setSelectionRevision] = useState(0);
+  const [worldRevision, setWorldRevision] = useState(0);
   const [sculptMode, setSculptMode] = useState<"deflate" | "inflate" | null>(null);
   const [sculptBrushRadius, setSculptBrushRadius] = useState(3);
   const [sculptBrushStrength, setSculptBrushStrength] = useState(0.2);
@@ -190,18 +192,42 @@ export function App() {
   const toolSession = useMemo(() => createToolSession(activeToolId), [activeToolId]);
   const { downloadBinaryFile, downloadTextFile, exportJobs, runWorkerRequest } = useExportWorker();
   const gameConnection = useGameConnection();
+  const workingSet = useMemo(() => worldEditor.getWorkingSet(), [worldEditor, worldRevision]);
+  const activeWorldDocumentId = workingSet.activeDocumentId;
+  const flattenedWorldSnapshot = useMemo(
+    () =>
+      workingSet.mode === "world"
+        ? worldEditor.getFlattenedSceneSnapshot({
+            activeDocumentId: activeWorldDocumentId,
+            activeDocumentOverride: editor.scene,
+            includeLoadedOnly: true
+          })
+        : null,
+    [activeWorldDocumentId, editor, sceneRevision, worldEditor, workingSet.mode, worldRevision]
+  );
   const renderScene = useMemo(
     () =>
       deriveRenderSceneCached(
-        editor.scene.nodes.values(),
-        editor.scene.entities.values(),
-        editor.scene.materials.values(),
-        editor.scene.assets.values(),
+        workingSet.mode === "world" && flattenedWorldSnapshot
+          ? flattenedWorldSnapshot.nodes
+          : editor.scene.nodes.values(),
+        workingSet.mode === "world" && flattenedWorldSnapshot
+          ? flattenedWorldSnapshot.entities
+          : editor.scene.entities.values(),
+        workingSet.mode === "world" && flattenedWorldSnapshot
+          ? flattenedWorldSnapshot.materials
+          : editor.scene.materials.values(),
+        workingSet.mode === "world" && flattenedWorldSnapshot
+          ? flattenedWorldSnapshot.assets
+          : editor.scene.assets.values(),
         renderSceneCacheRef.current
       ),
-    [editor, sceneRevision]
+    [editor, flattenedWorldSnapshot, sceneRevision, workingSet.mode]
   );
-  const spatialAnalysis = useMemo(() => analyzeSceneSpatialLayout(editor.scene), [editor, committedSceneRevision]);
+  const spatialAnalysis = useMemo(
+    () => analyzeSceneSpatialLayout(workingSet.mode === "world" && flattenedWorldSnapshot ? flattenedWorldSnapshot : editor.scene),
+    [committedSceneRevision, editor, flattenedWorldSnapshot, workingSet.mode]
+  );
   const sceneNodes = useMemo(() => Array.from(editor.scene.nodes.values()), [editor, committedSceneRevision]);
   const sceneEntities = useMemo(() => Array.from(editor.scene.entities.values()), [editor, committedSceneRevision]);
   const modelAssets = useMemo(
@@ -230,6 +256,8 @@ export function App() {
   useEditorSubscriptions(editor, setSceneRevision, setCommittedSceneRevision, setSelectionRevision);
 
   useEffect(() => workerManager.subscribe(setWorkerJobs), [workerManager]);
+
+  useEffect(() => worldEditor.events.on("world:changed", () => setWorldRevision((revision) => revision + 1)), [worldEditor]);
 
   useEffect(() => {
     const filterValidIds = (currentIds: string[]) => {
@@ -289,12 +317,41 @@ export function App() {
     }
   }, [committedSceneRevision, editor, selectedScenePathId]);
 
+  const resolveDocumentScopedId = (id: string) => {
+    const separatorIndex = id.indexOf("::");
+
+    if (separatorIndex < 0) {
+      return {
+        documentId: activeWorldDocumentId,
+        localId: id
+      };
+    }
+
+    return {
+      documentId: id.slice(0, separatorIndex),
+      localId: id.slice(separatorIndex + 2)
+    };
+  };
+
   const handleSelectNodes = (nodeIds: string[]) => {
     if (physicsPlayback !== "stopped") {
       return;
     }
 
-    editor.select(nodeIds.filter((nodeId) => !blockedSceneItemIdSet.has(nodeId)), "object");
+    const firstResolved = nodeIds[0] ? resolveDocumentScopedId(nodeIds[0]) : undefined;
+
+    if (firstResolved?.documentId && firstResolved.documentId !== activeWorldDocumentId) {
+      worldEditor.setActiveDocument(firstResolved.documentId);
+      editor.syncFromWorld("world:select-document");
+    }
+
+    const localIds = nodeIds
+      .map((nodeId) => resolveDocumentScopedId(nodeId))
+      .filter((resolved) => resolved.documentId === (firstResolved?.documentId ?? activeWorldDocumentId))
+      .map((resolved) => resolved.localId)
+      .filter((nodeId) => !blockedSceneItemIdSet.has(nodeId));
+
+    editor.select(localIds, "object");
   };
 
   const handleToggleSceneItemVisibility = (itemId: string) => {
@@ -400,10 +457,17 @@ export function App() {
   };
 
   const handleFocusNode = (nodeId: string) => {
-    const node = editor.scene.getNode(nodeId);
+    const resolved = resolveDocumentScopedId(nodeId);
+
+    if (resolved.documentId && resolved.documentId !== activeWorldDocumentId) {
+      worldEditor.setActiveDocument(resolved.documentId);
+      editor.syncFromWorld("world:focus-document");
+    }
+
+    const node = editor.scene.getNode(resolved.localId);
 
     if (!node) {
-      const entity = editor.scene.getEntity(nodeId);
+      const entity = editor.scene.getEntity(resolved.localId);
 
       if (!entity) {
         return;
@@ -412,7 +476,9 @@ export function App() {
       viewportPaneIds.forEach((viewportId) => {
         focusViewportOnPoint(
           uiStore.viewports[viewportId],
-          renderScene.entityTransforms.get(entity.id)?.position ?? entity.transform.position
+          renderScene.entityTransforms.get(
+            workingSet.mode === "world" && resolved.documentId ? `${resolved.documentId}::${entity.id}` : entity.id
+          )?.position ?? entity.transform.position
         );
       });
       return;
@@ -421,7 +487,9 @@ export function App() {
     viewportPaneIds.forEach((viewportId) => {
       focusViewportOnPoint(
         uiStore.viewports[viewportId],
-        renderScene.nodeTransforms.get(node.id)?.position ?? node.transform.position
+        renderScene.nodeTransforms.get(
+          workingSet.mode === "world" && resolved.documentId ? `${resolved.documentId}::${node.id}` : node.id
+        )?.position ?? node.transform.position
       );
     });
   };
@@ -1523,7 +1591,7 @@ export function App() {
     setPhysicsRevision((current) => current + 1);
   };
 
-  const buildEditorSnapshot = () => ({
+  const buildActiveSceneSnapshot = () => ({
     ...editor.exportSnapshot(),
     metadata: {
       projectName: resolvedProjectName,
@@ -1531,13 +1599,29 @@ export function App() {
     }
   });
 
+  const buildWorldBundle = (): WorldPersistenceBundle => {
+    const bundle = worldEditor.exportBundle();
+
+    return {
+      ...bundle,
+      manifest: {
+        ...bundle.manifest,
+        activeDocumentId: worldEditor.getWorkingSet().activeDocumentId,
+        metadata: {
+          projectName: resolvedProjectName,
+          projectSlug: resolvedProjectSlug
+        }
+      }
+    };
+  };
+
   const buildSceneDraftPayload = () => ({
     projectName: resolvedProjectName,
     projectSlug: resolvedProjectSlug,
     projectSlugDirty,
-    snapshot: buildEditorSnapshot(),
+    snapshot: buildWorldBundle(),
     updatedAt: Date.now(),
-    version: 1 as const
+    version: 2 as const
   });
 
   const applyProjectMetadata = (metadata?: EditorFileMetadata) => {
@@ -1563,7 +1647,8 @@ export function App() {
           return;
         }
 
-        editor.importSnapshot(draft.snapshot, "scene:restore-draft");
+        worldEditor.importBundle(draft.snapshot, "world:restore-draft");
+        editor.syncFromWorld("world:restore-draft");
         setProjectName(draft.projectName || "Untitled Scene");
         setProjectSlug(slugifyProjectName(draft.projectSlug || draft.projectName || "Untitled Scene"));
         setProjectSlugDirty(draft.projectSlugDirty);
@@ -1579,7 +1664,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [editor]);
+  }, [editor, worldEditor]);
 
   useEffect(() => {
     if (!draftHydrated) {
@@ -1634,7 +1719,8 @@ export function App() {
     }
 
     const nextSnapshot = createSceneDocumentSnapshot(createSeedSceneDocument());
-    editor.importSnapshot(nextSnapshot, "scene:new-file");
+    worldEditor.importLegacySnapshot(nextSnapshot, "scene:new-file");
+    editor.syncFromWorld("scene:new-file");
     editor.commands.clear();
 
     setProjectName("Untitled Scene");
@@ -1656,7 +1742,7 @@ export function App() {
     const payload = await runWorkerRequest(
       {
         kind: "whmap-save",
-        snapshot: buildEditorSnapshot()
+        snapshot: buildWorldBundle()
       },
       "Save .whmap"
     );
@@ -1686,9 +1772,16 @@ export function App() {
       "Load .whmap"
     );
 
-    if (typeof payload !== "string" && !isWebHammerEngineBundle(payload)) {
-      applyProjectMetadata(payload.metadata);
-      editor.importSnapshot(payload, "scene:load-whmap");
+    if (typeof payload !== "string" && !isWebHammerEngineBundle(payload) && !isRuntimeWorldBundlePayload(payload)) {
+      applyProjectMetadata(extractProjectMetadata(payload));
+
+      if (isWorldPersistenceBundlePayload(payload)) {
+        worldEditor.importBundle(payload, "world:load-whmap");
+        editor.syncFromWorld("world:load-whmap");
+      } else {
+        worldEditor.importLegacySnapshot(payload, "scene:load-whmap");
+        editor.syncFromWorld("scene:load-whmap");
+      }
     }
 
     event.target.value = "";
@@ -1698,7 +1791,7 @@ export function App() {
     const payload = await runWorkerRequest(
       {
         kind: "gltf-export",
-        snapshot: buildEditorSnapshot()
+        snapshot: buildWorldBundle()
       },
       "Export glTF"
     );
@@ -1712,7 +1805,7 @@ export function App() {
     const payload = await runWorkerRequest(
       {
         kind: "engine-export",
-        snapshot: buildEditorSnapshot()
+        snapshot: buildWorldBundle()
       },
       "Export runtime scene"
     );
@@ -1720,6 +1813,12 @@ export function App() {
     if (isWebHammerEngineBundle(payload)) {
       const zip = createWebHammerEngineBundleZip(payload);
       downloadBinaryFile(`${resolvedProjectSlug}.runtime.zip`, zip, "application/zip");
+      return;
+    }
+
+    if (typeof payload !== "string" && isRuntimeWorldBundlePayload(payload)) {
+      const zip = createRuntimeWorldBundleZip(payload);
+      downloadBinaryFile(`${resolvedProjectSlug}.world.runtime.zip`, zip, "application/zip");
     }
   };
 
@@ -1759,7 +1858,7 @@ export function App() {
       {
         kind: "engine-export",
         snapshot: {
-          ...editor.exportSnapshot(),
+          ...buildActiveSceneSnapshot(),
           metadata: {
             projectName: nextProjectName,
             projectSlug: nextProjectSlug
@@ -1798,6 +1897,120 @@ export function App() {
     uiStore.logicViewerOpen = !uiStore.logicViewerOpen;
   };
 
+  const handleSetWorldMode = (mode: "scene" | "world") => {
+    worldEditor.setWorldMode(mode);
+  };
+
+  const handleSetActiveWorldDocument = (documentId: string) => {
+    worldEditor.setActiveDocument(documentId);
+    editor.syncFromWorld("world:set-active-document");
+  };
+
+  const handleCreateWorldDocument = () => {
+    const requestedName = window.prompt("New document name", `Document ${worldDocuments.length + 1}`)?.trim();
+
+    if (!requestedName) {
+      return;
+    }
+
+    const nextBundle = buildWorldBundle();
+    const slugBase = slugifyProjectName(requestedName) || `document-${worldDocuments.length + 1}`;
+    const documentId = createUniqueWorldDocumentId(nextBundle, `document:${slugBase}`);
+    const partitionId = createUniqueWorldPartitionId(nextBundle, `partition:${slugBase}`);
+    const seedSnapshot = createSceneDocumentSnapshot(createSeedSceneDocument());
+
+    nextBundle.documents[documentId] = {
+      ...seedSnapshot,
+      crossDocumentRefs: [],
+      documentId,
+      metadata: {
+        documentId,
+        mount: {
+          transform: makeTransform()
+        },
+        name: requestedName,
+        partitionIds: [partitionId],
+        path: `/documents/${documentId}.json`,
+        slug: slugBase,
+        tags: []
+      },
+      version: 1
+    } satisfies AuthoringDocumentSnapshot;
+
+    nextBundle.partitions[partitionId] = {
+      id: partitionId,
+      loadDistance: 256,
+      members: [
+        {
+          documentId,
+          kind: "document"
+        }
+      ],
+      name: `${requestedName} Partition`,
+      path: `/partitions/${partitionId}.json`,
+      tags: [],
+      unloadDistance: 320,
+      version: 1
+    };
+    nextBundle.manifest.partitions = [
+      ...nextBundle.manifest.partitions,
+      {
+        documentIds: [documentId],
+        id: partitionId,
+        name: `${requestedName} Partition`,
+        path: `/partitions/${partitionId}.json`,
+        tags: []
+      }
+    ];
+    nextBundle.manifest.activeDocumentId = documentId;
+    worldEditor.importBundle(nextBundle, "world:create-document");
+    editor.syncFromWorld("world:create-document");
+  };
+
+  const handleLoadWorldDocument = (documentId: string) => {
+    worldEditor.loadDocument(documentId);
+  };
+
+  const handleUnloadWorldDocument = (documentId: string) => {
+    worldEditor.unloadDocument(documentId);
+  };
+
+  const handlePinWorldDocument = (documentId: string) => {
+    worldEditor.pinDocument(documentId);
+  };
+
+  const handleUnpinWorldDocument = (documentId: string) => {
+    worldEditor.unpinDocument(documentId);
+  };
+
+  const worldDocuments = useMemo(
+    () =>
+      worldEditor.getDocumentSummaries().map((document) => ({
+        id: document.documentId,
+        loaded: workingSet.loadedDocumentIds.includes(document.documentId),
+        name: document.name,
+        pinned: workingSet.pinnedDocumentIds.includes(document.documentId)
+      })),
+    [workingSet, worldEditor, worldRevision]
+  );
+  const worldPartitions = useMemo(
+    () => worldEditor.getPartitionSummaries(),
+    [worldEditor, worldRevision]
+  );
+  const selectionHandles = useMemo(
+    () =>
+      worldEditor.getSelectionSnapshot().handles.map((handle) =>
+        "documentId" in handle
+          ? handle.kind === "node"
+            ? `${handle.documentId}/${handle.nodeId}`
+            : handle.kind === "entity"
+              ? `${handle.documentId}/${handle.entityId}`
+              : `${handle.documentId}/${handle.kind}`
+          : `${handle.kind}:${handle.partitionId}`
+      ),
+    [selectionRevision, worldEditor, worldRevision]
+  );
+
   useAppHotkeys({
     activeToolId,
     editor,
@@ -1819,7 +2032,7 @@ export function App() {
 
   return (
     <>
-      <EditorShell
+      <WorldEditorShell
         analysis={spatialAnalysis}
         activeRightPanel={ui.rightPanel}
         activeToolId={toolSession.toolId}
@@ -1974,6 +2187,18 @@ export function App() {
         viewMode={ui.viewMode}
         viewportQuality={ui.viewportQuality}
         viewports={ui.viewports}
+        onPinDocument={handlePinWorldDocument}
+        onCreateDocument={handleCreateWorldDocument}
+        onLoadDocument={handleLoadWorldDocument}
+        onSetActiveDocument={handleSetActiveWorldDocument}
+        onSetWorldMode={handleSetWorldMode}
+        onUnloadDocument={handleUnloadWorldDocument}
+        onUnpinDocument={handleUnpinWorldDocument}
+        partitions={worldPartitions}
+        selectionHandles={selectionHandles}
+        workingSet={workingSet}
+        worldDocuments={worldDocuments}
+        worldValidationIssues={worldEditor.world.validation}
       />
       <input
         accept=".whmap,.json"
@@ -2095,6 +2320,52 @@ function preserveMeshMetadata(mesh: EditableMesh, existingMesh?: EditableMesh) {
         role: mesh.role ?? existingMesh.role
       }
     : structuredClone(mesh);
+}
+
+function isWorldPersistenceBundlePayload(
+  value: SceneDocumentSnapshot | WorldPersistenceBundle | RuntimeWorldBundle
+): value is WorldPersistenceBundle {
+  return "documents" in value && "manifest" in value && "partitions" in value;
+}
+
+function isRuntimeWorldBundlePayload(
+  value: SceneDocumentSnapshot | WorldPersistenceBundle | RuntimeWorldBundle
+): value is RuntimeWorldBundle {
+  return "index" in value && "files" in value;
+}
+
+function extractProjectMetadata(
+  payload: SceneDocumentSnapshot | WorldPersistenceBundle
+): EditorFileMetadata | undefined {
+  if ("documents" in payload) {
+    return payload.manifest.metadata;
+  }
+
+  return payload.metadata;
+}
+
+function createUniqueWorldDocumentId(bundle: WorldPersistenceBundle, preferredId: string) {
+  let nextId = preferredId;
+  let attempt = 2;
+
+  while (bundle.documents[nextId]) {
+    nextId = `${preferredId}-${attempt}`;
+    attempt += 1;
+  }
+
+  return nextId;
+}
+
+function createUniqueWorldPartitionId(bundle: WorldPersistenceBundle, preferredId: string) {
+  let nextId = preferredId;
+  let attempt = 2;
+
+  while (bundle.partitions[nextId]) {
+    nextId = `${preferredId}-${attempt}`;
+    attempt += 1;
+  }
+
+  return nextId;
 }
 
 function serializeRuntimeBundleForSync(bundle: Parameters<typeof createWebHammerEngineBundleZip>[0]) {

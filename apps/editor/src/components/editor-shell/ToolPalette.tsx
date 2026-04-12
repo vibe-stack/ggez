@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { GridSnapValue } from "@ggez/render-pipeline";
 import type { BrushShape, EntityType, LightType, PrimitiveShape } from "@ggez/shared";
 import type { ToolId } from "@ggez/tool-system";
@@ -59,7 +60,7 @@ type ToolPaletteProps = {
   viewMode: ViewModeId;
 };
 
-export function ToolPalette({
+function ToolPaletteInner({
   activeBrushShape,
   aiModelPlacementActive,
   activeToolId,
@@ -178,5 +179,29 @@ export function ToolPalette({
         ) : null}
       </AnimatePresence>
     </div>
+  );
+}
+
+export const ToolPalette = memo(ToolPaletteInner, areToolPalettePropsEqual);
+
+function areToolPalettePropsEqual(previous: ToolPaletteProps, next: ToolPaletteProps) {
+  return (
+    previous.activeBrushShape === next.activeBrushShape &&
+    previous.aiModelPlacementActive === next.aiModelPlacementActive &&
+    previous.activeToolId === next.activeToolId &&
+    previous.currentSnapSize === next.currentSnapSize &&
+    previous.gridSnapValues === next.gridSnapValues &&
+    previous.meshEditMode === next.meshEditMode &&
+    previous.physicsPlayback === next.physicsPlayback &&
+    previous.renderMode === next.renderMode &&
+    previous.sculptMode === next.sculptMode &&
+    previous.sculptBrushRadius === next.sculptBrushRadius &&
+    previous.sculptBrushStrength === next.sculptBrushStrength &&
+    previous.selectedGeometry === next.selectedGeometry &&
+    previous.selectedMesh === next.selectedMesh &&
+    previous.snapEnabled === next.snapEnabled &&
+    previous.tools === next.tools &&
+    previous.transformMode === next.transformMode &&
+    previous.viewMode === next.viewMode
   );
 }

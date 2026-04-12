@@ -130,6 +130,11 @@ export type RuntimeWorldIndex = {
   version: number;
 };
 
+export type RuntimeWorldBundle = {
+  files: RuntimeBundleFile[];
+  index: RuntimeWorldIndex;
+};
+
 export type RuntimeAudioDescriptor = {
   autoPlay: boolean;
   channel: string;
@@ -164,3 +169,4 @@ export type WebHammerEngineScene = RuntimeScene;
 export type WebHammerEngineBundleFile = RuntimeBundleFile;
 export type WebHammerEngineBundle = RuntimeBundle;
 export type WebHammerRuntimePhysicsDescriptor = RuntimePhysicsDescriptor;
+export type WebHammerRuntimeWorldBundle = RuntimeWorldBundle;

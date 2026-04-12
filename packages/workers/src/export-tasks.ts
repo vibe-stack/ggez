@@ -1,5 +1,12 @@
 import { getFaceVertices, reconstructBrushFaces, triangulateMeshFace } from "@ggez/geometry-kernel";
-import type { SceneDocumentSnapshot } from "@ggez/editor-core";
+import {
+  createWorldBundleFromLegacyScene,
+  flattenWorldBundle,
+  parseWorldPersistenceBundle,
+  serializeWorldPersistenceBundle,
+  type SceneDocumentSnapshot,
+  type WorldPersistenceBundle
+} from "@ggez/editor-core";
 import {
   createBlockoutTextureDataUri,
   crossVec3,
@@ -23,10 +30,12 @@ import {
 import {
   buildRuntimeBundleFromSnapshot,
   buildRuntimeSceneFromSnapshot,
+  buildRuntimeWorldBundleFromWorld,
   serializeRuntimeScene,
   type WebHammerEngineBundle
 } from "@ggez/runtime-build";
 import {
+  type RuntimeWorldBundle,
   type WebHammerEngineScene,
   type WebHammerExportGeometry,
   type WebHammerExportGeometryLod,
@@ -65,7 +74,7 @@ export type WorkerRequest =
   | {
       id: string;
       kind: "whmap-save";
-      snapshot: SceneDocumentSnapshot;
+      snapshot: SceneDocumentSnapshot | WorldPersistenceBundle;
     }
   | {
       id: string;
@@ -75,7 +84,7 @@ export type WorkerRequest =
   | {
       id: string;
       kind: "engine-export" | "gltf-export";
-      snapshot: SceneDocumentSnapshot;
+      snapshot: SceneDocumentSnapshot | WorldPersistenceBundle;
     }
   | {
       id: string;
@@ -88,7 +97,7 @@ export type WorkerResponse =
       id: string;
       kind: WorkerExportKind;
       ok: true;
-      payload: string | SceneDocumentSnapshot | WebHammerEngineBundle;
+      payload: string | SceneDocumentSnapshot | WebHammerEngineBundle | WorldPersistenceBundle | RuntimeWorldBundle;
     }
   | {
       id: string;
@@ -185,37 +194,27 @@ async function generateAiModel(prompt: string): Promise<string> {
   return payload;
 }
 
-export function serializeWhmap(snapshot: SceneDocumentSnapshot): string {
-  return JSON.stringify(
-    {
-      format: "whmap",
-      version: 1,
-      scene: snapshot
-    },
-    null,
-    2
-  );
+export function serializeWhmap(snapshot: SceneDocumentSnapshot | WorldPersistenceBundle): string {
+  return serializeWorldPersistenceBundle("documents" in snapshot ? snapshot : createWorldBundleFromLegacyScene(snapshot));
 }
 
-export function parseWhmap(text: string): SceneDocumentSnapshot {
-  const parsed = JSON.parse(text) as {
-    format?: string;
-    scene?: SceneDocumentSnapshot;
-    version?: number;
-  };
+export function parseWhmap(text: string): SceneDocumentSnapshot | WorldPersistenceBundle {
+  return parseWorldPersistenceBundle(text);
+}
 
-  if (parsed.format !== "whmap" || !parsed.scene) {
-    throw new Error("Invalid .whmap file.");
+export async function serializeEngineScene(snapshot: SceneDocumentSnapshot | WorldPersistenceBundle): Promise<string> {
+  if ("documents" in snapshot) {
+    return JSON.stringify((await buildRuntimeWorldBundleFromWorld(snapshot)).index);
   }
 
-  return parsed.scene;
-}
-
-export async function serializeEngineScene(snapshot: SceneDocumentSnapshot): Promise<string> {
   return serializeRuntimeScene(snapshot);
 }
 
-export async function exportEngineBundle(snapshot: SceneDocumentSnapshot): Promise<WebHammerEngineBundle> {
+export async function exportEngineBundle(snapshot: SceneDocumentSnapshot | WorldPersistenceBundle): Promise<WebHammerEngineBundle | RuntimeWorldBundle> {
+  if ("documents" in snapshot) {
+    return buildRuntimeWorldBundleFromWorld(snapshot);
+  }
+
   return buildRuntimeBundleFromSnapshot(snapshot);
 }
 
@@ -223,7 +222,18 @@ async function buildEngineScene(snapshot: SceneDocumentSnapshot): Promise<WebHam
   return buildRuntimeSceneFromSnapshot(snapshot);
 }
 
-export async function serializeGltfScene(snapshot: SceneDocumentSnapshot): Promise<string> {
+function flattenWorldForGltf(bundle: WorldPersistenceBundle) {
+  return flattenWorldBundle(bundle, {
+    includeDocumentIds: Object.keys(bundle.documents)
+  });
+}
+
+export async function serializeGltfScene(snapshot: SceneDocumentSnapshot | WorldPersistenceBundle): Promise<string> {
+  if ("documents" in snapshot) {
+    const flattened = flattenWorldForGltf(snapshot);
+    return serializeGltfScene(flattened);
+  }
+
   const materialsById = new Map(snapshot.materials.map((material) => [material.id, material]));
   const assetsById = new Map(snapshot.assets.map((asset) => [asset.id, asset]));
   const exportedNodes: Array<{

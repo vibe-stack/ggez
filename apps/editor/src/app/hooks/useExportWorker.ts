@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { SceneDocumentSnapshot } from "@ggez/editor-core";
+import type { SceneDocumentSnapshot, WorldPersistenceBundle } from "@ggez/editor-core";
+import type { RuntimeWorldBundle } from "@ggez/runtime-build";
 import type { WebHammerEngineBundle } from "@ggez/three-runtime";
 import type { WorkerJob, WorkerRequest, WorkerResponse } from "@ggez/workers";
 
@@ -18,7 +19,7 @@ export function useExportWorker() {
       string,
       {
         reject: (reason?: unknown) => void;
-        resolve: (payload: string | SceneDocumentSnapshot | WebHammerEngineBundle) => void;
+        resolve: (payload: string | SceneDocumentSnapshot | WorldPersistenceBundle | WebHammerEngineBundle | RuntimeWorldBundle) => void;
       }
     >()
   );
@@ -60,7 +61,7 @@ export function useExportWorker() {
   const runWorkerRequest = (
     request: ExportWorkerRequest,
     label: string
-  ): Promise<string | SceneDocumentSnapshot | WebHammerEngineBundle> => {
+  ): Promise<string | SceneDocumentSnapshot | WorldPersistenceBundle | WebHammerEngineBundle | RuntimeWorldBundle> => {
     const id = `export:${requestCounterRef.current++}`;
     const workerTask =
       request.kind === "whmap-save"
