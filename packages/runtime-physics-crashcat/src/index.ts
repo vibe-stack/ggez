@@ -4,9 +4,17 @@ import {
   addBroadphaseLayer,
   addObjectLayer,
   box,
+  capsule,
+  castRay,
+  convexHull,
+  createClosestCastRayCollector,
+  createDefaultCastRaySettings,
   createWorld,
   createWorldSettings,
+  cylinder,
+  dof,
   enableCollision,
+  filter,
   registerAll,
   rigidBody,
   sphere,
@@ -17,12 +25,18 @@ import {
   type Shape,
   type World
 } from "crashcat";
-import { capsule, castRay, createClosestCastRayCollector, createDefaultCastRaySettings, cylinder, dof, filter } from "crashcat";
+import { debugRenderer } from "crashcat/three";
+import { createShapeHelper } from "crashcat/three";
+import { createAuthoredColliderShape } from "./authored-collider-shapes";
+import { buildAutoColliderShapeFromObject } from "./object-auto-collider";
+import { createTriangleMeshShape } from "./triangle-mesh-shape";
 import type { DerivedRenderMesh } from "@ggez/render-pipeline";
 import { getRuntimePhysicsDescriptors, type RuntimePhysicsDescriptor } from "@ggez/runtime-format";
 import { resolveTransformPivot, toTuple, type SceneSettings } from "@ggez/shared";
 import {
+  Box3,
   BoxGeometry,
+  BufferAttribute,
   BufferGeometry,
   ConeGeometry,
   CylinderGeometry,
@@ -51,6 +65,9 @@ export {
   rigidBody
 } from "crashcat";
 export type { ClosestCastRayCollector, RigidBody as CrashcatRigidBody, World as CrashcatPhysicsWorld } from "crashcat";
+export type CrashcatDebugRendererOptions = Parameters<typeof debugRenderer.init>[0];
+export type CrashcatDebugRendererState = ReturnType<typeof debugRenderer.init>;
+export { createAuthoredColliderShape };
 
 let crashcatReady = false;
 
@@ -82,6 +99,26 @@ export function createCrashcatPhysicsWorld(settings: Pick<SceneSettings, "world"
 
 export function stepCrashcatPhysicsWorld(world: World, deltaSeconds: number) {
   updateWorld(world, undefined, deltaSeconds);
+}
+
+export function createCrashcatDebugRenderer(options?: CrashcatDebugRendererOptions) {
+  return debugRenderer.init(options);
+}
+
+export function updateCrashcatDebugRenderer(state: CrashcatDebugRendererState, world: World) {
+  debugRenderer.update(state, world);
+}
+
+export function clearCrashcatDebugRenderer(state: CrashcatDebugRendererState) {
+  debugRenderer.clear(state);
+}
+
+export function createDefaultCrashcatDebugRendererOptions() {
+  return debugRenderer.createDefaultOptions();
+}
+
+export function createCrashcatShapeHelper(...args: Parameters<typeof createShapeHelper>) {
+  return createShapeHelper(...args);
 }
 
 export function createStaticRigidBody(world: World, mesh: DerivedRenderMesh) {
@@ -175,6 +212,15 @@ export function createCrashcatQuaternion(rotation: DerivedRenderMesh["rotation"]
 
 function createCrashcatShape(mesh: DerivedRenderMesh) {
   const physics = mesh.physics;
+
+  if (physics?.colliderDefinitions?.length) {
+    const authoredShape = createAuthoredColliderShape(mesh);
+
+    if (authoredShape) {
+      return authoredShape;
+    }
+  }
+
   const primitiveShape = createPrimitiveShape(mesh);
 
   if (primitiveShape) {
@@ -190,9 +236,12 @@ function createCrashcatShape(mesh: DerivedRenderMesh) {
     });
   }
 
+  if (physics?.colliderShape === "capsule") {
+    return createCapsuleFromGeometry(geometry, mesh, physics.density);
+  }
+
   const pivot = resolveMeshPivot(mesh);
   const position = geometry.getAttribute("position");
-  const index = geometry.getIndex();
   const scaledVertices: number[] = new Array(position.count * 3);
 
   for (let vertexIndex = 0; vertexIndex < position.count; vertexIndex += 1) {
@@ -201,111 +250,64 @@ function createCrashcatShape(mesh: DerivedRenderMesh) {
     scaledVertices[vertexIndex * 3 + 2] = position.getZ(vertexIndex) * mesh.scale.z - pivot.z;
   }
 
+  if (physics?.colliderShape === "trimesh") {
+    const index = geometry.getIndex();
+    const indices = index
+      ? Array.from(index.array as ArrayLike<number>)
+      : Array.from({ length: position.count }, (_, value) => value);
+    geometry.dispose();
+    return createTriangleMeshShape({ indices, positions: scaledVertices });
+  }
+
+  const index = geometry.getIndex();
   const indices = index
     ? Array.from(index.array as ArrayLike<number>)
     : Array.from({ length: position.count }, (_, value) => value);
-
   geometry.dispose();
 
-  return triangleMesh.create({
-    indices,
-    positions: scaledVertices
-  });
+  return convexHull.create({ density: physics?.density, positions: scaledVertices });
 }
 
 function createCrashcatShapeFromObject(mesh: DerivedRenderMesh, object: Object3D, instanceNodeId?: string) {
-  object.updateMatrixWorld(true);
-
-  const bodyTransformInverse = new Matrix4().copy(createBodyTransformMatrix(mesh)).invert();
-  const childMatrix = new Matrix4();
-  const instanceMatrix = new Matrix4();
-  const worldPosition = new Vector3();
-  const pivot = resolveMeshPivot(mesh);
-  const positions: number[] = [];
-  const indices: number[] = [];
-
-  object.traverse((child) => {
-    if (!(child instanceof Mesh || child instanceof InstancedMesh)) {
-      return;
-    }
-
-    const position = child.geometry.getAttribute("position");
-
-    if (!position) {
-      return;
-    }
-
-    if (child instanceof InstancedMesh) {
-      const resolvedInstanceIndex = resolveInstancedMeshIndex(child, instanceNodeId);
-
-      if (resolvedInstanceIndex < 0) {
-        return;
-      }
-
-      child.getMatrixAt(resolvedInstanceIndex, instanceMatrix);
-      childMatrix.copy(bodyTransformInverse).multiply(instanceMatrix);
-    } else {
-      childMatrix.copy(bodyTransformInverse).multiply(child.matrixWorld);
-    }
-
-    const baseIndex = positions.length / 3;
-
-    for (let vertexIndex = 0; vertexIndex < position.count; vertexIndex += 1) {
-      worldPosition
-        .set(position.getX(vertexIndex), position.getY(vertexIndex), position.getZ(vertexIndex))
-        .applyMatrix4(childMatrix);
-      positions.push(
-        worldPosition.x * mesh.scale.x - pivot.x,
-        worldPosition.y * mesh.scale.y - pivot.y,
-        worldPosition.z * mesh.scale.z - pivot.z
-      );
-    }
-
-    const index = child.geometry.getIndex();
-
-    if (index) {
-      for (let indexOffset = 0; indexOffset < index.count; indexOffset += 1) {
-        indices.push(baseIndex + index.getX(indexOffset));
-      }
-
-      return;
-    }
-
-    for (let vertexIndex = 0; vertexIndex < position.count; vertexIndex += 1) {
-      indices.push(baseIndex + vertexIndex);
-    }
-  });
-
-  if (positions.length < 9 || indices.length < 3) {
-    return undefined;
-  }
-
-  return triangleMesh.create({
-    indices,
-    positions
-  });
+  return buildAutoColliderShapeFromObject(mesh, object, instanceNodeId);
 }
 
-function resolveInstancedMeshIndex(mesh: InstancedMesh, instanceNodeId?: string) {
-  if (!instanceNodeId) {
-    return mesh.count > 0 ? 0 : -1;
-  }
-
-  const instanceNodeIds = (mesh.userData.webHammer as { instanceNodeIds?: string[] } | undefined)?.instanceNodeIds;
-
-  if (!Array.isArray(instanceNodeIds)) {
-    return -1;
-  }
-
-  return instanceNodeIds.indexOf(instanceNodeId);
-}
-
-function createBodyTransformMatrix(mesh: Pick<DerivedRenderMesh, "position" | "rotation">) {
-  return new Matrix4().compose(
-    new Vector3(mesh.position.x, mesh.position.y, mesh.position.z),
-    new Quaternion().setFromEuler(new Euler(mesh.rotation.x, mesh.rotation.y, mesh.rotation.z)),
-    new Vector3(1, 1, 1)
+function createCapsuleFromGeometry(
+  geometry: BufferGeometry,
+  mesh: Pick<DerivedRenderMesh, "physics" | "pivot" | "position" | "rotation" | "scale">,
+  density?: number
+) {
+  const bb = geometry.boundingBox ?? new Box3().setFromBufferAttribute(
+    geometry.getAttribute("position") as BufferAttribute
   );
+  const size = new Vector3();
+  bb.getSize(size);
+  const center = new Vector3();
+  bb.getCenter(center);
+
+  const scaledHalfExtentX = Math.abs(size.x * mesh.scale.x) * 0.5;
+  const scaledHalfExtentY = Math.abs(size.y * mesh.scale.y) * 0.5;
+  const scaledHalfExtentZ = Math.abs(size.z * mesh.scale.z) * 0.5;
+
+  const radius = Math.max(scaledHalfExtentX, scaledHalfExtentZ);
+  const halfHeight = Math.max(0, scaledHalfExtentY - radius);
+
+  const shape = capsule.create({ density, halfHeightOfCylinder: halfHeight, radius });
+
+  geometry.dispose();
+
+  const pivot = resolveMeshPivot(mesh);
+  const offsetY = center.y * mesh.scale.y - pivot.y;
+
+  if (offsetY === 0 && pivot.x === 0 && pivot.z === 0) {
+    return shape;
+  }
+
+  return transformed.create({
+    position: [-pivot.x, offsetY, -pivot.z],
+    quaternion: [0, 0, 0, 1],
+    shape
+  });
 }
 
 function createPrimitiveShape(mesh: DerivedRenderMesh) {

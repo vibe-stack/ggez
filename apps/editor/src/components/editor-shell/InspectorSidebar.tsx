@@ -6,6 +6,7 @@ import {
   type GeometryNode,
   type LightNodeData,
   type Material,
+  type ModelReference,
   type ModelLodLevel,
   type PrimitiveNodeData,
   type SceneSettings,
@@ -75,7 +76,7 @@ type InspectorSidebarProps = {
   onUpdateEntityProperties: (entityId: string, properties: Entity["properties"]) => void;
   onUpdateEntityHooks: (entityId: string, hooks: NonNullable<Entity["hooks"]>, beforeHooks?: NonNullable<Entity["hooks"]>) => void;
   onUpdateEntityTransform: (entityId: string, transform: Transform, beforeTransform?: Transform) => void;
-  onUpdateNodeData: (nodeId: string, data: PrimitiveNodeData | LightNodeData) => void;
+  onUpdateNodeData: (nodeId: string, data: PrimitiveNodeData | LightNodeData | ModelReference) => void;
   onUpdateNodeHooks: (nodeId: string, hooks: NonNullable<GeometryNode["hooks"]>, beforeHooks?: NonNullable<GeometryNode["hooks"]>) => void;
   onUpdateNodeTransform: (nodeId: string, transform: Transform, beforeTransform?: Transform) => void;
   onUpdateSceneSettings: (settings: SceneSettings, beforeSettings?: SceneSettings) => void;

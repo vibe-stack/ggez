@@ -70,6 +70,7 @@ import {
   HIGH_MODEL_LOD_LEVEL,
   type ModelAssetFile,
   type ModelLodLevel,
+  type ModelReference,
   type WorldLodLevelDefinition,
   type Material,
   type MeshNode,
@@ -1549,7 +1550,7 @@ export function App() {
     enqueueWorkerJob("Entity authoring", { task: "navmesh", worker: "navWorker" }, 800);
   };
 
-  const handleUpdateNodeData = (nodeId: string, data: PrimitiveNodeData | LightNodeData) => {
+  const handleUpdateNodeData = (nodeId: string, data: PrimitiveNodeData | LightNodeData | ModelReference) => {
     const node = editor.scene.getNode(nodeId);
 
     if (!node) {
@@ -1564,6 +1565,17 @@ export function App() {
 
       editor.execute(createReplaceNodesCommand(editor.scene, [replacement], "update primitive"));
       enqueueWorkerJob("Primitive update", { task: "triangulation", worker: "geometryWorker" }, 500);
+      return;
+    }
+
+    if (isModelNode(node)) {
+      const replacement = {
+        ...structuredClone(node),
+        data: structuredClone(data as ModelReference)
+      };
+
+      editor.execute(createReplaceNodesCommand(editor.scene, [replacement], "update model"));
+      enqueueWorkerJob("Model update", { task: "triangulation", worker: "geometryWorker" }, 500);
       return;
     }
 

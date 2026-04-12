@@ -18,6 +18,7 @@ import {
   LOD,
   Matrix4,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   Object3D,
   PointLight,
@@ -108,6 +109,16 @@ const tempPivotMatrix = new Matrix4();
 const tempInstancePosition = new Vector3();
 const tempInstanceQuaternion = new Quaternion();
 const tempInstanceScale = new Vector3();
+const lazyModelRenderCarrierGeometry = new BoxGeometry(0.001, 0.001, 0.001);
+const lazyModelRenderCarrierMaterial = new MeshBasicMaterial({
+  color: "#000000"
+});
+
+lazyModelRenderCarrierMaterial.colorWrite = false;
+lazyModelRenderCarrierMaterial.depthTest = false;
+lazyModelRenderCarrierMaterial.depthWrite = false;
+lazyModelRenderCarrierMaterial.transparent = true;
+lazyModelRenderCarrierMaterial.opacity = 0;
 
 export type WebHammerSceneObjectFactory = {
   createInstancingObjects: () => Promise<Object3D[]>;
@@ -359,6 +370,12 @@ async function createInstancedObjectForModelNode(
   options: WebHammerSceneObjectFactoryOptions,
   worldLodSettings: WorldLodSettings
 ) {
+  const highReference = resolveModelReference(sourceNode, resources.assetsById);
+
+  if (!highReference.modelPath) {
+    return createInstancedModelObject(sourceNode, instances, sceneGraph, resources, options);
+  }
+
   return createLazyInstancedModelObject(sourceNode, instances, sceneGraph, resources, options, worldLodSettings);
 }
 
@@ -732,18 +749,7 @@ async function loadObjModel(
 }
 
 async function loadGltfModel(asset: Asset | undefined, resolvedPath: string) {
-  const response = await fetch(resolvedPath);
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch model: ${response.status} ${response.statusText}`);
-  }
-
-  const payload = isJsonGltfPath(resolvedPath)
-    ? await response.text()
-    : await response.arrayBuffer();
-  const gltf = await new Promise<Awaited<ReturnType<typeof gltfLoader.loadAsync>>>((resolve, reject) => {
-    gltfLoader.parse(payload, resolveAssetBasePath(resolvedPath), resolve, reject);
-  });
+  const gltf = await gltfLoader.loadAsync(resolvedPath);
   const object = gltf.scene;
   object.userData.webHammer = {
     ...(object.userData.webHammer ?? {}),
@@ -844,9 +850,23 @@ function createLazyRuntimeModelGroup(input: {
   const group = new Group();
   const loaded = new Map<string, Object3D>();
   const loading = new Map<string, Promise<void>>();
+  const handleBeforeRender: Object3D["onBeforeRender"] = (_renderer, _scene, camera) => {
+    if (!(camera instanceof Camera) || input.descriptors.length === 0) {
+      return;
+    }
+
+    const desiredDescriptor = resolveDesiredRuntimeModelLevelDescriptor(input.descriptors, input.resolveDistance(camera, group));
+
+    ensureLoaded(desiredDescriptor);
+    updateVisibleLevel(desiredDescriptor.key);
+  };
 
   group.name = input.name;
   group.add(input.fallback);
+
+  if (!attachLazyModelRenderHook(input.fallback, handleBeforeRender)) {
+    group.add(createLazyModelRenderCarrier(handleBeforeRender));
+  }
 
   const updateVisibleLevel = (desiredKey: RuntimeModelLevelDescriptor["key"]) => {
     const preferred = loaded.get(desiredKey);
@@ -867,6 +887,7 @@ function createLazyRuntimeModelGroup(input: {
       .onLoadLevel(descriptor)
       .then((object) => {
         object.visible = false;
+        attachLazyModelRenderHook(object, handleBeforeRender);
         group.add(object);
         loaded.set(descriptor.key, object);
       })
@@ -877,23 +898,53 @@ function createLazyRuntimeModelGroup(input: {
     loading.set(descriptor.key, pending);
   };
 
-  group.onBeforeRender = (_renderer, _scene, camera) => {
-    if (!(camera instanceof Camera) || input.descriptors.length === 0) {
+  const preloadLevel = async (preferredLevel = "high") => {
+    const descriptor = input.descriptors.find((candidate) => candidate.key === preferredLevel) ?? input.descriptors[0];
+
+    if (!descriptor) {
       return;
     }
 
-    const desiredDescriptor = resolveDesiredRuntimeModelLevelDescriptor(input.descriptors, input.resolveDistance(camera, group));
+    ensureLoaded(descriptor);
+    await loading.get(descriptor.key);
+    updateVisibleLevel(descriptor.key);
+  };
 
-    ensureLoaded(desiredDescriptor);
-    updateVisibleLevel(desiredDescriptor.key);
+  const preloadAll = async () => {
+    input.descriptors.forEach((descriptor) => {
+      ensureLoaded(descriptor);
+    });
+
+    await Promise.all(Array.from(loading.values()));
   };
 
   group.userData.webHammer = {
     ...(group.userData.webHammer ?? {}),
+    ...((input.fallback.userData.webHammer as Record<string, unknown> | undefined) ?? {}),
+    lazyRuntimeModel: {
+      preloadAll,
+      preloadLevel
+    },
     levelOrder: input.descriptors.map((descriptor) => descriptor.key)
   };
 
   return group;
+}
+
+export async function preloadLazyRuntimeModels(root: Object3D, preferredLevel = HIGH_MODEL_LOD_LEVEL) {
+  const tasks: Promise<void>[] = [];
+
+  root.traverse((object) => {
+    const lazyRuntimeModel = (object.userData.webHammer as {
+      lazyRuntimeModel?: { preloadLevel?: (level?: string) => Promise<void> };
+    } | undefined)?.lazyRuntimeModel;
+
+    if (lazyRuntimeModel?.preloadLevel) {
+      tasks.push(lazyRuntimeModel.preloadLevel(preferredLevel));
+    }
+  });
+
+  await Promise.all(tasks);
 }
 
 function resolveDesiredRuntimeModelLevelDescriptor(
@@ -909,6 +960,32 @@ function resolveDesiredRuntimeModelLevelDescriptor(
   }
 
   return resolved;
+}
+
+function attachLazyModelRenderHook(object: Object3D, hook: Object3D["onBeforeRender"]) {
+  let attached = false;
+
+  object.traverse((child) => {
+    if (!(child instanceof Mesh) && !(child instanceof InstancedMesh)) {
+      return;
+    }
+
+    child.onBeforeRender = hook;
+    attached = true;
+  });
+
+  return attached;
+}
+
+function createLazyModelRenderCarrier(hook: Object3D["onBeforeRender"]) {
+  const carrier = new Mesh(lazyModelRenderCarrierGeometry, lazyModelRenderCarrierMaterial);
+
+  carrier.name = "LazyModelRenderCarrier";
+  carrier.frustumCulled = false;
+  carrier.onBeforeRender = hook;
+  carrier.renderOrder = -1;
+
+  return carrier;
 }
 
 function resolveRuntimeModelLevelDescriptors(

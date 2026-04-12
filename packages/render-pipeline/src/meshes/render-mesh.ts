@@ -126,6 +126,8 @@ export function createDerivedRenderMesh(
     bvhEnabled: true,
     physics: isPrimitiveNode(node)
       ? node.data.physics
+      : isModelNode(node)
+        ? node.data.physics
       : isMeshNode(node)
         ? node.data.physics
         : undefined,

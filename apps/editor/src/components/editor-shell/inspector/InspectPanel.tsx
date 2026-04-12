@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import {
   isInstancingNode,
   isLightNode,
+  isModelNode,
   isPrimitiveNode,
   vec3,
   type EditableMesh,
   type Entity,
   type GeometryNode,
   type LightNodeData,
+  type ModelReference,
   type PrimitiveNodeData,
   type SceneSettings,
   type Transform,
@@ -24,6 +26,7 @@ import {
   InstancingInspector,
   LightInspector,
   MeshPhysicsInspector,
+  ModelPhysicsInspector,
   PrimitiveInspector
 } from "./NodeInspectors";
 import { SectionTitle, ToolSection, TransformGroup } from "./InspectorFields";
@@ -50,7 +53,7 @@ export type InspectPanelProps = {
     beforeTransform?: Transform
   ) => void;
   onUpdateMeshData: (nodeId: string, mesh: EditableMesh, beforeMesh?: EditableMesh) => void;
-  onUpdateNodeData: (nodeId: string, data: PrimitiveNodeData | LightNodeData) => void;
+  onUpdateNodeData: (nodeId: string, data: PrimitiveNodeData | LightNodeData | ModelReference) => void;
   onUpdateNodeHooks: (
     nodeId: string,
     hooks: NonNullable<GeometryNode["hooks"]>,
@@ -133,6 +136,7 @@ export function InspectPanel({
   const selectedIsInstancing = selectedNode ? isInstancingNode(selectedNode) : false;
   const selectedIsMesh = selectedNode?.kind === "mesh";
   const selectedMeshNode = selectedNode?.kind === "mesh" ? selectedNode : undefined;
+  const selectedModelNode = selectedNode && isModelNode(selectedNode) ? selectedNode : undefined;
   const selectedInstancingNode =
     selectedNode && isInstancingNode(selectedNode) ? selectedNode : undefined;
   const selectedPrimitive =
@@ -286,6 +290,9 @@ export function InspectPanel({
             ) : null}
             {selectedMeshNode ? (
               <MeshPhysicsInspector node={selectedMeshNode} onUpdateMeshData={onUpdateMeshData} />
+            ) : null}
+            {selectedModelNode ? (
+              <ModelPhysicsInspector node={selectedModelNode} onUpdateNodeData={onUpdateNodeData} />
             ) : null}
             {selectedInstancingNode ? (
               <InstancingInspector node={selectedInstancingNode} />

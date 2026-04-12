@@ -20,6 +20,7 @@
     "@ggez/geometry-kernel": "workspace:*",
     "@ggez/render-pipeline": "workspace:*",
     "@ggez/runtime-build": "workspace:*",
+    "@ggez/runtime-physics-crashcat": "workspace:*",
     "@ggez/shared": "workspace:*",
     "@ggez/three-runtime": "workspace:*",
     "@ggez/tool-system": "workspace:*",

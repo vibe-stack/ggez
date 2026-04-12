@@ -12,7 +12,8 @@ export type PrimitiveShape = "cone" | "cube" | "cylinder" | "sphere";
 export type BrushShape = PrimitiveShape | "custom-polygon" | "plane" | "ramp" | "stairs";
 export type PrimitiveRole = "brush" | "prop";
 export type PropBodyType = "dynamic" | "fixed" | "kinematicPosition";
-export type PropColliderShape = "ball" | "cone" | "cuboid" | "cylinder" | "trimesh";
+export type PropColliderShape = "ball" | "capsule" | "cone" | "cuboid" | "cylinder" | "trimesh";
+export type PropColliderDefinitionShape = "ball" | "capsule" | "cone" | "cuboid" | "cylinder";
 export type LightType = "ambient" | "directional" | "hemisphere" | "point" | "spot";
 export type EntityType = "npc-spawn" | "player-spawn" | "smart-object" | "vfx-object";
 export type PlayerCameraMode = "fps" | "third-person" | "top-down";
@@ -92,6 +93,15 @@ export type EditableMesh = {
 export type ModelReference = {
   assetId: AssetID;
   path: string;
+  physics?: PropPhysics;
+};
+
+export type PropColliderDefinition = {
+  id: string;
+  position: Vec3;
+  rotation: Vec3;
+  scale: Vec3;
+  shape: PropColliderDefinitionShape;
 };
 
 export type PropPhysics = {
@@ -99,6 +109,7 @@ export type PropPhysics = {
   bodyType: PropBodyType;
   canSleep: boolean;
   ccd: boolean;
+  colliderDefinitions?: PropColliderDefinition[];
   colliderShape: PropColliderShape;
   contactSkin: number;
   density?: number;

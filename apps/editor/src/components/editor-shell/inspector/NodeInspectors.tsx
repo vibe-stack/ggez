@@ -1,10 +1,14 @@
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import { parseVfxRuntimeBundleZip } from "@ggez/vfx-exporter";
 import {
+  createDefaultColliderDefinition,
   type EditableMesh,
   type Entity,
   type GeometryNode,
   type LightNodeData,
+  type ModelReference,
+  type PropColliderDefinition,
+  type PropColliderDefinitionShape,
   type PropBodyType,
   type PropColliderShape,
   type PrimitiveNodeData
@@ -19,16 +23,19 @@ import {
   NumberField,
   SectionTitle,
   TextField,
+  TransformGroup,
   ToolSection,
   startCase
 } from "./InspectorFields";
+
+type InspectableNodeData = PrimitiveNodeData | LightNodeData | ModelReference;
 
 export function PrimitiveInspector({
   node,
   onUpdateNodeData
 }: {
   node: Extract<GeometryNode, { kind: "primitive" }>;
-  onUpdateNodeData: (nodeId: string, data: PrimitiveNodeData | LightNodeData) => void;
+  onUpdateNodeData: (nodeId: string, data: InspectableNodeData) => void;
 }) {
   const updateData = (next: PrimitiveNodeData) => onUpdateNodeData(node.id, next);
 
@@ -103,11 +110,50 @@ export function MeshPhysicsInspector({
           onChange={(nextPhysics) =>
             onUpdateMeshData(node.id, { ...node.data, physics: nextPhysics }, node.data)
           }
+          showColliderTransformEditor
           physics={physics}
         />
       ) : (
         <div className="rounded-xl bg-white/4 px-3 py-2 text-[11px] text-foreground/52">
           Enable physics to simulate this mesh at runtime.
+        </div>
+      )}
+    </ToolSection>
+  );
+}
+
+export function ModelPhysicsInspector({
+  node,
+  onUpdateNodeData
+}: {
+  node: Extract<GeometryNode, { kind: "model" }>;
+  onUpdateNodeData: (nodeId: string, data: InspectableNodeData) => void;
+}) {
+  const physics = node.data.physics;
+
+  return (
+    <ToolSection title="Model Physics">
+      <BooleanField
+        checked={Boolean(physics)}
+        label="Enabled"
+        onCheckedChange={(checked) => {
+          if (checked) {
+            onUpdateNodeData(node.id, { ...node.data, physics: physics ?? createDefaultMeshPhysics() });
+            return;
+          }
+
+          onUpdateNodeData(node.id, { ...node.data, physics: undefined });
+        }}
+      />
+      {physics ? (
+        <PropPhysicsFields
+          onChange={(nextPhysics) => onUpdateNodeData(node.id, { ...node.data, physics: nextPhysics })}
+          showColliderTransformEditor
+          physics={physics}
+        />
+      ) : (
+        <div className="rounded-xl bg-white/4 px-3 py-2 text-[11px] text-foreground/52">
+          Enable physics to author exported colliders for this model.
         </div>
       )}
     </ToolSection>
@@ -132,11 +178,25 @@ export function InstancingInspector({
 
 export function PropPhysicsFields({
   onChange,
-  physics
+  physics,
+  showColliderTransformEditor = false
 }: {
   onChange: (physics: NonNullable<PrimitiveNodeData["physics"]>) => void;
   physics: NonNullable<PrimitiveNodeData["physics"]>;
+  showColliderTransformEditor?: boolean;
 }) {
+  const colliderDefinition = useMemo(() => {
+    if (physics.colliderShape === "trimesh") {
+      return undefined;
+    }
+
+    return physics.colliderDefinitions?.[0]
+      ?? createDefaultColliderDefinition(
+        physics.colliderShape as PropColliderDefinitionShape,
+        createColliderDefinitionId()
+      );
+  }, [physics.colliderDefinitions, physics.colliderShape]);
+
   return (
     <div className="space-y-2">
       <SectionTitle>Physics</SectionTitle>
@@ -159,11 +219,29 @@ export function PropPhysicsFields({
         entries={[
           { label: "Cuboid", value: "cuboid" },
           { label: "Ball", value: "ball" },
+          { label: "Capsule", value: "capsule" },
           { label: "Cylinder", value: "cylinder" },
           { label: "Cone", value: "cone" },
           { label: "Trimesh", value: "trimesh" }
         ]}
-        onSelect={(value) => onChange({ ...physics, colliderShape: value as PropColliderShape })}
+        onSelect={(value) => {
+          const colliderShape = value as PropColliderShape;
+
+          if (colliderShape === "trimesh") {
+            onChange({ ...physics, colliderShape });
+            return;
+          }
+
+          const nextDefinition = physics.colliderDefinitions?.[0]
+            ? { ...physics.colliderDefinitions[0], shape: colliderShape as PropColliderDefinitionShape }
+            : createDefaultColliderDefinition(colliderShape as PropColliderDefinitionShape, createColliderDefinitionId());
+
+          onChange({
+            ...physics,
+            colliderDefinitions: [nextDefinition],
+            colliderShape
+          });
+        }}
       />
       <NumberField
         label="Mass"
@@ -210,6 +288,12 @@ export function PropPhysicsFields({
         label="Lock Translations"
         onCheckedChange={(checked) => onChange({ ...physics, lockTranslations: checked })}
       />
+      {showColliderTransformEditor && colliderDefinition ? (
+        <SingleColliderTransformFields
+          colliderDefinition={colliderDefinition}
+          onChange={(nextDefinition) => onChange({ ...physics, colliderDefinitions: [nextDefinition] })}
+        />
+      ) : null}
     </div>
   );
 }
@@ -220,6 +304,7 @@ export function createDefaultMeshPhysics(): NonNullable<PrimitiveNodeData["physi
     bodyType: "fixed",
     canSleep: true,
     ccd: false,
+    colliderDefinitions: [],
     colliderShape: "trimesh",
     contactSkin: 0,
     density: undefined,
@@ -240,7 +325,7 @@ export function LightInspector({
   onUpdateNodeData
 }: {
   node: Extract<GeometryNode, { kind: "light" }>;
-  onUpdateNodeData: (nodeId: string, data: PrimitiveNodeData | LightNodeData) => void;
+  onUpdateNodeData: (nodeId: string, data: InspectableNodeData) => void;
 }) {
   const updateData = (next: LightNodeData) => onUpdateNodeData(node.id, next);
 
@@ -303,6 +388,64 @@ export function LightInspector({
       />
     </ToolSection>
   );
+}
+
+function SingleColliderTransformFields({
+  colliderDefinition,
+  onChange
+}: {
+  colliderDefinition: PropColliderDefinition;
+  onChange: (definition: PropColliderDefinition) => void;
+}) {
+  const update = (updater: (definition: PropColliderDefinition) => PropColliderDefinition) => {
+    onChange(updater(colliderDefinition));
+  };
+
+  return (
+    <div className="space-y-2 rounded-xl bg-white/3 p-2">
+      <SectionTitle>Collider Transform</SectionTitle>
+      <div className="text-[11px] text-foreground/52">
+        Adjust the single collider used by the selected shape. Legacy scenes still fall back to convex hull when no definition exists.
+      </div>
+      <TransformGroup
+        label={`Position (${startCase(colliderDefinition.shape)})`}
+        onCommit={() => undefined}
+        onUpdate={(axis, value) => update((definition) => ({
+          ...definition,
+          position: { ...definition.position, [axis]: value }
+        }))}
+        precision={2}
+        step={0.05}
+        values={colliderDefinition.position}
+      />
+      <TransformGroup
+        label="Rotation"
+        onCommit={() => undefined}
+        onUpdate={(axis, value) => update((definition) => ({
+          ...definition,
+          rotation: { ...definition.rotation, [axis]: value }
+        }))}
+        precision={2}
+        step={0.05}
+        values={colliderDefinition.rotation}
+      />
+      <TransformGroup
+        label="Scale"
+        onCommit={() => undefined}
+        onUpdate={(axis, value) => update((definition) => ({
+          ...definition,
+          scale: { ...definition.scale, [axis]: value }
+        }))}
+        precision={2}
+        step={0.05}
+        values={colliderDefinition.scale}
+      />
+    </div>
+  );
+}
+
+function createColliderDefinitionId() {
+  return globalThis.crypto?.randomUUID?.() ?? `collider:${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export function EntityInspector({

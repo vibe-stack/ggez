@@ -1,12 +1,15 @@
 import { useFrame, useThree } from "@react-three/fiber";
-import { BallCollider, ConeCollider, ConvexHullCollider, CuboidCollider, CylinderCollider, RigidBody, TrimeshCollider } from "@react-three/rapier";
+import { BallCollider, CapsuleCollider, ConeCollider, ConvexHullCollider, CuboidCollider, CylinderCollider, RigidBody, TrimeshCollider } from "@react-three/rapier";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Mesh, MeshStandardMaterial,
+  Mesh,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
   Object3D,
   Vector3
 } from "three";
-import { HIGH_MODEL_LOD_LEVEL, type ModelAssetFile, type ModelLodLevel, type Vec3, type WorldLodSettings } from "@ggez/shared";
+import { HIGH_MODEL_LOD_LEVEL, resolvePropColliderDefinition, type ModelAssetFile, type ModelLodLevel, type Vec3, type WorldLodSettings } from "@ggez/shared";
+import { createAuthoredColliderShape, createCrashcatShapeHelper } from "@ggez/runtime-physics-crashcat";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import {
     disableBvhRaycast,
@@ -26,6 +29,7 @@ import { cloneModelSceneGraph, computeModelBounds, createPrimaryModelFile, creat
 
 const MAX_MODEL_COLLIDER_HULL_POINTS = 512;
 const modelColliderHullCache = new WeakMap<Object3D, Float32Array>();
+const ignoreRaycast: Mesh["raycast"] = () => {};
 
 export function RenderStaticMesh({
   hovered,
@@ -105,7 +109,7 @@ export function PhysicsPropMesh({
     return null;
   }
 
-  const useTrimeshCollider = physics.colliderShape === "trimesh" || !mesh.primitive;
+  const useTrimeshCollider = physics.colliderShape === "trimesh" || (!mesh.primitive && !mesh.modelPath);
 
   return (
     <RigidBody
@@ -121,8 +125,12 @@ export function PhysicsPropMesh({
       rotation={toTuple(mesh.rotation)}
       type={physics.bodyType}
     >
-      {!useTrimeshCollider ? (
+      {physics.colliderDefinitions && physics.colliderDefinitions.length > 0 ? (
+        <AuthoredPhysicsColliders colliderProps={colliderProps} mesh={mesh} />
+      ) : !useTrimeshCollider ? (
         <ManualCollider mesh={mesh} />
+      ) : mesh.modelPath ? (
+        <ModelHullPhysicsCollider mesh={mesh} />
       ) : (
         <TrimeshPhysicsCollider colliderProps={colliderProps} mesh={mesh} />
       )}
@@ -147,6 +155,65 @@ export function PhysicsPropMesh({
         }}
       />
     </RigidBody>
+  );
+}
+
+function AuthoredPhysicsColliders({
+  colliderProps,
+  mesh
+}: {
+  colliderProps?: ReturnType<typeof resolvePhysicsColliderProps>;
+  mesh: DerivedRenderMesh;
+}) {
+  const pivot = resolveMeshPivot(mesh);
+  const modelCenter = mesh.modelPath ? (mesh.modelCenter ?? { x: 0, y: 0, z: 0 }) : { x: 0, y: 0, z: 0 };
+  const definitions = mesh.physics?.colliderDefinitions ?? [];
+
+  if (definitions.length === 0) {
+    return null;
+  }
+
+  return (
+    <group scale={toTuple(mesh.scale)}>
+      {definitions.map((definition) => {
+        const resolved = resolvePropColliderDefinition(definition);
+        const position: [number, number, number] = [
+          resolved.position.x + modelCenter.x - pivot.x,
+          resolved.position.y + modelCenter.y - pivot.y,
+          resolved.position.z + modelCenter.z - pivot.z
+        ];
+        const rotation = toTuple(resolved.rotation);
+
+        switch (resolved.shape) {
+          case "ball":
+            return <BallCollider args={[resolved.radius]} key={definition.id} position={position} rotation={rotation} {...colliderProps} />;
+          case "cuboid":
+            return (
+              <CuboidCollider
+                args={[resolved.halfExtents.x, resolved.halfExtents.y, resolved.halfExtents.z]}
+                key={definition.id}
+                position={position}
+                rotation={rotation}
+                {...colliderProps}
+              />
+            );
+          case "capsule":
+            return (
+              <CapsuleCollider
+                args={[resolved.halfHeightOfCylinder, resolved.radius]}
+                key={definition.id}
+                position={position}
+                rotation={rotation}
+                {...colliderProps}
+              />
+            );
+          case "cylinder":
+            return <CylinderCollider args={[resolved.halfHeight, resolved.radius]} key={definition.id} position={position} rotation={rotation} {...colliderProps} />;
+          case "cone":
+            return <ConeCollider args={[resolved.halfHeight, resolved.radius]} key={definition.id} position={position} rotation={rotation} {...colliderProps} />;
+        }
+      })}
+    </group>
   );
 }
 
@@ -474,65 +541,68 @@ export function RenderMeshBody({
   }
 
   return (
-    <group position={[-pivot.x, -pivot.y, -pivot.z]}>
-      <mesh
-        castShadow={renderModeUsesShadows(renderMode)}
-        onClick={(event) => {
-          if (!interactive) {
-            return;
-          }
-
-          event.stopPropagation();
-
-          if (renderMode === "wireframe") {
-            const nodeIds = resolveIntersectedIds(event.intersections);
-
-            if (nodeIds.length > 0) {
-              onSelectNodes(nodeIds);
+    <>
+      <group position={[-pivot.x, -pivot.y, -pivot.z]}>
+        <mesh
+          castShadow={renderModeUsesShadows(renderMode)}
+          onClick={(event) => {
+            if (!interactive) {
               return;
             }
-          }
 
-          onSelectNodes([mesh.nodeId]);
-        }}
-        onDoubleClick={(event) => {
-          if (!interactive) {
-            return;
-          }
+            event.stopPropagation();
 
-          event.stopPropagation();
-          onFocusNode(mesh.nodeId);
-        }}
-        onPointerOut={(event) => {
-          if (!interactive) {
-            return;
-          }
+            if (renderMode === "wireframe") {
+              const nodeIds = resolveIntersectedIds(event.intersections);
 
-          event.stopPropagation();
-          onHoverEnd();
-        }}
-        onPointerOver={(event) => {
-          if (!interactive) {
-            return;
-          }
+              if (nodeIds.length > 0) {
+                onSelectNodes(nodeIds);
+                return;
+              }
+            }
 
-          event.stopPropagation();
-          onHoverStart(mesh.nodeId);
-        }}
-        ref={setMeshObject}
-        receiveShadow={renderModeUsesShadows(renderMode)}
-      >
-        <primitive attach="geometry" object={geometry} />
-        {renderMode === "wireframe" ? (
-          <meshBasicMaterial
-            color={selected ? "#f97316" : hovered ? "#67e8f9" : "#94a3b8"}
-            depthWrite={false}
-            toneMapped={false}
-            wireframe
-          />
-        ) : null}
-      </mesh>
-    </group>
+            onSelectNodes([mesh.nodeId]);
+          }}
+          onDoubleClick={(event) => {
+            if (!interactive) {
+              return;
+            }
+
+            event.stopPropagation();
+            onFocusNode(mesh.nodeId);
+          }}
+          onPointerOut={(event) => {
+            if (!interactive) {
+              return;
+            }
+
+            event.stopPropagation();
+            onHoverEnd();
+          }}
+          onPointerOver={(event) => {
+            if (!interactive) {
+              return;
+            }
+
+            event.stopPropagation();
+            onHoverStart(mesh.nodeId);
+          }}
+          ref={setMeshObject}
+          receiveShadow={renderModeUsesShadows(renderMode)}
+        >
+          <primitive attach="geometry" object={geometry} />
+          {renderMode === "wireframe" ? (
+            <meshBasicMaterial
+              color={selected ? "#f97316" : hovered ? "#67e8f9" : "#94a3b8"}
+              depthWrite={false}
+              toneMapped={false}
+              wireframe
+            />
+          ) : null}
+        </mesh>
+      </group>
+      <SelectedColliderWireframes mesh={mesh} selected={selected} />
+    </>
   );
 }
 
@@ -708,8 +778,63 @@ export function RenderModelBody({
           />
         </mesh>
       ) : null}
+      <SelectedColliderWireframes mesh={mesh} selected={selected} />
     </group>
   );
+}
+
+function SelectedColliderWireframes({
+  mesh,
+  selected
+}: {
+  mesh: DerivedRenderMesh;
+  selected: boolean;
+}) {
+  const shape = useMemo(
+    () => (selected
+      ? createAuthoredColliderShape({
+          ...mesh,
+          scale: { x: 1, y: 1, z: 1 }
+        })
+      : undefined),
+    [mesh, selected]
+  );
+  const helper = useMemo(() => {
+    if (!shape) {
+      return undefined;
+    }
+
+    const material = new MeshBasicMaterial({
+      color: "#facc15",
+      depthTest: false,
+      depthWrite: false,
+      toneMapped: false,
+      transparent: true,
+      wireframe: true
+    });
+    const nextHelper = createCrashcatShapeHelper(shape, { material });
+
+    nextHelper.object.renderOrder = 1000;
+    nextHelper.object.traverse((child: Object3D) => {
+      if (child instanceof Mesh) {
+        child.raycast = ignoreRaycast;
+      }
+    });
+
+    return nextHelper;
+  }, [shape]);
+
+  useEffect(() => {
+    return () => {
+      helper?.dispose();
+    };
+  }, [helper]);
+
+  if (!selected || !helper) {
+    return null;
+  }
+
+  return <primitive object={helper.object} />;
 }
 
 export function useLoadedModelScene(file?: ModelAssetFile) {

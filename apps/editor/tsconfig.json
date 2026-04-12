@@ -26,6 +26,7 @@
       "@ggez/render-pipeline": ["packages/render-pipeline/src/index.ts"],
       "@ggez/runtime-build": ["packages/runtime-build/src/index.ts"],
       "@ggez/runtime-format": ["packages/runtime-format/src/index.ts"],
+      "@ggez/runtime-physics-crashcat": ["packages/runtime-physics-crashcat/src/index.ts"],
       "@ggez/runtime-physics-rapier": ["packages/runtime-physics-rapier/src/index.ts"],
       "@ggez/runtime-streaming": ["packages/runtime-streaming/src/index.ts"],
       "@ggez/three-runtime": ["packages/three-runtime/src/index.ts"],

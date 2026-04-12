@@ -97,6 +97,7 @@ export function createDefaultPropPhysics(shape: PrimitiveShape): PropPhysics {
     bodyType: "fixed",
     canSleep: true,
     ccd: false,
+    colliderDefinitions: [],
     colliderShape: resolveDefaultColliderShape(shape),
     contactSkin: 0,
     density: undefined,

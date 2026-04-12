@@ -127,6 +127,38 @@ describe("runtime-build", () => {
     expect(worldIndex.chunks[0]?.id).toBe("hub");
   });
 
+  test("rewrites model node paths to bundled asset paths", async () => {
+    const bundle = await externalizeRuntimeAssets({
+      ...runtimeScene,
+      assets: [
+        {
+          id: "asset:model:oak",
+          metadata: {
+            modelFormat: "glb"
+          },
+          path: "data:model/gltf-binary;base64,AA==",
+          type: "model"
+        }
+      ],
+      nodes: [
+        {
+          data: {
+            assetId: "asset:model:oak",
+            path: "data:model/gltf-binary;base64,AA=="
+          },
+          id: "node:model:oak",
+          kind: "model",
+          name: "Oak",
+          transform: makeTransform(vec3(0, 0, 0))
+        }
+      ]
+    });
+
+    expect(bundle.manifest.assets[0]?.path).toBe("assets/models/asset-model-oak.glb");
+    expect(bundle.manifest.nodes[0]?.kind).toBe("model");
+    expect(bundle.manifest.nodes[0]?.kind === "model" ? bundle.manifest.nodes[0].data.path : undefined).toBe("assets/models/asset-model-oak.glb");
+  });
+
   test("omits orphaned model assets from runtime scenes", async () => {
     const snapshot: SceneDocumentSnapshot = {
       assets: [

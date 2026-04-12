@@ -4,6 +4,14 @@ export function getRuntimePhysicsDescriptors(scene: Pick<RuntimeScene, "nodes">)
   const descriptors: RuntimePhysicsDescriptor[] = [];
 
   scene.nodes.forEach((node) => {
+    if (node.kind === "model" && node.data.physics?.enabled) {
+      descriptors.push({
+        node,
+        nodeId: node.id,
+        physics: node.data.physics
+      });
+    }
+
     if (node.kind === "mesh" && node.data.physics?.enabled) {
       descriptors.push({
         node,

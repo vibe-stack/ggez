@@ -11,6 +11,7 @@ import type {
   LightType,
   ModelLodLevel,
   Material,
+  ModelReference,
   SceneSettings,
   TextureRecord,
   Transform,
@@ -165,7 +166,7 @@ type EditorShellProps = {
   onUpdateEntityHooks: (entityId: string, hooks: NonNullable<Entity["hooks"]>, beforeHooks?: NonNullable<Entity["hooks"]>) => void;
   onUpdateEntityTransform: (entityId: string, transform: Transform, beforeTransform?: Transform) => void;
   onUpdateMeshData: (nodeId: string, mesh: EditableMesh, beforeMesh?: EditableMesh) => void;
-  onUpdateNodeData: (nodeId: string, data: PrimitiveNodeData | LightNodeData) => void;
+  onUpdateNodeData: (nodeId: string, data: PrimitiveNodeData | LightNodeData | ModelReference) => void;
   onUpdateNodeHooks: (nodeId: string, hooks: NonNullable<GeometryNode["hooks"]>, beforeHooks?: NonNullable<GeometryNode["hooks"]>) => void;
   onUpdateAiModelPrompt: (prompt: string) => void;
   onUpdateSceneSettings: (settings: SceneSettings, beforeSettings?: SceneSettings) => void;

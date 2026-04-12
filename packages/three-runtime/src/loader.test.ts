@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { loadWebHammerEngineScene } from "./loader";
 import type { WebHammerEngineScene } from "./types";
 import { makeTransform, vec3 } from "@ggez/shared";
-import { InstancedMesh, LOD, Matrix4, Mesh, MeshStandardMaterial, Quaternion, Vector3 } from "three";
+import { InstancedMesh, LOD, Matrix4, Mesh, MeshStandardMaterial, PerspectiveCamera, Quaternion, Vector3 } from "three";
 
 describe("loadWebHammerEngineScene", () => {
   test("rebuilds grouped runtime hierarchies and resolves entity world transforms", async () => {
@@ -617,6 +617,203 @@ describe("loadWebHammerEngineScene", () => {
     expect(instancedMeshes[0]?.userData.webHammer?.sourceNodeId).toBe("node:model-source");
   });
 
+  test("starts lazy model loading from a rendered model placeholder", async () => {
+    const resolvedPaths: string[] = [];
+    const scene: WebHammerEngineScene = {
+      assets: [
+        {
+          id: "asset:model:test",
+          metadata: {
+            modelFormat: "glb",
+            nativeCenterX: 0,
+            nativeCenterY: 0.5,
+            nativeCenterZ: 0,
+            nativeSizeX: 2,
+            nativeSizeY: 2,
+            nativeSizeZ: 2,
+            previewColor: "#6b7280"
+          },
+          path: "assets/models/test.glb",
+          type: "model"
+        }
+      ],
+      entities: [],
+      layers: [],
+      materials: [],
+      metadata: {
+        exportedAt: new Date("2026-04-12T10:00:00.000Z").toISOString(),
+        format: "web-hammer-engine",
+        version: 6
+      },
+      nodes: [
+        {
+          data: {
+            assetId: "asset:model:test",
+            path: "assets/models/test.glb"
+          },
+          id: "node:model:test",
+          kind: "model",
+          name: "Test Model",
+          transform: makeTransform(vec3(0, 0, 0))
+        }
+      ],
+      settings: {
+        player: {
+          cameraMode: "fps",
+          canCrouch: true,
+          canInteract: true,
+          canJump: true,
+          canRun: true,
+          crouchHeight: 1.2,
+          height: 1.8,
+          interactKey: "KeyE",
+          jumpHeight: 1,
+          movementSpeed: 4,
+          runningSpeed: 6
+        },
+        world: {
+          ambientColor: "#ffffff",
+          ambientIntensity: 0,
+          fogColor: "#000000",
+          fogFar: 50,
+          fogNear: 10,
+          gravity: vec3(0, -9.81, 0),
+          lod: {
+            bakedAt: "",
+            enabled: false,
+            lowDetailRatio: 0.22,
+            midDetailRatio: 0.52
+          },
+          physicsEnabled: true,
+          skybox: {
+            affectsLighting: false,
+            blur: 0,
+            enabled: false,
+            format: "image",
+            intensity: 1,
+            lightingIntensity: 1,
+            name: "",
+            source: ""
+          }
+        }
+      }
+    };
+
+    const loaded = await loadWebHammerEngineScene(scene, {
+      resolveAssetUrl: ({ path }) => {
+        resolvedPaths.push(path);
+        return path;
+      }
+    });
+
+    invokeRenderableHooks(loaded.nodes.get("node:model:test"));
+
+    expect(resolvedPaths).toContain("assets/models/test.glb");
+  });
+
+  test("starts lazy instanced model loading from the internal render carrier", async () => {
+    const resolvedPaths: string[] = [];
+    const scene: WebHammerEngineScene = {
+      assets: [
+        {
+          id: "asset:model:source",
+          metadata: {
+            modelFormat: "glb",
+            nativeCenterX: 0,
+            nativeCenterY: 0.5,
+            nativeCenterZ: 0,
+            nativeSizeX: 2,
+            nativeSizeY: 2,
+            nativeSizeZ: 2,
+            previewColor: "#6b7280"
+          },
+          path: "assets/models/source.glb",
+          type: "model"
+        }
+      ],
+      entities: [],
+      layers: [],
+      materials: [],
+      metadata: {
+        exportedAt: new Date("2026-04-12T10:00:00.000Z").toISOString(),
+        format: "web-hammer-engine",
+        version: 6
+      },
+      nodes: [
+        {
+          data: {
+            assetId: "asset:model:source",
+            path: "assets/models/source.glb"
+          },
+          id: "node:model-source",
+          kind: "model",
+          name: "Model Source",
+          transform: makeTransform(vec3(0, 0, 0))
+        },
+        {
+          data: {
+            sourceNodeId: "node:model-source"
+          },
+          id: "node:model-instance",
+          kind: "instancing",
+          name: "Model Source Instance",
+          transform: makeTransform(vec3(3, 0, 0))
+        }
+      ],
+      settings: {
+        player: {
+          cameraMode: "fps",
+          canCrouch: true,
+          canInteract: true,
+          canJump: true,
+          canRun: true,
+          crouchHeight: 1.2,
+          height: 1.8,
+          interactKey: "KeyE",
+          jumpHeight: 1,
+          movementSpeed: 4,
+          runningSpeed: 6
+        },
+        world: {
+          ambientColor: "#ffffff",
+          ambientIntensity: 0,
+          fogColor: "#000000",
+          fogFar: 50,
+          fogNear: 10,
+          gravity: vec3(0, -9.81, 0),
+          lod: {
+            bakedAt: "",
+            enabled: false,
+            lowDetailRatio: 0.22,
+            midDetailRatio: 0.52
+          },
+          physicsEnabled: true,
+          skybox: {
+            affectsLighting: false,
+            blur: 0,
+            enabled: false,
+            format: "image",
+            intensity: 1,
+            lightingIntensity: 1,
+            name: "",
+            source: ""
+          }
+        }
+      }
+    };
+
+    const loaded = await loadWebHammerEngineScene(scene, {
+      resolveAssetUrl: ({ path }) => {
+        resolvedPaths.push(path);
+        return path;
+      }
+    });
+
+    invokeRenderableHooks(loaded.root);
+
+    expect(resolvedPaths).toContain("assets/models/source.glb");
+  });
+
   test("matches grouped source model placement with instanced copies when model pivots are present", async () => {
     const scene: WebHammerEngineScene = {
       assets: [
@@ -855,4 +1052,16 @@ function findFirstMesh(object: ReturnType<Awaited<ReturnType<typeof loadWebHamme
   });
 
   return found;
+}
+
+function invokeRenderableHooks(object: ReturnType<Awaited<ReturnType<typeof loadWebHammerEngineScene>>["nodes"]["get"]> | { traverse: Mesh["traverse"] } | undefined) {
+  const camera = new PerspectiveCamera();
+
+  object?.traverse((child) => {
+    if (!(child instanceof Mesh) && !(child instanceof InstancedMesh)) {
+      return;
+    }
+
+    child.onBeforeRender(undefined as never, undefined as never, camera, undefined as never, undefined as never, undefined as never);
+  });
 }

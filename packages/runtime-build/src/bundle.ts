@@ -141,6 +141,42 @@ export async function externalizeRuntimeAssets(
     }
   }
 
+  const modelAssetsById = new Map(
+    manifest.assets
+      .filter((asset) => asset.type === "model")
+      .map((asset) => [asset.id, asset] as const)
+  );
+
+  for (const node of manifest.nodes) {
+    if (node.kind !== "model") {
+      continue;
+    }
+
+    const asset = modelAssetsById.get(node.data.assetId);
+
+    if (asset?.path) {
+      node.data.path = asset.path;
+      continue;
+    }
+
+    if (!node.data.path) {
+      continue;
+    }
+
+    const bundledPath = await materializeSource(node.data.path, {
+      copyExternalAssets,
+      files,
+      pathBySource,
+      preferredExtension: inferModelExtension(node.data.path, undefined),
+      preferredStem: `${assetDir}/models/${slugify(node.id)}`,
+      usedPaths
+    });
+
+    if (bundledPath) {
+      node.data.path = bundledPath;
+    }
+  }
+
   for (const node of manifest.nodes) {
     if (node.kind !== "model" || !node.lods?.length) {
       continue;

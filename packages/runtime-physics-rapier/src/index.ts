@@ -3,14 +3,17 @@ import type { DerivedRenderMesh } from "@ggez/render-pipeline";
 import { getRuntimePhysicsDescriptors, type RuntimePhysicsDescriptor } from "@ggez/runtime-format";
 import { resolveTransformPivot, type SceneSettings } from "@ggez/shared";
 import {
+  Box3,
   BoxGeometry,
+  BufferAttribute,
   BufferGeometry,
   ConeGeometry,
   CylinderGeometry,
   Euler,
   Float32BufferAttribute,
   Quaternion,
-  SphereGeometry
+  SphereGeometry,
+  Vector3
 } from "three";
 
 let rapierReady: Promise<void> | undefined;
@@ -108,21 +111,55 @@ export function createRapierColliderDesc(mesh: DerivedRenderMesh) {
       return undefined;
     }
 
-    const position = geometry.getAttribute("position");
-    const index = geometry.getIndex();
-    const scaledVertices = new Float32Array(position.count * 3);
+    if (physics?.colliderShape === "capsule") {
+      const bb = geometry.boundingBox ?? new Box3().setFromBufferAttribute(
+        geometry.getAttribute("position") as BufferAttribute
+      );
+      const size = new Vector3();
+      bb.getSize(size);
+      const center = new Vector3();
+      bb.getCenter(center);
 
-    for (let vertexIndex = 0; vertexIndex < position.count; vertexIndex += 1) {
-      scaledVertices[vertexIndex * 3] = position.getX(vertexIndex) * mesh.scale.x - pivot.x;
-      scaledVertices[vertexIndex * 3 + 1] = position.getY(vertexIndex) * mesh.scale.y - pivot.y;
-      scaledVertices[vertexIndex * 3 + 2] = position.getZ(vertexIndex) * mesh.scale.z - pivot.z;
+      const scaledHalfExtentX = Math.abs(size.x * mesh.scale.x) * 0.5;
+      const scaledHalfExtentY = Math.abs(size.y * mesh.scale.y) * 0.5;
+      const scaledHalfExtentZ = Math.abs(size.z * mesh.scale.z) * 0.5;
+
+      const radius = Math.max(scaledHalfExtentX, scaledHalfExtentZ);
+      const halfHeight = Math.max(0, scaledHalfExtentY - radius);
+      const offsetY = center.y * mesh.scale.y - pivot.y;
+
+      geometry.dispose();
+      desc = RAPIER.ColliderDesc.capsule(halfHeight, radius).setTranslation(-pivot.x, offsetY, -pivot.z);
+    } else if (physics?.colliderShape === "trimesh") {
+      const position = geometry.getAttribute("position");
+      const index = geometry.getIndex();
+      const scaledVertices = new Float32Array(position.count * 3);
+
+      for (let vertexIndex = 0; vertexIndex < position.count; vertexIndex += 1) {
+        scaledVertices[vertexIndex * 3] = position.getX(vertexIndex) * mesh.scale.x - pivot.x;
+        scaledVertices[vertexIndex * 3 + 1] = position.getY(vertexIndex) * mesh.scale.y - pivot.y;
+        scaledVertices[vertexIndex * 3 + 2] = position.getZ(vertexIndex) * mesh.scale.z - pivot.z;
+      }
+
+      const indices = index
+        ? Uint32Array.from(index.array as ArrayLike<number>)
+        : Uint32Array.from({ length: position.count }, (_, value) => value);
+      desc = RAPIER.ColliderDesc.trimesh(scaledVertices, indices);
+      geometry.dispose();
+    } else {
+      const position = geometry.getAttribute("position");
+      const scaledVertices = new Float32Array(position.count * 3);
+
+      for (let vertexIndex = 0; vertexIndex < position.count; vertexIndex += 1) {
+        scaledVertices[vertexIndex * 3] = position.getX(vertexIndex) * mesh.scale.x - pivot.x;
+        scaledVertices[vertexIndex * 3 + 1] = position.getY(vertexIndex) * mesh.scale.y - pivot.y;
+        scaledVertices[vertexIndex * 3 + 2] = position.getZ(vertexIndex) * mesh.scale.z - pivot.z;
+      }
+
+      geometry.dispose();
+      desc = RAPIER.ColliderDesc.convexHull(scaledVertices)
+        ?? RAPIER.ColliderDesc.ball(0.5).setTranslation(-pivot.x, -pivot.y, -pivot.z);
     }
-
-    const indices = index
-      ? Uint32Array.from(index.array as ArrayLike<number>)
-      : Uint32Array.from({ length: position.count }, (_, value) => value);
-    desc = RAPIER.ColliderDesc.trimesh(scaledVertices, indices);
-    geometry.dispose();
   } else {
     desc.setTranslation(-pivot.x, -pivot.y, -pivot.z);
   }
