@@ -28,8 +28,13 @@ import {
   CylinderGeometry,
   Euler,
   Float32BufferAttribute,
+  InstancedMesh,
+  Matrix4,
+  Mesh,
+  Object3D,
   Quaternion,
-  SphereGeometry
+  SphereGeometry,
+  Vector3
 } from "three";
 
 export {
@@ -89,6 +94,24 @@ export function createStaticRigidBody(world: World, mesh: DerivedRenderMesh) {
     restitution: mesh.physics?.restitution ?? 0,
     sensor: mesh.physics?.sensor ?? false,
     shape: createCrashcatShape(mesh)
+  });
+}
+
+export function createStaticRigidBodyFromObject(
+  world: World,
+  mesh: DerivedRenderMesh,
+  object: Object3D,
+  instanceNodeId?: string
+) {
+  return rigidBody.create(world, {
+    friction: mesh.physics?.friction ?? 0.5,
+    motionType: MotionType.STATIC,
+    objectLayer: CRASHCAT_OBJECT_LAYER_STATIC,
+    position: toTuple(mesh.position),
+    quaternion: createCrashcatQuaternion(mesh.rotation),
+    restitution: mesh.physics?.restitution ?? 0,
+    sensor: mesh.physics?.sensor ?? false,
+    shape: createCrashcatShapeFromObject(mesh, object, instanceNodeId) ?? createCrashcatShape(mesh)
   });
 }
 
@@ -188,6 +211,101 @@ function createCrashcatShape(mesh: DerivedRenderMesh) {
     indices,
     positions: scaledVertices
   });
+}
+
+function createCrashcatShapeFromObject(mesh: DerivedRenderMesh, object: Object3D, instanceNodeId?: string) {
+  object.updateMatrixWorld(true);
+
+  const bodyTransformInverse = new Matrix4().copy(createBodyTransformMatrix(mesh)).invert();
+  const childMatrix = new Matrix4();
+  const instanceMatrix = new Matrix4();
+  const worldPosition = new Vector3();
+  const pivot = resolveMeshPivot(mesh);
+  const positions: number[] = [];
+  const indices: number[] = [];
+
+  object.traverse((child) => {
+    if (!(child instanceof Mesh || child instanceof InstancedMesh)) {
+      return;
+    }
+
+    const position = child.geometry.getAttribute("position");
+
+    if (!position) {
+      return;
+    }
+
+    if (child instanceof InstancedMesh) {
+      const resolvedInstanceIndex = resolveInstancedMeshIndex(child, instanceNodeId);
+
+      if (resolvedInstanceIndex < 0) {
+        return;
+      }
+
+      child.getMatrixAt(resolvedInstanceIndex, instanceMatrix);
+      childMatrix.copy(bodyTransformInverse).multiply(instanceMatrix);
+    } else {
+      childMatrix.copy(bodyTransformInverse).multiply(child.matrixWorld);
+    }
+
+    const baseIndex = positions.length / 3;
+
+    for (let vertexIndex = 0; vertexIndex < position.count; vertexIndex += 1) {
+      worldPosition
+        .set(position.getX(vertexIndex), position.getY(vertexIndex), position.getZ(vertexIndex))
+        .applyMatrix4(childMatrix);
+      positions.push(
+        worldPosition.x * mesh.scale.x - pivot.x,
+        worldPosition.y * mesh.scale.y - pivot.y,
+        worldPosition.z * mesh.scale.z - pivot.z
+      );
+    }
+
+    const index = child.geometry.getIndex();
+
+    if (index) {
+      for (let indexOffset = 0; indexOffset < index.count; indexOffset += 1) {
+        indices.push(baseIndex + index.getX(indexOffset));
+      }
+
+      return;
+    }
+
+    for (let vertexIndex = 0; vertexIndex < position.count; vertexIndex += 1) {
+      indices.push(baseIndex + vertexIndex);
+    }
+  });
+
+  if (positions.length < 9 || indices.length < 3) {
+    return undefined;
+  }
+
+  return triangleMesh.create({
+    indices,
+    positions
+  });
+}
+
+function resolveInstancedMeshIndex(mesh: InstancedMesh, instanceNodeId?: string) {
+  if (!instanceNodeId) {
+    return mesh.count > 0 ? 0 : -1;
+  }
+
+  const instanceNodeIds = (mesh.userData.webHammer as { instanceNodeIds?: string[] } | undefined)?.instanceNodeIds;
+
+  if (!Array.isArray(instanceNodeIds)) {
+    return -1;
+  }
+
+  return instanceNodeIds.indexOf(instanceNodeId);
+}
+
+function createBodyTransformMatrix(mesh: Pick<DerivedRenderMesh, "position" | "rotation">) {
+  return new Matrix4().compose(
+    new Vector3(mesh.position.x, mesh.position.y, mesh.position.z),
+    new Quaternion().setFromEuler(new Euler(mesh.rotation.x, mesh.rotation.y, mesh.rotation.z)),
+    new Vector3(1, 1, 1)
+  );
 }
 
 function createPrimitiveShape(mesh: DerivedRenderMesh) {

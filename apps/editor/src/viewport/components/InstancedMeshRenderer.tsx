@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useFrame, useThree } from "@react-three/fiber";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
     BoxGeometry, InstancedMesh,
     Matrix4,
     Mesh,
     MeshBasicMaterial,
     MeshStandardMaterial,
-    Object3D, BufferGeometry
+  Object3D, BufferGeometry,
+  Vector3
 } from "three";
 import { type Vec3 } from "@ggez/shared";
 import {
@@ -16,7 +18,10 @@ import {
 } from "@/viewport/viewports";
 import type { SceneSettings } from "@ggez/shared";
 import { buildModelParts, computeBatchCenter, computeModelBounds, createPrimaryModelFile, disposeOwnedMaterial, resolveMeshPivot, tempInstanceColor, tempInstanceMatrix, tempInstanceObject, tempPivotMatrix, useInstancedPreviewMaterials, useRenderableGeometry } from "@/viewport/utils/preview-utils";
-import { useLoadedModelScene, useResolvedModelPreviewFile } from "./PreviewRendererHelpers";
+import { StaticPhysicsCollider, useLoadedModelScene, useResolvedModelPreviewFile } from "./PreviewRendererHelpers";
+
+const INSTANCED_MODEL_COLLIDER_DISTANCE = 50;
+const instancedModelColliderDistance = new Vector3();
 
 export function RenderInstancedMeshBatch({
   batch,
@@ -308,6 +313,46 @@ export function RenderInstancedModelBatch({
         />
       ))}
     </group>
+  );
+}
+
+export function RenderInstancedModelPhysicsBatch({ batch }: { batch: DerivedInstancedMesh }) {
+  const { camera } = useThree();
+  const [nearbyNodeIds, setNearbyNodeIds] = useState<string[]>([]);
+
+  useFrame(() => {
+    const nextNodeIds = batch.instances
+      .filter((instance) =>
+        camera.position.distanceTo(
+          instancedModelColliderDistance.set(instance.position.x, instance.position.y, instance.position.z)
+        ) <= INSTANCED_MODEL_COLLIDER_DISTANCE
+      )
+      .map((instance) => instance.nodeId);
+
+    setNearbyNodeIds((current) => (haveSameNodeOrder(current, nextNodeIds) ? current : nextNodeIds));
+  });
+
+  const nearbyMeshes = useMemo(
+    () =>
+      batch.instances
+        .filter((instance) => nearbyNodeIds.includes(instance.nodeId))
+        .map((instance) => ({
+          ...batch.mesh,
+          label: `${batch.mesh.label} [${instance.label}]`,
+          nodeId: instance.nodeId,
+          position: instance.position,
+          rotation: instance.rotation,
+          scale: instance.scale
+        })),
+    [batch.instances, batch.mesh, nearbyNodeIds]
+  );
+
+  return (
+    <>
+      {nearbyMeshes.map((mesh) => (
+        <StaticPhysicsCollider key={`instanced-collider:${mesh.nodeId}`} mesh={mesh} />
+      ))}
+    </>
   );
 }
 
@@ -625,4 +670,12 @@ export function RenderInstancedModelBoundsBatch({
       }}
     />
   );
+}
+
+function haveSameNodeOrder(left: string[], right: string[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((value, index) => value === right[index]);
 }

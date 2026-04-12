@@ -15,7 +15,7 @@ import type { SceneSettings } from "@ggez/shared";
 import { VfxSceneRuntime } from "@/viewport/components/VfxSceneRuntime";
 import { PathGuides, RenderGroupNode, TriggerHookGuides } from "./PreviewRenderers";
 import { NOOP_HOVER_END, NOOP_HOVER_START } from "../utils/preview-utils";
-import { RenderInstancedMeshBatch } from "./InstancedMeshRenderer";
+import { RenderInstancedMeshBatch, RenderInstancedModelPhysicsBatch } from "./InstancedMeshRenderer";
 import { RuntimePlayer } from "./RuntimePlayer";
 import { PhysicsPropMesh, RenderLightNode, RenderStaticMesh, StaticPhysicsCollider } from "./PreviewRendererHelpers";
 
@@ -139,6 +139,11 @@ export function ScenePreview({
           {staticMeshes.map((mesh) => (
             <StaticPhysicsCollider key={`collider:${mesh.nodeId}`} mesh={mesh} />
           ))}
+          {visibleInstancedMeshes
+            .filter((batch) => Boolean(batch.mesh.modelPath))
+            .map((batch) => (
+              <RenderInstancedModelPhysicsBatch batch={batch} key={`instanced-collider-batch:${batch.batchId}`} />
+            ))}
           {physicsPropMeshes.map((mesh) => (
             <PhysicsPropMesh
               hovered={false}

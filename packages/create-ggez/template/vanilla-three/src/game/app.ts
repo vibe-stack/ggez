@@ -215,7 +215,7 @@ export async function createGameApp(options: GameAppOptions) {
       renderer.setClearColor(runtimeScene.scene.settings.world.fogColor || "#dfe8f2");
 
       const physicsWorld = createCrashcatPhysicsWorld(runtimeScene.scene.settings);
-      const runtimePhysics = createRuntimePhysicsSession({ runtimeScene, world: physicsWorld });
+      const runtimePhysics = createRuntimePhysicsSession({ camera, runtimeScene, world: physicsWorld });
       const gameplayHost = createStarterGameplayHost({ physicsWorld, runtimePhysics, runtimeScene });
 
       // Build loader context (available to systems factory)

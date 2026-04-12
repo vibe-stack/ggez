@@ -1,9 +1,10 @@
 import { useFrame, useThree } from "@react-three/fiber";
-import { BallCollider, ConeCollider, CuboidCollider, CylinderCollider, RigidBody, TrimeshCollider } from "@react-three/rapier";
+import { BallCollider, ConeCollider, ConvexHullCollider, CuboidCollider, CylinderCollider, RigidBody, TrimeshCollider } from "@react-three/rapier";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    Mesh, MeshStandardMaterial,
-    Object3D
+  Mesh, MeshStandardMaterial,
+  Object3D,
+  Vector3
 } from "three";
 import { HIGH_MODEL_LOD_LEVEL, type ModelAssetFile, type ModelLodLevel, type Vec3, type WorldLodSettings } from "@ggez/shared";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
@@ -22,6 +23,9 @@ import {
 } from "@/viewport/viewports";
 import type { SceneSettings } from "@ggez/shared";
 import { cloneModelSceneGraph, computeModelBounds, createPrimaryModelFile, createSolidModelMaterial, disposeOwnedSceneMaterials, disposePreviewMaterial, gltfLoader, loadModelTexture, modelDistanceVector, modelSceneCache, mtlLoader, patchMtlTextureReferences, resolveEditorModelLodLevel, resolveIntersectedIds, resolveMeshPivot, resolvePhysicsColliderProps, usePreviewMaterials, useRenderableGeometry } from "../utils/preview-utils";
+
+const MAX_MODEL_COLLIDER_HULL_POINTS = 512;
+const modelColliderHullCache = new WeakMap<Object3D, Float32Array>();
 
 export function RenderStaticMesh({
   hovered,
@@ -257,8 +261,23 @@ export function RenderNodeBody({
 export function StaticPhysicsCollider({ mesh }: { mesh: DerivedRenderMesh }) {
   return (
     <RigidBody colliders={false} position={toTuple(mesh.position)} rotation={toTuple(mesh.rotation)} type="fixed">
-      <TrimeshPhysicsCollider mesh={mesh} />
+      {mesh.modelPath ? <ModelHullPhysicsCollider mesh={mesh} /> : <TrimeshPhysicsCollider mesh={mesh} />}
     </RigidBody>
+  );
+}
+
+function ModelHullPhysicsCollider({ mesh }: { mesh: DerivedRenderMesh }) {
+  const colliderArgs = useModelHullColliderArgs(mesh);
+  const pivot = resolveMeshPivot(mesh);
+
+  if (!colliderArgs) {
+    return <TrimeshPhysicsCollider mesh={mesh} />;
+  }
+
+  return (
+    <group scale={toTuple(mesh.scale)}>
+      <ConvexHullCollider args={colliderArgs} position={[-pivot.x, -pivot.y, -pivot.z]} />
+    </group>
   );
 }
 
@@ -312,6 +331,86 @@ export function useTrimeshColliderArgs(mesh: DerivedRenderMesh): [ArrayLike<numb
     geometry.getAttribute("position").array,
     geometry.getIndex()?.array ?? fallbackIndices
   ];
+}
+
+function useModelHullColliderArgs(mesh: DerivedRenderMesh): [ArrayLike<number>] | undefined {
+  const primaryModelFile = useMemo(
+    () => createPrimaryModelFile(mesh),
+    [mesh.modelFiles, mesh.modelFormat, mesh.modelMtlText, mesh.modelPath, mesh.modelTexturePath]
+  );
+  const loadedScene = useLoadedModelScene(primaryModelFile);
+
+  return useMemo(() => {
+    if (!loadedScene) {
+      return undefined;
+    }
+
+    const cached = modelColliderHullCache.get(loadedScene);
+
+    if (cached) {
+      return cached.length >= 12 ? [cached] : undefined;
+    }
+
+    const sampledPoints = buildModelColliderHullPoints(loadedScene);
+    modelColliderHullCache.set(loadedScene, sampledPoints);
+
+    return sampledPoints.length >= 12 ? [sampledPoints] : undefined;
+  }, [loadedScene]);
+}
+
+function buildModelColliderHullPoints(scene: Object3D) {
+  const totalVertices = countModelGeometryVertices(scene);
+
+  if (totalVertices <= 0) {
+    return new Float32Array();
+  }
+
+  const sampleStride = Math.max(1, Math.ceil(totalVertices / MAX_MODEL_COLLIDER_HULL_POINTS));
+  const sampled: number[] = [];
+  const worldPosition = new Vector3();
+  let globalVertexIndex = 0;
+
+  scene.updateMatrixWorld(true);
+  scene.traverse((child) => {
+    if (!(child instanceof Mesh)) {
+      return;
+    }
+
+    const position = child.geometry.getAttribute("position");
+
+    if (!position) {
+      return;
+    }
+
+    for (let vertexIndex = 0; vertexIndex < position.count; vertexIndex += 1) {
+      if (globalVertexIndex % sampleStride !== 0) {
+        globalVertexIndex += 1;
+        continue;
+      }
+
+      worldPosition
+        .set(position.getX(vertexIndex), position.getY(vertexIndex), position.getZ(vertexIndex))
+        .applyMatrix4(child.matrixWorld);
+      sampled.push(worldPosition.x, worldPosition.y, worldPosition.z);
+      globalVertexIndex += 1;
+    }
+  });
+
+  return new Float32Array(sampled);
+}
+
+function countModelGeometryVertices(scene: Object3D) {
+  let count = 0;
+
+  scene.traverse((child) => {
+    if (!(child instanceof Mesh)) {
+      return;
+    }
+
+    count += child.geometry.getAttribute("position")?.count ?? 0;
+  });
+
+  return count;
 }
 
 export function RenderMeshBody({

@@ -2,13 +2,16 @@ import { deriveRenderScene, type DerivedRenderMesh, type DerivedRenderScene } fr
 import {
   createDynamicRigidBody,
   createStaticRigidBody,
+  createStaticRigidBodyFromObject,
   rigidBody,
   type CrashcatPhysicsWorld,
   type CrashcatRigidBody
 } from "@ggez/runtime-physics-crashcat";
 import type { Material } from "@ggez/shared";
 import type { ThreeRuntimeSceneInstance } from "@ggez/three-runtime";
-import { Matrix4, Quaternion, Vector3 } from "three";
+import { Matrix4, Object3D, Quaternion, Vector3 } from "three";
+
+const INSTANCED_MODEL_COLLIDER_DISTANCE = 50;
 
 export type RuntimePhysicsSession = {
   colliderCount: number;
@@ -19,6 +22,7 @@ export type RuntimePhysicsSession = {
 };
 
 export function createRuntimePhysicsSession(options: {
+  camera: { position: Vector3 };
   runtimeScene: ThreeRuntimeSceneInstance;
   world: CrashcatPhysicsWorld;
 }): RuntimePhysicsSession {
@@ -31,14 +35,22 @@ export function createRuntimePhysicsSession(options: {
   const unsupportedDynamicInstanceNodeIds = new Set(
     unsupportedDynamicInstanceMeshes.map((mesh) => mesh.nodeId)
   );
+  const gatedInstancedModelMeshes = instancedMeshes.filter(
+    (mesh) => mesh.sourceKind === "model" && !unsupportedDynamicInstanceNodeIds.has(mesh.nodeId)
+  );
+  const gatedInstancedModelNodeIds = new Set(gatedInstancedModelMeshes.map((mesh) => mesh.nodeId));
   const allMeshes = [
     ...renderScene.meshes,
-    ...instancedMeshes.filter((mesh) => !unsupportedDynamicInstanceNodeIds.has(mesh.nodeId))
+    ...instancedMeshes.filter(
+      (mesh) => !unsupportedDynamicInstanceNodeIds.has(mesh.nodeId) && !gatedInstancedModelNodeIds.has(mesh.nodeId)
+    )
   ];
   const physicsMeshes = allMeshes.filter((mesh) => mesh.physics?.enabled);
   const physicsMeshIds = new Set(physicsMeshes.map((mesh) => mesh.nodeId));
   const staticMeshes = allMeshes.filter((mesh) => !physicsMeshIds.has(mesh.nodeId));
   const bodiesByNodeId = new Map<string, CrashcatRigidBody>();
+  const instancedObjectsByNodeId = createInstancedObjectMap(options.runtimeScene);
+  const proximityBodiesByNodeId = new Map<string, CrashcatRigidBody>();
   const dynamicBindings: Array<{
     body: CrashcatRigidBody;
     object: NonNullable<ReturnType<ThreeRuntimeSceneInstance["nodesById"]["get"]>>;
@@ -51,7 +63,10 @@ export function createRuntimePhysicsSession(options: {
   });
 
   staticMeshes.forEach((mesh) => {
-    const body = createStaticRigidBody(options.world, mesh);
+    const runtimeObject = options.runtimeScene.nodesById.get(mesh.nodeId);
+    const body = mesh.sourceKind === "model" && runtimeObject
+      ? createStaticRigidBodyFromObject(options.world, mesh, runtimeObject)
+      : createStaticRigidBody(options.world, mesh);
     bodiesByNodeId.set(mesh.nodeId, body);
   });
 
@@ -70,8 +85,17 @@ export function createRuntimePhysicsSession(options: {
     }
   });
 
+  updateNearbyInstancedModelBodies({
+    bodiesByNodeId,
+    cameraPosition: options.camera.position,
+    instancedObjectsByNodeId,
+    meshes: gatedInstancedModelMeshes,
+    proximityBodiesByNodeId,
+    world: options.world
+  });
+
   return {
-    colliderCount: staticMeshes.length + physicsMeshes.length,
+    colliderCount: staticMeshes.length + physicsMeshes.length + proximityBodiesByNodeId.size,
     dispose() {
       for (const body of bodiesByNodeId.values()) {
         rigidBody.remove(options.world, body);
@@ -85,6 +109,15 @@ export function createRuntimePhysicsSession(options: {
     },
     renderScene,
     syncVisuals() {
+      updateNearbyInstancedModelBodies({
+        bodiesByNodeId,
+        cameraPosition: options.camera.position,
+        instancedObjectsByNodeId,
+        meshes: gatedInstancedModelMeshes,
+        proximityBodiesByNodeId,
+        world: options.world
+      });
+
       dynamicBindings.forEach(({ body, object }) => {
         const translation = body.position;
         const rotation = body.quaternion;
@@ -107,6 +140,71 @@ export function createRuntimePhysicsSession(options: {
       });
     }
   };
+}
+
+function createInstancedObjectMap(runtimeScene: ThreeRuntimeSceneInstance) {
+  const objectsByNodeId = new Map<string, Object3D>();
+
+  runtimeScene.root.traverse((object) => {
+    const instanceNodeIds = (object.userData.webHammer as { instanceNodeIds?: string[] } | undefined)?.instanceNodeIds;
+
+    if (!Array.isArray(instanceNodeIds)) {
+      return;
+    }
+
+    instanceNodeIds.forEach((nodeId) => {
+      if (!objectsByNodeId.has(nodeId)) {
+        objectsByNodeId.set(nodeId, object);
+      }
+    });
+  });
+
+  return objectsByNodeId;
+}
+
+function updateNearbyInstancedModelBodies(input: {
+  bodiesByNodeId: Map<string, CrashcatRigidBody>;
+  cameraPosition: Vector3;
+  instancedObjectsByNodeId: Map<string, Object3D>;
+  meshes: DerivedRenderMesh[];
+  proximityBodiesByNodeId: Map<string, CrashcatRigidBody>;
+  world: CrashcatPhysicsWorld;
+}) {
+  const activeNodeIds = new Set<string>();
+
+  input.meshes.forEach((mesh) => {
+    if (
+      input.cameraPosition.distanceTo(
+        scratchDistancePosition.set(mesh.position.x, mesh.position.y, mesh.position.z)
+      ) > INSTANCED_MODEL_COLLIDER_DISTANCE
+    ) {
+      return;
+    }
+
+    activeNodeIds.add(mesh.nodeId);
+
+    if (input.proximityBodiesByNodeId.has(mesh.nodeId)) {
+      return;
+    }
+
+    const object = input.instancedObjectsByNodeId.get(mesh.nodeId);
+    const body = object
+      ? createStaticRigidBodyFromObject(input.world, mesh, object, mesh.nodeId)
+      : createStaticRigidBody(input.world, mesh);
+
+    input.proximityBodiesByNodeId.set(mesh.nodeId, body);
+    input.bodiesByNodeId.set(mesh.nodeId, body);
+  });
+
+  Array.from(input.proximityBodiesByNodeId.entries()).forEach(([nodeId, body]) => {
+    if (activeNodeIds.has(nodeId)) {
+      return;
+    }
+
+    rigidBody.remove(input.world, body);
+    input.proximityBodiesByNodeId.delete(nodeId);
+    input.bodiesByNodeId.delete(nodeId);
+  });
 }
 
 function deriveInstancedRuntimeMeshes(renderScene: DerivedRenderScene): DerivedRenderMesh[] {
@@ -150,4 +248,5 @@ const scratchLocalMatrix = new Matrix4();
 const scratchPosition = new Vector3();
 const scratchQuaternion = new Quaternion();
 const scratchScale = new Vector3();
+const scratchDistancePosition = new Vector3();
 const scratchWorldMatrix = new Matrix4();
