@@ -1,6 +1,6 @@
 import type { SceneDocumentSnapshot } from "../document/scene-document";
 import { createWorldBundleFromLegacyScene } from "./world-core";
-import type { WorldManifestFileSet, WorldPersistenceBundle } from "./types";
+import type { AuthoringDocumentSnapshot, WorldManifestFileSet, WorldPersistenceBundle } from "./types";
 
 type PersistedWorldContainer =
   | {
@@ -12,6 +12,18 @@ type PersistedWorldContainer =
       format: "whmap";
       scene: SceneDocumentSnapshot;
       version: 1;
+    };
+
+type PersistedDocumentContainer =
+  | {
+      document: AuthoringDocumentSnapshot;
+      format: "whdoc";
+      version: 1;
+    }
+  | {
+      format: "whdoc";
+      scene: SceneDocumentSnapshot;
+      version: 0;
     };
 
 export function createWorldManifestFileSet(bundle: WorldPersistenceBundle): WorldManifestFileSet {
@@ -98,6 +110,70 @@ export function parseWorldPersistenceBundle(text: string): WorldPersistenceBundl
     manifest: structuredClone(world) as WorldPersistenceBundle["manifest"],
     partitions,
     sharedAssets: structuredClone(sharedAssets) as WorldPersistenceBundle["sharedAssets"],
+    version: 1
+  };
+}
+
+export function serializeAuthoringDocumentSnapshot(document: AuthoringDocumentSnapshot): string {
+  return JSON.stringify(
+    {
+      document,
+      format: "whdoc",
+      version: 1
+    } satisfies PersistedDocumentContainer,
+    null,
+    2
+  );
+}
+
+export function parseAuthoringDocumentSnapshot(text: string): AuthoringDocumentSnapshot {
+  const parsed = JSON.parse(text) as PersistedDocumentContainer;
+
+  if (parsed.format !== "whdoc") {
+    throw new Error("Invalid document container.");
+  }
+
+  if (parsed.version === 0) {
+    return createDocumentSnapshotFromLegacyScene(parsed.scene);
+  }
+
+  return structuredClone(parsed.document);
+}
+
+export function createDocumentSnapshotFromLegacyScene(
+  snapshot: SceneDocumentSnapshot,
+  options: {
+    documentId?: string;
+    name?: string;
+    path?: string;
+    partitionId?: string;
+    slug?: string;
+  } = {}
+): AuthoringDocumentSnapshot {
+  const documentId = options.documentId ?? "document:main";
+  const partitionId = options.partitionId ?? "partition:main";
+  const name = options.name ?? snapshot.metadata?.projectName ?? "Imported Scene";
+  const slug = options.slug ?? snapshot.metadata?.projectSlug ?? "imported-scene";
+
+  return {
+    ...structuredClone(snapshot),
+    crossDocumentRefs: [],
+    documentId,
+    metadata: {
+      documentId,
+      mount: {
+        transform: {
+          position: { x: 0, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1, y: 1, z: 1 }
+        }
+      },
+      name,
+      partitionIds: [partitionId],
+      path: options.path ?? `/documents/${documentId}.json`,
+      slug,
+      tags: ["imported"]
+    },
     version: 1
   };
 }

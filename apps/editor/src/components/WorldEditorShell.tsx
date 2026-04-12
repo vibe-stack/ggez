@@ -1,5 +1,10 @@
-import type { ComponentProps } from "react";
+import { AlertTriangle, CircleAlert, Globe, Plus, ScanEye } from "lucide-react";
+import { type ComponentProps } from "react";
+import { FloatingPanel } from "@/components/editor-shell/FloatingPanel";
+import { WorldDocumentCard } from "@/components/editor-shell/WorldDocumentCard";
 import { SceneEditor } from "@/components/SceneEditor";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
 
 type SceneEditorProps = ComponentProps<typeof SceneEditor>;
 
@@ -8,15 +13,10 @@ type WorldEditorShellProps = SceneEditorProps & {
   onLoadDocument: (documentId: string) => void;
   onPinDocument: (documentId: string) => void;
   onSetActiveDocument: (documentId: string) => void;
+  onSetDocumentPosition: (documentId: string, position: { x: number; y: number; z: number }) => void;
   onSetWorldMode: (mode: "scene" | "world") => void;
   onUnloadDocument: (documentId: string) => void;
   onUnpinDocument: (documentId: string) => void;
-  partitions: Array<{
-    documentIds: string[];
-    id: string;
-    name: string;
-  }>;
-  selectionHandles: string[];
   workingSet: {
     activeDocumentId?: string;
     loadedDocumentIds: string[];
@@ -28,6 +28,11 @@ type WorldEditorShellProps = SceneEditorProps & {
     loaded: boolean;
     name: string;
     pinned: boolean;
+    position: {
+      x: number;
+      y: number;
+      z: number;
+    };
   }>;
   worldValidationIssues: Array<{
     code: string;
@@ -41,11 +46,10 @@ export function WorldEditorShell({
   onLoadDocument,
   onPinDocument,
   onSetActiveDocument,
+  onSetDocumentPosition,
   onSetWorldMode,
   onUnloadDocument,
   onUnpinDocument,
-  partitions,
-  selectionHandles,
   workingSet,
   worldDocuments,
   worldValidationIssues,
@@ -54,124 +58,101 @@ export function WorldEditorShell({
   return (
     <div className="relative h-full w-full">
       <SceneEditor {...sceneProps} />
-      <div className="pointer-events-none absolute left-4 bottom-4 z-50 flex max-w-sm flex-col gap-3">
-        <div className="pointer-events-auto rounded-xl border border-white/10 bg-black/70 p-3 text-xs text-white shadow-2xl backdrop-blur">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <span className="font-semibold uppercase tracking-[0.2em] text-white/70">World Mode</span>
-            <div className="flex gap-1">
+
+      <div className="pointer-events-none absolute left-4 top-12 z-20 flex w-68 flex-col">
+        <FloatingPanel className="flex flex-col overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center justify-between px-3.5 pt-3 pb-2">
+            <div className="text-[10px] font-medium tracking-[0.18em] text-foreground/42 uppercase">
+              World Documents
+            </div>
+            <div className="flex items-center gap-1">
+              {/* Mode toggle */}
+              <div className="mr-1 flex rounded-lg bg-white/5 p-0.5">
+                <button
+                  className={cn(
+                    "rounded-md p-1.5 transition-colors",
+                    workingSet.mode === "world"
+                      ? "bg-emerald-500/14 text-emerald-300"
+                      : "text-foreground/38 hover:text-foreground/60"
+                  )}
+                  onClick={() => onSetWorldMode("world")}
+                  title="World mode"
+                  type="button"
+                >
+                  <Globe className="size-3.5" />
+                </button>
+                <button
+                  className={cn(
+                    "rounded-md p-1.5 transition-colors",
+                    workingSet.mode === "scene"
+                      ? "bg-emerald-500/14 text-emerald-300"
+                      : "text-foreground/38 hover:text-foreground/60"
+                  )}
+                  onClick={() => onSetWorldMode("scene")}
+                  title="Scene mode"
+                  type="button"
+                >
+                  <ScanEye className="size-3.5" />
+                </button>
+              </div>
+
               <button
-                className={`rounded-md px-2 py-1 ${workingSet.mode === "world" ? "bg-white text-black" : "bg-white/10 text-white"}`}
-                onClick={() => onSetWorldMode("world")}
+                className="pointer-events-auto rounded-lg p-1.5 text-foreground/38 transition-colors hover:bg-white/6 hover:text-foreground/70"
+                onClick={onCreateDocument}
+                title="New document"
                 type="button"
               >
-                World
-              </button>
-              <button
-                className={`rounded-md px-2 py-1 ${workingSet.mode === "scene" ? "bg-white text-black" : "bg-white/10 text-white"}`}
-                onClick={() => onSetWorldMode("scene")}
-                type="button"
-              >
-                Scene
+                <Plus className="size-3.5" />
               </button>
             </div>
           </div>
-          <div className="space-y-1 text-white/80">
-            <div>Active: {workingSet.activeDocumentId ?? "None"}</div>
-            <div>Loaded: {workingSet.loadedDocumentIds.length}</div>
-            <div>Pinned: {workingSet.pinnedDocumentIds.length}</div>
-            <div>Partitions: {partitions.length}</div>
-            <div>Selection: {selectionHandles.length}</div>
-          </div>
-        </div>
 
-        <div className="pointer-events-auto rounded-xl border border-white/10 bg-black/70 p-3 text-xs text-white shadow-2xl backdrop-blur">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <div className="font-semibold uppercase tracking-[0.2em] text-white/70">Documents</div>
-            <button className="rounded-md bg-white/10 px-2 py-1" onClick={onCreateDocument} type="button">
-              New
-            </button>
-          </div>
-          <div className="space-y-2">
-            {worldDocuments.map((document) => (
-              <div
-                className={`rounded-lg border px-2 py-2 ${
-                  document.id === workingSet.activeDocumentId
-                    ? "border-white/50 bg-white/10"
-                    : "border-white/10 bg-white/[0.03]"
-                }`}
-                key={document.id}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <button
-                    className="text-left text-sm font-medium"
-                    onClick={() => onSetActiveDocument(document.id)}
-                    type="button"
-                  >
-                    {document.name}
-                  </button>
-                  <div className="flex gap-1">
-                    {document.loaded ? (
-                      <button
-                        className="rounded-md bg-white/10 px-2 py-1"
-                        onClick={() => onUnloadDocument(document.id)}
-                        type="button"
-                      >
-                        Unload
-                      </button>
+          {/* Document list */}
+          <ScrollArea className="max-h-[clamp(12rem,40vh,28rem)]">
+            <div className="space-y-0.5 px-2 pb-2">
+              {worldDocuments.length === 0 ? (
+                <div className="px-1.5 py-4 text-center text-[11px] text-foreground/30">
+                  No documents yet
+                </div>
+              ) : (
+                worldDocuments.map((document) => (
+                  <WorldDocumentCard
+                    document={document}
+                    isActive={document.id === workingSet.activeDocumentId}
+                    key={document.id}
+                    onLoadDocument={onLoadDocument}
+                    onPinDocument={onPinDocument}
+                    onSetActiveDocument={onSetActiveDocument}
+                    onSetDocumentPosition={onSetDocumentPosition}
+                    onUnloadDocument={onUnloadDocument}
+                    onUnpinDocument={onUnpinDocument}
+                  />
+                ))
+              )}
+            </div>
+          </ScrollArea>
+
+          {/* Validation issues */}
+          {worldValidationIssues.length > 0 && (
+            <div className="border-t border-white/5 px-3.5 py-2.5">
+              <div className="space-y-1.5">
+                {worldValidationIssues.map((issue, index) => (
+                  <div className="flex items-start gap-2 text-[11px]" key={`${issue.code}:${index}`}>
+                    {issue.severity === "error" ? (
+                      <CircleAlert className="mt-0.5 size-3 shrink-0 text-red-400" />
                     ) : (
-                      <button
-                        className="rounded-md bg-white/10 px-2 py-1"
-                        onClick={() => onLoadDocument(document.id)}
-                        type="button"
-                      >
-                        Load
-                      </button>
+                      <AlertTriangle className="mt-0.5 size-3 shrink-0 text-amber-400" />
                     )}
-                    <button
-                      className="rounded-md bg-white/10 px-2 py-1"
-                      onClick={() => (document.pinned ? onUnpinDocument(document.id) : onPinDocument(document.id))}
-                      type="button"
-                    >
-                      {document.pinned ? "Unpin" : "Pin"}
-                    </button>
+                    <span className={issue.severity === "error" ? "text-red-300/80" : "text-amber-300/80"}>
+                      {issue.message}
+                    </span>
                   </div>
-                </div>
-                <div className="mt-1 text-[11px] text-white/60">
-                  {document.id} · {document.loaded ? "loaded" : "unloaded"}
-                </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="pointer-events-auto rounded-xl border border-white/10 bg-black/70 p-3 text-xs text-white shadow-2xl backdrop-blur">
-          <div className="mb-2 font-semibold uppercase tracking-[0.2em] text-white/70">Partitions</div>
-          <div className="space-y-1 text-white/80">
-            {partitions.map((partition) => (
-              <div key={partition.id}>
-                {partition.name} · {partition.documentIds.join(", ") || "no members"}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="pointer-events-auto rounded-xl border border-white/10 bg-black/70 p-3 text-xs text-white shadow-2xl backdrop-blur">
-          <div className="mb-2 font-semibold uppercase tracking-[0.2em] text-white/70">Debug Overlay</div>
-          <div className="space-y-1 text-white/80">
-            <div>Ownership: document-scoped + shared resources</div>
-            <div>Loaded set: {workingSet.loadedDocumentIds.join(", ") || "none"}</div>
-            <div>Selection: {selectionHandles.join(", ") || "none"}</div>
-          </div>
-          {worldValidationIssues.length > 0 ? (
-            <div className="mt-3 space-y-1 border-t border-white/10 pt-2 text-[11px] text-amber-200">
-              {worldValidationIssues.map((issue, index) => (
-                <div key={`${issue.code}:${index}`}>
-                  {issue.severity}: {issue.message}
-                </div>
-              ))}
             </div>
-          ) : null}
-        </div>
+          )}
+        </FloatingPanel>
       </div>
     </div>
   );

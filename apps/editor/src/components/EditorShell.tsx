@@ -94,12 +94,14 @@ type EditorShellProps = {
   onClearSelection: () => void;
   onExportEngine: () => void;
   onExportGltf: () => void;
+  onExportSceneDocument: () => void;
   onExtrudeSelection: (axis: TransformAxis, direction: -1 | 1) => void;
   onFocusAssetNodes: (assetId: string) => void;
   onFocusNode: (nodeId: string) => void;
   onDeleteMaterial: (materialId: string) => void;
   onDeleteTexture: (textureId: string) => void;
   onCancelAiModelPlacement: () => void;
+  onImportSceneDocument: () => void;
   onLoadWhmap: () => void;
   onNewFile: () => void;
   onInvertSelectionNormals: () => void;
@@ -233,12 +235,14 @@ export function EditorShell({
   onClearSelection,
   onExportEngine,
   onExportGltf,
+  onExportSceneDocument,
   onExtrudeSelection,
   onFocusAssetNodes,
   onFocusNode,
   onDeleteMaterial,
   onDeleteTexture,
   onCancelAiModelPlacement,
+  onImportSceneDocument,
   onLoadWhmap,
   onNewFile,
   onInvertSelectionNormals,
@@ -424,11 +428,13 @@ export function EditorShell({
           onGroupSelection={onGroupSelection}
           onExportEngine={onExportEngine}
           onExportGltf={onExportGltf}
+          onExportSceneDocument={onExportSceneDocument}
           onFocusSelection={() => {
             if (selectedObjectId) {
               onFocusNode(selectedObjectId);
             }
           }}
+          onImportSceneDocument={onImportSceneDocument}
           onLoadWhmap={onLoadWhmap}
           onNewFile={onNewFile}
           onRedo={onRedo}

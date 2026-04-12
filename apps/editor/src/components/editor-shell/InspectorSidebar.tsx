@@ -179,7 +179,7 @@ export function InspectorSidebar({
         >
           <div className={cn("px-3 pt-3", collapsed ? "pb-3" : "pb-2")}>
             <TabsList
-              className="grid h-14 w-full grid-cols-8 items-stretch rounded-xl bg-white/5 p-0.5"
+              className="grid h-12! w-full grid-cols-8 items-stretch rounded-xl bg-white/5 p-0.5"
               variant="default"
             >
               <TabsTrigger

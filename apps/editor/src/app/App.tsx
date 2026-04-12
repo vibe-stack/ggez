@@ -8,6 +8,8 @@ import {
   createDeleteAssetCommand,
   createDeleteMaterialCommand,
   createUpsertAssetCommand,
+  createDocumentSnapshotFromLegacyScene,
+  createDocumentSpatialIndex,
   createDeleteTextureCommand,
   createDeleteSelectionCommand,
   createExtrudeBrushNodesCommand,
@@ -42,6 +44,9 @@ import {
   createTranslateNodesCommand,
   createUpsertMaterialCommand,
   createUpsertTextureCommand,
+  parseAuthoringDocumentSnapshot,
+  refreshWorldManifest,
+  serializeAuthoringDocumentSnapshot,
   type AuthoringDocumentSnapshot,
   type SceneDocumentSnapshot,
   type TransformAxis,
@@ -181,6 +186,7 @@ export function App() {
   const [draftHydrated, setDraftHydrated] = useState(false);
   const latestDraftRef = useRef<ReturnType<typeof buildSceneDraftPayload> | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const sceneDocumentInputRef = useRef<HTMLInputElement | null>(null);
   const glbImportInputRef = useRef<HTMLInputElement | null>(null);
   const modelLodInputRef = useRef<HTMLInputElement | null>(null);
   const renderSceneCacheRef = useRef(createDerivedRenderSceneCache());
@@ -1756,6 +1762,10 @@ export function App() {
     fileInputRef.current?.click();
   };
 
+  const handleImportSceneDocument = () => {
+    sceneDocumentInputRef.current?.click();
+  };
+
   const handleWhmapFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
 
@@ -1787,6 +1797,47 @@ export function App() {
     event.target.value = "";
   };
 
+  const handleSceneDocumentFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+
+    if (files.length === 0) {
+      return;
+    }
+
+    const nextBundle = buildWorldBundle();
+    let activeDocumentId = nextBundle.manifest.activeDocumentId;
+    let importedDocumentCount = 0;
+
+    for (const file of files) {
+      try {
+        const text = await file.text();
+        const importedDocuments = parseImportedSceneDocuments(text, file.name);
+
+        importedDocuments.forEach((importedDocument) => {
+          const result = appendImportedDocumentToWorldBundle(nextBundle, importedDocument, file.name);
+          activeDocumentId = result.documentId;
+          importedDocumentCount += 1;
+        });
+      } catch (error) {
+        console.warn(`Failed to import scene document ${file.name}.`, error);
+        window.alert(
+          `Failed to import ${file.name}: ${error instanceof Error ? error.message : "Unsupported scene document."}`
+        );
+      }
+    }
+
+    if (importedDocumentCount > 0) {
+      nextBundle.manifest = {
+        ...refreshWorldManifest(nextBundle),
+        activeDocumentId
+      };
+      worldEditor.importBundle(nextBundle, "world:import-scene-document");
+      editor.syncFromWorld("world:import-scene-document");
+    }
+
+    event.target.value = "";
+  };
+
   const handleExportGltf = async () => {
     const payload = await runWorkerRequest(
       {
@@ -1799,6 +1850,23 @@ export function App() {
     if (typeof payload === "string") {
       downloadTextFile(`${resolvedProjectSlug}.gltf`, payload, "model/gltf+json");
     }
+  };
+
+  const handleExportSceneDocument = () => {
+    const activeDocumentId = workingSet.activeDocumentId;
+
+    if (!activeDocumentId) {
+      return;
+    }
+
+    const snapshot = worldEditor.getDocumentSnapshot(activeDocumentId);
+
+    if (!snapshot) {
+      return;
+    }
+
+    const payload = serializeAuthoringDocumentSnapshot(snapshot);
+    downloadTextFile(`${snapshot.metadata.slug || resolvedProjectSlug}.whdoc`, payload, "application/json");
   };
 
   const handleExportEngine = async () => {
@@ -1983,13 +2051,27 @@ export function App() {
     worldEditor.unpinDocument(documentId);
   };
 
+  const handleSetWorldDocumentPosition = (documentId: string, position: { x: number; y: number; z: number }) => {
+    const document = worldEditor.getDocumentSnapshot(documentId);
+
+    if (!document) {
+      return;
+    }
+
+    worldEditor.updateDocumentMountTransform(documentId, {
+      ...document.metadata.mount.transform,
+      position
+    });
+  };
+
   const worldDocuments = useMemo(
     () =>
       worldEditor.getDocumentSummaries().map((document) => ({
         id: document.documentId,
         loaded: workingSet.loadedDocumentIds.includes(document.documentId),
         name: document.name,
-        pinned: workingSet.pinnedDocumentIds.includes(document.documentId)
+        pinned: workingSet.pinnedDocumentIds.includes(document.documentId),
+        position: structuredClone(document.mount.transform.position)
       })),
     [workingSet, worldEditor, worldRevision]
   );
@@ -2166,8 +2248,10 @@ export function App() {
         onDeleteTexture={handleDeleteTexture}
         onUpsertTexture={handleUpsertTexture}
         onUpdateBrushData={handleUpdateBrushData}
+        onImportSceneDocument={handleImportSceneDocument}
         onUpdateMeshData={handleUpdateMeshData}
         onUpdateNodeTransform={handleUpdateNodeTransform}
+        onExportSceneDocument={handleExportSceneDocument}
         meshEditMode={meshEditMode}
         sculptMode={sculptMode}
         sculptBrushRadius={sculptBrushRadius}
@@ -2191,11 +2275,10 @@ export function App() {
         onCreateDocument={handleCreateWorldDocument}
         onLoadDocument={handleLoadWorldDocument}
         onSetActiveDocument={handleSetActiveWorldDocument}
+        onSetDocumentPosition={handleSetWorldDocumentPosition}
         onSetWorldMode={handleSetWorldMode}
         onUnloadDocument={handleUnloadWorldDocument}
         onUnpinDocument={handleUnpinWorldDocument}
-        partitions={worldPartitions}
-        selectionHandles={selectionHandles}
         workingSet={workingSet}
         worldDocuments={worldDocuments}
         worldValidationIssues={worldEditor.world.validation}
@@ -2205,6 +2288,14 @@ export function App() {
         hidden
         onChange={handleWhmapFileChange}
         ref={fileInputRef}
+        type="file"
+      />
+      <input
+        accept=".whdoc,.json"
+        hidden
+        multiple
+        onChange={handleSceneDocumentFileChange}
+        ref={sceneDocumentInputRef}
         type="file"
       />
       <input
@@ -2322,6 +2413,105 @@ function preserveMeshMetadata(mesh: EditableMesh, existingMesh?: EditableMesh) {
     : structuredClone(mesh);
 }
 
+function parseImportedSceneDocuments(text: string, filename: string): AuthoringDocumentSnapshot[] {
+  const parsed = JSON.parse(text) as Record<string, unknown>;
+
+  if (parsed.format === "whmap") {
+    throw new Error("World files must be loaded through File > Import > World `.whmap`.");
+  }
+
+  try {
+    return [parseAuthoringDocumentSnapshot(text)];
+  } catch {
+    if (isSceneDocumentSnapshotPayload(parsed)) {
+      const fallbackName = resolveFileStem(filename);
+      return [
+        createDocumentSnapshotFromLegacyScene(parsed, {
+          name: fallbackName,
+          slug: slugifyProjectName(fallbackName)
+        })
+      ];
+    }
+  }
+
+  throw new Error("Unsupported scene document format.");
+}
+
+function appendImportedDocumentToWorldBundle(
+  bundle: WorldPersistenceBundle,
+  importedDocument: AuthoringDocumentSnapshot,
+  sourceFilename?: string
+) {
+  const requestedName = importedDocument.metadata.name?.trim() || resolveFileStem(sourceFilename);
+  const slugBase =
+    slugifyProjectName(importedDocument.metadata.slug?.trim() || requestedName || "imported-scene") || "imported-scene";
+  const documentId = createUniqueWorldDocumentId(bundle, `document:${slugBase}`);
+  const partitionId = createUniqueWorldPartitionId(bundle, `partition:${slugBase}`);
+  const tags = Array.from(new Set([...(importedDocument.metadata.tags ?? []), "imported"]));
+  const nextDocument: AuthoringDocumentSnapshot = {
+    ...structuredClone(importedDocument),
+    documentId,
+    metadata: {
+      ...structuredClone(importedDocument.metadata),
+      documentId,
+      mount: {
+        transform: structuredClone(importedDocument.metadata.mount?.transform ?? makeTransform())
+      },
+      name: requestedName || "Imported Scene",
+      partitionIds: [partitionId],
+      path: `/documents/${documentId}.json`,
+      slug: slugBase,
+      tags
+    }
+  };
+  const partitionBounds = createDocumentSpatialIndex(
+    documentId,
+    nextDocument.nodes,
+    nextDocument.entities,
+    nextDocument.metadata.mount.transform
+  ).getBounds();
+
+  bundle.documents[documentId] = nextDocument;
+  bundle.partitions[partitionId] = {
+    bounds: partitionBounds,
+    id: partitionId,
+    loadDistance: 256,
+    members: [
+      {
+        documentId,
+        kind: "document"
+      }
+    ],
+    name: `${nextDocument.metadata.name} Partition`,
+    path: `/partitions/${partitionId}.json`,
+    tags,
+    unloadDistance: 320,
+    version: 1
+  };
+
+  return {
+    documentId,
+    partitionId
+  };
+}
+
+function isSceneDocumentSnapshotPayload(value: unknown): value is SceneDocumentSnapshot {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    Array.isArray(candidate.assets) &&
+    Array.isArray(candidate.entities) &&
+    Array.isArray(candidate.layers) &&
+    Array.isArray(candidate.materials) &&
+    Array.isArray(candidate.nodes) &&
+    Array.isArray(candidate.textures) &&
+    typeof candidate.settings === "object"
+  );
+}
+
 function isWorldPersistenceBundlePayload(
   value: SceneDocumentSnapshot | WorldPersistenceBundle | RuntimeWorldBundle
 ): value is WorldPersistenceBundle {
@@ -2366,6 +2556,14 @@ function createUniqueWorldPartitionId(bundle: WorldPersistenceBundle, preferredI
   }
 
   return nextId;
+}
+
+function resolveFileStem(filename?: string) {
+  if (!filename) {
+    return "Imported Scene";
+  }
+
+  return filename.replace(/\.[^.]+$/, "") || "Imported Scene";
 }
 
 function serializeRuntimeBundleForSync(bundle: Parameters<typeof createWebHammerEngineBundleZip>[0]) {

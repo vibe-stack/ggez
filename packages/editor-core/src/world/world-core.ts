@@ -80,7 +80,13 @@ export type WorldEditorCore = {
   getDocument: (documentId: DocumentID) => AuthoringDocument | undefined;
   getDocumentSnapshot: (documentId: DocumentID) => AuthoringDocumentSnapshot | undefined;
   getDocumentSnapshotRef: (documentId: DocumentID) => AuthoringDocumentSnapshot | undefined;
-  getDocumentSummaries: () => Array<{ documentId: DocumentID; name: string; path: string; slug: string }>;
+  getDocumentSummaries: () => Array<{
+    documentId: DocumentID;
+    mount: AuthoringDocumentMetadata["mount"];
+    name: string;
+    path: string;
+    slug: string;
+  }>;
   getFlattenedSceneSnapshot: (options?: {
     activeDocumentId?: DocumentID;
     activeDocumentOverride?: SceneDocument;
@@ -103,6 +109,7 @@ export type WorldEditorCore = {
   undo: () => void;
   unpinDocument: (documentId: DocumentID) => void;
   unloadDocument: (documentId: DocumentID) => void;
+  updateDocumentMountTransform: (documentId: DocumentID, transform: Transform) => void;
   updateActiveDocument: (label: string, after: SceneDocumentSnapshot) => void;
   world: WorldDocument;
 };
@@ -413,6 +420,7 @@ export function createWorldEditorCore(
     getDocumentSummaries() {
       return Object.values(storageBundle.documents).map((document) => ({
         documentId: document.documentId,
+        mount: structuredClone(document.metadata.mount),
         name: document.metadata.name,
         path: document.metadata.path,
         slug: document.metadata.slug
@@ -624,6 +632,66 @@ export function createWorldEditorCore(
             loadedDocumentIds: world.workingSet.loadedDocumentIds.filter((id) => id !== documentId)
           },
           workingSetBefore: structuredClone(world.workingSet)
+        })
+      );
+    },
+    updateDocumentMountTransform(documentId, transform) {
+      const before = storageBundle.documents[documentId];
+
+      if (!before) {
+        return;
+      }
+
+      const after: AuthoringDocumentSnapshot = {
+        ...before,
+        metadata: {
+          ...before.metadata,
+          mount: {
+            ...before.metadata.mount,
+            transform: structuredClone(transform)
+          }
+        }
+      };
+      const nextBundle = cloneWorldBundle(storageBundle);
+      nextBundle.documents[documentId] = after;
+
+      const affectedPartitionIds = Array.from(
+        new Set([...before.metadata.partitionIds, ...after.metadata.partitionIds])
+      );
+      const partitionChanges = affectedPartitionIds.flatMap((partitionId) => {
+        const partitionBefore = storageBundle.partitions[partitionId];
+
+        if (!partitionBefore) {
+          return [];
+        }
+
+        const partitionAfter: StreamingPartition = {
+          ...structuredClone(partitionBefore),
+          bounds: derivePartitionBounds(nextBundle, partitionBefore)
+        };
+        nextBundle.partitions[partitionId] = partitionAfter;
+        return [
+          {
+            after: partitionAfter,
+            before: structuredClone(partitionBefore),
+            partitionId
+          }
+        ];
+      });
+
+      api.transact(
+        createTransaction({
+          documentChanges: [
+            {
+              after,
+              before,
+              documentId
+            }
+          ],
+          label: "update document mount",
+          manifestAfter: refreshWorldManifest(nextBundle),
+          manifestBefore: structuredClone(storageBundle.manifest),
+          partitionChanges
         })
       );
     },
@@ -1469,6 +1537,63 @@ function deriveSnapshotBounds(snapshot: SceneDocumentSnapshot): Bounds3 | undefi
       Math.max(...positions.map((position) => position.z))
     )
   );
+}
+
+function derivePartitionBounds(bundle: WorldPersistenceBundle, partition: StreamingPartition): Bounds3 | undefined {
+  const indexCache = new Map<DocumentID, DocumentSpatialIndex>();
+  const bounds: Bounds3[] = [];
+
+  const resolveDocumentIndex = (documentId: DocumentID) => {
+    const cached = indexCache.get(documentId);
+
+    if (cached) {
+      return cached;
+    }
+
+    const snapshot = bundle.documents[documentId];
+
+    if (!snapshot) {
+      return undefined;
+    }
+
+    const index = createDocumentSpatialIndex(
+      documentId,
+      snapshot.nodes,
+      snapshot.entities,
+      resolveDocumentMountTransform(bundle, documentId)
+    );
+    indexCache.set(documentId, index);
+    return index;
+  };
+
+  partition.members.forEach((member) => {
+    if (member.kind === "document") {
+      const documentBounds = resolveDocumentIndex(member.documentId)?.getBounds();
+
+      if (documentBounds) {
+        bounds.push(documentBounds);
+      }
+
+      return;
+    }
+
+    const index = resolveDocumentIndex(member.documentId);
+    const entry = index
+      ? Array.from(index.entries.values()).find((candidate) => {
+          if (member.kind === "node") {
+            return candidate.handle.kind === "node" && candidate.handle.nodeId === member.nodeId;
+          }
+
+          return candidate.handle.kind === "entity" && candidate.handle.entityId === member.entityId;
+        })
+      : undefined;
+
+    if (entry) {
+      bounds.push(entry.bounds);
+    }
+  });
+
+  return mergeBounds(bounds);
 }
 
 function isWorldPersistenceBundle(value: WorldPersistenceBundle | SceneDocumentSnapshot): value is WorldPersistenceBundle {

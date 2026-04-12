@@ -52,6 +52,21 @@ describe("world authoring core", () => {
     expect(world.getDocumentSnapshot("document:a")?.nodes.some((node) => node.id === "node:a")).toBeFalse();
     expect(world.getDocumentSnapshot("document:b")?.nodes.some((node) => node.id === "node:a")).toBeTrue();
   });
+
+  test("updates document mount transform without replacing the whole world", () => {
+    const bundle = createTwoDocumentWorldBundle();
+    const world = createWorldEditorCore(bundle);
+
+    world.updateDocumentMountTransform(
+      "document:b",
+      makeTransform(vec3(48, 0, -12))
+    );
+
+    expect(world.getDocumentSnapshot("document:b")?.metadata.mount.transform.position).toEqual(vec3(48, 0, -12));
+    expect(world.getDocumentSummaries().find((document) => document.documentId === "document:b")?.mount.transform.position).toEqual(
+      vec3(48, 0, -12)
+    );
+  });
 });
 
 function createTwoDocumentWorldBundle(): WorldPersistenceBundle {
