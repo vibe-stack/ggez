@@ -15,6 +15,7 @@ import {
   mergeEditableMeshEdges,
   mergeEditableMeshFaces,
   mergeEditableMeshVertices,
+  paintEditableMeshMaterialLayers,
   sculptEditableMeshSamples,
   subdivideEditableMeshFace
 } from "@ggez/geometry-kernel";
@@ -26,6 +27,7 @@ import {
   addVec3,
   averageVec3,
   crossVec3,
+  normalizeEditableMeshMaterialLayers,
   type GeometryNode,
   isBrushNode,
   isMeshNode,
@@ -114,6 +116,7 @@ import type {
 } from "@/viewport/types";
 
 type SculptBrushMode = "deflate" | "inflate";
+type MaterialPaintBrushMode = "erase" | "paint";
 
 type SculptBrushHit = {
   normal: Vec3;
@@ -131,6 +134,21 @@ type SculptBrushState = {
   previewMesh?: EditableMesh;
   radius: number;
   strokeVertexNormals?: ReadonlyMap<string, Vec3>;
+  strength: number;
+};
+
+type MaterialPaintState = {
+  beforeMesh?: EditableMesh;
+  dragging: boolean;
+  hovered?: SculptBrushHit;
+  lastPoint?: Vec3;
+  materialId: string;
+  mode: MaterialPaintBrushMode;
+  modified: boolean;
+  nodeId: string;
+  opacity: number;
+  previewMesh?: EditableMesh;
+  radius: number;
   strength: number;
 };
 
@@ -166,6 +184,7 @@ export function ViewportCanvas({
   dprScale,
   hiddenSceneItemIds = [],
   isActiveViewport,
+  materialPaintBrushOpacity,
   meshEditMode,
   meshEditToolbarAction,
   sculptBrushRadius,
@@ -173,7 +192,9 @@ export function ViewportCanvas({
   onActivateViewport,
   onClearSelection,
   onCommitMeshTopology,
+  onCommitMeshMaterialLayers,
   onFocusNode,
+  onMaterialPaintModeChange,
   onPlaceAsset,
   onPlaceAiModelPlaceholder,
   onPlaceBrush,
@@ -200,6 +221,7 @@ export function ViewportCanvas({
   renderMode,
   renderScene,
   sceneSettings,
+  selectedMaterialId,
   selectedScenePathId,
   selectedEntity,
   selectedNode,
@@ -237,6 +259,7 @@ export function ViewportCanvas({
   } | null>(null);
   const [pathPreviewPaths, setPathPreviewPaths] = useState<ScenePathDefinition[] | null>(null);
   const [selectedPathPointIndex, setSelectedPathPointIndex] = useState<number | null>(null);
+  const [materialPaintState, setMaterialPaintState] = useState<MaterialPaintState | null>(null);
   const [sculptState, setSculptState] = useState<SculptBrushState | null>(null);
   const snapSize = resolveViewportSnapSize(viewport);
   const editorInteractionEnabled = physicsPlayback === "stopped";
@@ -245,14 +268,16 @@ export function ViewportCanvas({
   const [marquee, setMarquee] = useState<MarqueeState | null>(null);
   const extrudeStateRef = useRef<ExtrudeGestureState | null>(null);
   const pathPreviewPathsRef = useRef<ScenePathDefinition[] | null>(null);
+  const materialPaintStateRef = useRef<MaterialPaintState | null>(null);
   const sculptStateRef = useRef<SculptBrushState | null>(null);
   const previewFrameRef = useRef<number | null>(null);
+  const materialPaintStrokeFrameRef = useRef<number | null>(null);
   const sculptStrokeFrameRef = useRef<number | null>(null);
   const pendingPreviewUpdateRef = useRef<{
     bounds: DOMRect;
     clientX: number;
     clientY: number;
-    kind: "arc" | "bevel" | "extrude" | "sculpt";
+    kind: "arc" | "bevel" | "extrude" | "material-paint" | "sculpt";
   } | null>(null);
   const lastMeshEditActionRef = useRef<LastMeshEditAction | null>(null);
   const previewBrushDataRef = useRef(onPreviewBrushData);
@@ -260,6 +285,7 @@ export function ViewportCanvas({
   const suppressSelectionAfterTransformRef = useRef(false);
   extrudeStateRef.current = extrudeState;
   pathPreviewPathsRef.current = pathPreviewPaths;
+  materialPaintStateRef.current = materialPaintState;
   sculptStateRef.current = sculptState;
   previewBrushDataRef.current = onPreviewBrushData;
 
@@ -291,11 +317,43 @@ export function ViewportCanvas({
         cancelAnimationFrame(previewFrameRef.current);
       }
 
+      if (materialPaintStrokeFrameRef.current !== null) {
+        cancelAnimationFrame(materialPaintStrokeFrameRef.current);
+      }
+
       if (sculptStrokeFrameRef.current !== null) {
         cancelAnimationFrame(sculptStrokeFrameRef.current);
       }
     };
   }, []);
+
+  const stopMaterialPaintStrokeLoop = () => {
+    if (materialPaintStrokeFrameRef.current !== null) {
+      cancelAnimationFrame(materialPaintStrokeFrameRef.current);
+      materialPaintStrokeFrameRef.current = null;
+    }
+  };
+
+  const queueMaterialPaintStrokeFrame = () => {
+    if (materialPaintStrokeFrameRef.current !== null) {
+      return;
+    }
+
+    materialPaintStrokeFrameRef.current = requestAnimationFrame(() => {
+      materialPaintStrokeFrameRef.current = null;
+
+      const currentState = materialPaintStateRef.current;
+      const bounds = viewportRootRef.current?.getBoundingClientRect();
+      const pointer = pointerPositionRef.current;
+
+      if (!currentState?.dragging || !bounds || !pointer) {
+        return;
+      }
+
+      updateMaterialPaintStroke(bounds, pointer.x + bounds.left, pointer.y + bounds.top);
+      queueMaterialPaintStrokeFrame();
+    });
+  };
 
   const stopSculptStrokeLoop = () => {
     if (sculptStrokeFrameRef.current !== null) {
@@ -333,6 +391,7 @@ export function ViewportCanvas({
     }
 
     extrudeStateRef.current = null;
+    materialPaintStateRef.current = null;
     sculptStateRef.current = null;
     setMeshEditSelectionIds([]);
     setBrushEditHandleIds([]);
@@ -346,6 +405,7 @@ export function ViewportCanvas({
     pathPreviewPathsRef.current = null;
     setPathPreviewPaths(null);
     setSelectedPathPointIndex(null);
+    setMaterialPaintState(null);
     setSculptState(null);
     setTransformDragging(false);
   }, [activeToolId, meshEditMode, selectedNode?.id, selectedNode?.kind]);
@@ -369,6 +429,8 @@ export function ViewportCanvas({
     setPathDragState(null);
     pathPreviewPathsRef.current = null;
     setPathPreviewPaths(null);
+    materialPaintStateRef.current = null;
+    setMaterialPaintState(null);
     sculptStateRef.current = null;
     setSculptState(null);
     setMarquee(null);
@@ -904,6 +966,209 @@ export function ViewportCanvas({
       normal: lengthVec3(normal) > 0.000001 ? normalizeVec3(normal) : vec3(0, 1, 0),
       point: vec3(localPoint.x, localPoint.y, localPoint.z)
     };
+  };
+
+  const applyMaterialPaintHit = (state: MaterialPaintState, hit: SculptBrushHit) => {
+    const sourceMesh = state.previewMesh ?? state.beforeMesh;
+
+    if (!sourceMesh || !state.materialId) {
+      return state;
+    }
+
+    const spacing = Math.max(0.05, state.radius * 0.25);
+    const previousPoint = state.lastPoint ?? hit.point;
+    const delta = subVec3(hit.point, previousPoint);
+    const distance = lengthVec3(delta);
+    const steps = Math.max(1, Math.ceil(distance / spacing));
+    const samples = Array.from({ length: steps }, (_, index) => {
+      const step = index + 1;
+      const t = distance <= 0.000001 ? 1 : step / steps;
+
+      return {
+        point: vec3(
+          previousPoint.x + delta.x * t,
+          previousPoint.y + delta.y * t,
+          previousPoint.z + delta.z * t,
+        ),
+      };
+    });
+    const nextMesh = paintEditableMeshMaterialLayers(
+      sourceMesh,
+      state.materialId,
+      samples,
+      state.radius,
+      state.strength,
+      state.opacity,
+      state.mode === "paint" ? "add" : "erase",
+    );
+
+    return {
+      ...state,
+      hovered: hit,
+      lastPoint: hit.point,
+      modified: true,
+      previewMesh: nextMesh,
+    };
+  };
+
+  const beginMaterialPaintStroke = (bounds: DOMRect, clientX: number, clientY: number) => {
+    if (!selectedMeshNode || !materialPaintStateRef.current || !selectedMaterialId) {
+      return false;
+    }
+
+    const hit = resolveSelectedMeshSurfaceHit(bounds, clientX, clientY);
+
+    if (!hit) {
+      return false;
+    }
+
+    const initialState: MaterialPaintState = {
+      ...materialPaintStateRef.current,
+      beforeMesh: selectedMeshNode.data,
+      dragging: true,
+      hovered: hit,
+      lastPoint: hit.point,
+      materialId: materialPaintStateRef.current.materialId,
+      modified: false,
+      nodeId: selectedMeshNode.id,
+      opacity: materialPaintBrushOpacity,
+      previewMesh: undefined,
+      radius: sculptBrushRadius,
+      strength: sculptBrushStrength,
+    };
+    const nextState = applyMaterialPaintHit(initialState, hit);
+
+    materialPaintStateRef.current = nextState;
+    setMaterialPaintState(nextState);
+    setTransformDragging(true);
+    return true;
+  };
+
+  const updateMaterialPaintStroke = (bounds: DOMRect, clientX: number, clientY: number) => {
+    const currentState = materialPaintStateRef.current;
+
+    if (!currentState) {
+      return;
+    }
+
+    const hit = resolveSelectedMeshSurfaceHit(bounds, clientX, clientY);
+
+    if (!hit) {
+      return;
+    }
+
+    const nextState = currentState.dragging
+      ? applyMaterialPaintHit(currentState, hit)
+      : {
+          ...currentState,
+          hovered: hit,
+        };
+
+    materialPaintStateRef.current = nextState;
+    setMaterialPaintState(nextState);
+  };
+
+  const cancelMaterialPaintStroke = (exitMode = false) => {
+    const currentState = materialPaintStateRef.current;
+
+    if (!currentState) {
+      return;
+    }
+
+    const nextState = exitMode
+      ? null
+      : {
+          ...currentState,
+          beforeMesh: undefined,
+          dragging: false,
+          lastPoint: undefined,
+          modified: false,
+          previewMesh: undefined,
+        };
+
+    materialPaintStateRef.current = nextState;
+    setMaterialPaintState(nextState);
+    setTransformDragging(false);
+  };
+
+  const commitMaterialPaintStroke = () => {
+    const currentState = materialPaintStateRef.current;
+
+    if (!currentState) {
+      return;
+    }
+
+    if (currentState.modified && currentState.beforeMesh && currentState.previewMesh) {
+      onCommitMeshMaterialLayers(
+        currentState.nodeId,
+        currentState.previewMesh.materialLayers,
+        currentState.beforeMesh.materialLayers,
+      );
+    }
+
+    const nextState = {
+      ...currentState,
+      beforeMesh: undefined,
+      dragging: false,
+      lastPoint: undefined,
+      modified: false,
+      previewMesh: undefined,
+    };
+
+    materialPaintStateRef.current = nextState;
+    setMaterialPaintState(nextState);
+    setTransformDragging(false);
+  };
+
+  const startMaterialPaintMode = (mode: MaterialPaintBrushMode) => {
+    if (!selectedMeshNode || !selectedMaterialId) {
+      return;
+    }
+
+    const currentState = materialPaintStateRef.current;
+
+    if (currentState?.dragging) {
+      return;
+    }
+
+    if (
+      currentState?.mode === mode &&
+      currentState.nodeId === selectedMeshNode.id &&
+      currentState.materialId === selectedMaterialId
+    ) {
+      materialPaintStateRef.current = null;
+      setMaterialPaintState(null);
+      return;
+    }
+
+    const nextState: MaterialPaintState = {
+      dragging: false,
+      hovered: currentState?.nodeId === selectedMeshNode.id ? currentState.hovered : undefined,
+      materialId:
+        mode === "erase"
+          ? normalizeEditableMeshMaterialLayers(
+              selectedMeshNode.data.materialLayers,
+              selectedMeshNode.data.vertices.length,
+              selectedMeshNode.data.materialBlend,
+            )?.at(-1)?.materialId ?? selectedMaterialId
+          : selectedMaterialId,
+      mode,
+      modified: false,
+      nodeId: selectedMeshNode.id,
+      opacity: materialPaintBrushOpacity,
+      radius: sculptBrushRadius,
+      strength: sculptBrushStrength,
+    };
+
+    materialPaintStateRef.current = nextState;
+    setMaterialPaintState(nextState);
+
+    const bounds = viewportRootRef.current?.getBoundingClientRect();
+    const pointer = pointerPositionRef.current;
+
+    if (bounds && pointer) {
+      updateMaterialPaintStroke(bounds, pointer.x + bounds.left, pointer.y + bounds.top);
+    }
   };
 
   const applySculptHit = (state: SculptBrushState, hit: SculptBrushHit) => {
@@ -1670,9 +1935,15 @@ export function ViewportCanvas({
       extrudeState ||
       faceCutState ||
       faceSubdivisionState ||
+      materialPaintState?.dragging ||
       sculptState?.dragging
     ) {
       return;
+    }
+
+    if (materialPaintState && action !== "paint-material" && action !== "erase-material") {
+      materialPaintStateRef.current = null;
+      setMaterialPaintState(null);
     }
 
     if (sculptState && action !== "inflate" && action !== "deflate") {
@@ -1722,6 +1993,10 @@ export function ViewportCanvas({
         if (meshEditMode !== "vertex") {
           startExtrudeOperation();
         }
+        return;
+      }
+      case "erase-material": {
+        startMaterialPaintMode("erase");
         return;
       }
       case "fill-face": {
@@ -1788,6 +2063,10 @@ export function ViewportCanvas({
         }
         return;
       }
+      case "paint-material": {
+        startMaterialPaintMode("paint");
+        return;
+      }
       case "deflate": {
         startSculptMode("deflate");
         return;
@@ -1812,6 +2091,23 @@ export function ViewportCanvas({
   }, [meshEditToolbarAction?.id]);
 
   useEffect(() => {
+    setMaterialPaintState((current) =>
+      current
+        ? {
+            ...current,
+            materialId:
+              current.dragging || current.mode === "erase"
+                ? current.materialId
+                : selectedMaterialId,
+            opacity: materialPaintBrushOpacity,
+            radius: sculptBrushRadius,
+            strength: sculptBrushStrength,
+          }
+        : current
+    );
+  }, [materialPaintBrushOpacity, sculptBrushRadius, sculptBrushStrength, selectedMaterialId]);
+
+  useEffect(() => {
     setSculptState((current) =>
       current
         ? {
@@ -1824,8 +2120,21 @@ export function ViewportCanvas({
   }, [sculptBrushRadius, sculptBrushStrength]);
 
   useEffect(() => {
+    onMaterialPaintModeChange(materialPaintState?.mode ?? null);
+  }, [materialPaintState?.mode, onMaterialPaintModeChange]);
+
+  useEffect(() => {
     onSculptModeChange(sculptState?.mode ?? null);
   }, [onSculptModeChange, sculptState?.mode]);
+
+  useEffect(() => {
+    if (materialPaintState?.dragging) {
+      queueMaterialPaintStrokeFrame();
+      return;
+    }
+
+    stopMaterialPaintStrokeLoop();
+  }, [materialPaintState?.dragging]);
 
   useEffect(() => {
     if (sculptState?.dragging) {
@@ -1959,6 +2268,14 @@ export function ViewportCanvas({
 
         if (nextPivot) {
           updateSelectedNodePivot(nextPivot);
+        }
+        return;
+      }
+
+      if (materialPaintState) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          cancelMaterialPaintStroke(!materialPaintState.dragging);
         }
         return;
       }
@@ -2165,9 +2482,10 @@ export function ViewportCanvas({
       return {
         ...currentState,
         offset,
-        previewMesh
+              previewMesh:
       };
     });
+                  ? paintEditableMeshMaterialLayers(
   };
 
   const commitArcPreview = () => {
@@ -2225,9 +2543,10 @@ export function ViewportCanvas({
 
       return {
         ...currentState,
-        previewMesh,
+              previewMesh:
         width
       };
+                  ? paintEditableMeshMaterialLayers(
     });
   };
 
@@ -2599,6 +2918,12 @@ export function ViewportCanvas({
       return;
     }
 
+    if (activeToolId === "mesh-edit" && materialPaintState && selectedMeshNode && event.button === 0 && !event.shiftKey) {
+      if (beginMaterialPaintStroke(bounds, event.clientX, event.clientY)) {
+        return;
+      }
+    }
+
     if (activeToolId === "mesh-edit" && sculptState && selectedMeshNode && event.button === 0 && !event.shiftKey) {
       if (beginSculptStroke(bounds, event.clientX, event.clientY)) {
         return;
@@ -2622,6 +2947,15 @@ export function ViewportCanvas({
 
     if (extrudeState) {
       queuePreviewUpdate("extrude", event.clientX, event.clientY, bounds);
+      return;
+    }
+
+    if (materialPaintState) {
+      if (materialPaintState.dragging) {
+        return;
+      }
+
+      queuePreviewUpdate("material-paint", event.clientX, event.clientY, bounds);
       return;
     }
 
@@ -2687,7 +3021,7 @@ export function ViewportCanvas({
   };
 
   const queuePreviewUpdate = (
-    kind: "arc" | "bevel" | "extrude" | "sculpt",
+    kind: "arc" | "bevel" | "extrude" | "material-paint" | "sculpt",
     clientX: number,
     clientY: number,
     bounds: DOMRect
@@ -2715,6 +3049,9 @@ export function ViewportCanvas({
       switch (pending.kind) {
         case "extrude":
           updateExtrudePreview(pending.clientX, pending.clientY, pending.bounds);
+          return;
+        case "material-paint":
+          updateMaterialPaintStroke(pending.bounds, pending.clientX, pending.clientY);
           return;
         case "sculpt":
           updateSculptStroke(pending.bounds, pending.clientX, pending.clientY);
@@ -2747,6 +3084,13 @@ export function ViewportCanvas({
     if (extrudeState) {
       if (event.button === 0) {
         commitExtrudePreview();
+      }
+      return;
+    }
+
+    if (materialPaintState?.dragging) {
+      if (event.button === 0) {
+        commitMaterialPaintStroke();
       }
       return;
     }
@@ -3076,11 +3420,17 @@ export function ViewportCanvas({
         {editorInteractionEnabled && isActiveViewport && (extrudeState?.kind === "mesh" || extrudeState?.kind === "brush-mesh") && selectedDisplayNode ? (
           <EditableMeshPreviewOverlay mesh={extrudeState.previewMesh} node={selectedDisplayNode} />
         ) : null}
+        {editorInteractionEnabled && isActiveViewport && materialPaintState?.dragging && materialPaintState.previewMesh && selectedDisplayNode ? (
+          <EditableMeshPreviewOverlay mesh={materialPaintState.previewMesh} node={selectedDisplayNode} presentation="solid" />
+        ) : null}
         {editorInteractionEnabled && isActiveViewport && sculptState?.dragging && sculptState.previewMesh && selectedDisplayNode ? (
           <EditableMeshPreviewOverlay mesh={sculptState.previewMesh} node={selectedDisplayNode} presentation="solid" />
         ) : null}
         {editorInteractionEnabled && isActiveViewport && extrudeState && selectedDisplayNode ? (
           <ExtrudeAxisGuide node={selectedDisplayNode} state={extrudeState} viewport={viewport} />
+        ) : null}
+        {editorInteractionEnabled && isActiveViewport && materialPaintState && selectedDisplayNode ? (
+          <SculptBrushOverlay hovered={materialPaintState.hovered} node={selectedDisplayNode} radius={materialPaintState.radius} />
         ) : null}
         {editorInteractionEnabled && isActiveViewport && sculptState && selectedDisplayNode ? (
           <SculptBrushOverlay hovered={sculptState.hovered} node={selectedDisplayNode} radius={sculptState.radius} />

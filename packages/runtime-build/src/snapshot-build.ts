@@ -12,6 +12,7 @@ import {
   isMeshNode,
   isModelNode,
   isPrimitiveNode,
+  normalizeEditableMeshMaterialLayers,
   normalizeVec3,
   resolveModelAssetFile,
   resolveTextureReferenceSource,
@@ -323,9 +324,20 @@ async function buildExportGeometry(
     name: `${node.name} Default`,
     roughness: node.kind === "brush" ? 0.95 : node.kind === "primitive" && node.data.role === "prop" ? 0.64 : 0.82
   }, texturesById, options);
+  const meshMaterialLayers = isMeshNode(node)
+    ? normalizeEditableMeshMaterialLayers(node.data.materialLayers, node.data.vertices.length, node.data.materialBlend)
+    : undefined;
+  const meshRuntimeLayers = meshMaterialLayers
+    ? await Promise.all(meshMaterialLayers.map(async (layer) => ({
+        material: await resolveRuntimeMaterial(materialsById.get(layer.materialId), texturesById, options),
+        opacity: layer.opacity,
+        weights: [] as number[],
+      })))
+    : undefined;
   const primitiveByMaterial = new Map<string, RuntimeGeometry["primitives"][number]>();
 
   const appendFace = async (params: {
+    blendLayerWeights?: number[][];
     faceMaterialId?: string;
     normal: Vec3;
     triangleIndices: number[];
@@ -338,6 +350,15 @@ async function buildExportGeometry(
       ? await resolveRuntimeMaterial(materialsById.get(params.faceMaterialId), texturesById, options)
       : fallbackMaterial;
     const primitive = primitiveByMaterial.get(material.id) ?? {
+      ...(meshRuntimeLayers?.length
+        ? {
+            blendLayers: meshRuntimeLayers.map((layer) => ({
+              material: layer.material,
+              opacity: layer.opacity,
+              weights: [],
+            })),
+          }
+        : {}),
       indices: [],
       material,
       normals: [],
@@ -354,6 +375,11 @@ async function buildExportGeometry(
       primitive.normals.push(params.normal.x, params.normal.y, params.normal.z);
     });
     primitive.uvs.push(...uvs);
+    if (primitive.blendLayers?.length) {
+      primitive.blendLayers.forEach((layer, layerIndex) => {
+        layer.weights.push(...(params.blendLayerWeights?.[layerIndex]?.slice(0, params.vertices.length) ?? Array.from({ length: params.vertices.length }, () => 0)));
+      });
+    }
     params.triangleIndices.forEach((index) => {
       primitive.indices.push(vertexOffset + index);
     });
@@ -380,21 +406,26 @@ async function buildExportGeometry(
   }
 
   if (isMeshNode(node)) {
+    const vertexIndexById = new Map(node.data.vertices.map((vertex, index) => [vertex.id, index] as const));
     for (const face of node.data.faces) {
       const triangulated = triangulateMeshFace(node.data, face.id);
+      const faceVertices = getFaceVertices(node.data, face.id);
 
-      if (!triangulated) {
+      if (!triangulated || faceVertices.length === 0) {
         continue;
       }
 
       await appendFace({
+        blendLayerWeights: meshMaterialLayers?.map((layer) =>
+          faceVertices.map((vertex) => layer.weights[vertexIndexById.get(vertex.id) ?? -1] ?? 0)
+        ),
         faceMaterialId: face.materialId,
         normal: triangulated.normal,
         triangleIndices: triangulated.indices,
         uvOffset: face.uvOffset,
         uvScale: face.uvScale,
         uvs: face.uvs,
-        vertices: getFaceVertices(node.data, face.id).map((vertex) => vertex.position)
+        vertices: faceVertices.map((vertex) => vertex.position)
       });
     }
   }

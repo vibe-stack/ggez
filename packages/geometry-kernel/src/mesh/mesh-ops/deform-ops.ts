@@ -1,5 +1,5 @@
-import type { EditableMesh, Vec3, VertexID } from "@ggez/shared";
-import { addVec3, averageVec3, lengthVec3, normalizeVec3, scaleVec3, subVec3, vec3 } from "@ggez/shared";
+import type { EditableMesh, EditableMeshMaterialLayer, MaterialID, Vec3, VertexID } from "@ggez/shared";
+import { addVec3, averageVec3, clamp01, lengthVec3, normalizeEditableMeshMaterialLayers, normalizeVec3, scaleVec3, subVec3, vec3 } from "@ggez/shared";
 import { computePolygonNormal } from "../../polygon/polygon-utils";
 import { getFaceVertices } from "../editable-mesh";
 
@@ -7,6 +7,8 @@ export type SculptSample = {
   normal?: Vec3;
   point: Vec3;
 };
+
+export type MaterialPaintMode = "add" | "erase";
 
 export function buildEditableMeshVertexNormals(mesh: EditableMesh) {
   const normalsByVertexId = new Map<VertexID, Vec3>();
@@ -243,6 +245,76 @@ export function sculptEditableMeshSamples(
         position: addVec3(vertex.position, displacement)
       };
     })
+  };
+}
+
+export function paintEditableMeshMaterialLayers(
+  mesh: EditableMesh,
+  materialId: MaterialID,
+  samples: SculptSample[],
+  radius: number,
+  amount: number,
+  opacity = 1,
+  mode: MaterialPaintMode = "add",
+  epsilon = 0.0001,
+): EditableMesh {
+  if (!materialId || radius <= epsilon || Math.abs(amount) <= epsilon || mesh.vertices.length === 0) {
+    return {
+      ...mesh,
+      materialBlend: undefined,
+      materialLayers: normalizeEditableMeshMaterialLayers(mesh.materialLayers, mesh.vertices.length, mesh.materialBlend),
+      vertices: mesh.vertices.map((vertex) => ({
+        ...vertex,
+        position: vec3(vertex.position.x, vertex.position.y, vertex.position.z),
+      })),
+    };
+  }
+
+  const sourceLayers = normalizeEditableMeshMaterialLayers(mesh.materialLayers, mesh.vertices.length, mesh.materialBlend) ?? [];
+  const sourceLayerIndex = sourceLayers.findIndex((layer) => layer.materialId === materialId);
+  const sourceLayer = sourceLayerIndex >= 0 ? sourceLayers[sourceLayerIndex] : undefined;
+  const signedAmount = mode === "erase" ? -Math.abs(amount) : Math.abs(amount);
+  const normalizedSamples = samples.map((sample) => sample.point);
+  const nextWeights = mesh.vertices.map((vertex, vertexIndex) => {
+    const currentWeight = sourceLayer?.weights[vertexIndex] ?? 0;
+    let nextWeight = currentWeight;
+
+    normalizedSamples.forEach((point) => {
+      const distance = lengthVec3(subVec3(vertex.position, point));
+
+      if (distance >= radius) {
+        return;
+      }
+
+      nextWeight = clamp01(nextWeight + signedAmount * smoothBrushFalloff(distance / radius));
+    });
+
+    return nextWeight;
+  });
+
+  const nextLayer: EditableMeshMaterialLayer = {
+    materialId,
+    opacity,
+    weights: nextWeights,
+  };
+  const nextLayers = [...sourceLayers];
+
+  if (sourceLayerIndex >= 0) {
+    nextLayers[sourceLayerIndex] = nextLayer;
+  } else {
+    nextLayers.push(nextLayer);
+  }
+
+  const normalizedLayers = normalizeEditableMeshMaterialLayers(nextLayers, mesh.vertices.length);
+
+  return {
+    ...mesh,
+    materialBlend: undefined,
+    materialLayers: normalizedLayers,
+    vertices: mesh.vertices.map((vertex) => ({
+      ...vertex,
+      position: vec3(vertex.position.x, vertex.position.y, vertex.position.z),
+    })),
   };
 }
 

@@ -30,6 +30,7 @@ import {
   type ViewportRenderMode
 } from "@/viewport/viewports";
 import { applyTextureVariationToStandardMaterial } from "@ggez/three-runtime";
+import { applyMaterialLayersToStandardMaterial } from "@ggez/three-runtime";
 import { createIndexedGeometry } from "./geometry";
 import { Side } from "three";
 import { DoubleSide } from "three";
@@ -67,7 +68,13 @@ export function useRenderableGeometry(mesh: DerivedRenderMesh, renderMode: Viewp
     let bufferGeometry: BufferGeometry | undefined;
 
     if (mesh.surface) {
-      bufferGeometry = createIndexedGeometry(mesh.surface.positions, mesh.surface.indices, mesh.surface.uvs, mesh.surface.groups);
+      bufferGeometry = createIndexedGeometry(
+        mesh.surface.positions,
+        mesh.surface.indices,
+        mesh.surface.uvs,
+        mesh.surface.groups,
+        mesh.surface.blendLayerWeights,
+      );
     } else if (mesh.primitive?.kind === "box") {
       bufferGeometry = new BoxGeometry(...toTuple(mesh.primitive.size));
     } else if (mesh.primitive?.kind === "sphere") {
@@ -106,7 +113,7 @@ export function usePreviewMaterials(
   return useMemo(() => {
     if (renderModeUsesPreviewMaterials(renderMode)) {
       const specs = mesh.materials ?? [mesh.material];
-      return specs.map((spec) => createPreviewMaterial(spec, selected, hovered));
+      return specs.map((spec) => createPreviewMaterial(spec, mesh.materialLayers, selected, hovered));
     }
 
     if (renderModeUsesSolidMaterials(renderMode)) {
@@ -115,7 +122,7 @@ export function usePreviewMaterials(
     }
 
     return [];
-  }, [hovered, mesh.material, mesh.materials, renderMode, selected]);
+  }, [hovered, mesh.material, mesh.materialLayers, mesh.materials, renderMode, selected]);
 }
 
 export function useInstancedPreviewMaterials(mesh: DerivedRenderMesh, renderMode: ViewportRenderMode) {
@@ -123,7 +130,7 @@ export function useInstancedPreviewMaterials(mesh: DerivedRenderMesh, renderMode
     const specs = mesh.materials ?? [mesh.material];
 
     if (renderModeUsesPreviewMaterials(renderMode)) {
-      return specs.map((spec) => createPreviewMaterial(spec, false, false));
+      return specs.map((spec) => createPreviewMaterial(spec, mesh.materialLayers, false, false));
     }
 
     if (renderModeUsesSolidMaterials(renderMode)) {
@@ -137,7 +144,7 @@ export function useInstancedPreviewMaterials(mesh: DerivedRenderMesh, renderMode
       toneMapped: false,
       wireframe: true
     }));
-  }, [mesh.material, mesh.materials, renderMode]);
+  }, [mesh.material, mesh.materialLayers, mesh.materials, renderMode]);
 }
 
 export function resolveMeshPivot(mesh: DerivedRenderMesh) {
@@ -204,7 +211,12 @@ export function resolveInstancedNodeIdFromObject(object: Object3D | null, instan
   return undefined;
 }
 
-export function createPreviewMaterial(spec: DerivedRenderMesh["material"], selected: boolean, hovered: boolean) {
+export function createPreviewMaterial(
+  spec: DerivedRenderMesh["material"],
+  layers: DerivedRenderMesh["materialLayers"] | undefined,
+  selected: boolean,
+  hovered: boolean,
+) {
   const colorTexture = spec.colorTexture
     ? loadTexture(spec.colorTexture, true)
     : spec.category === "blockout"
@@ -233,6 +245,15 @@ export function createPreviewMaterial(spec: DerivedRenderMesh["material"], selec
     ...(roughnessTexture ? { roughnessMap: roughnessTexture } : {})
   });
 
+  applyMaterialLayersToStandardMaterial(material, layers?.map((layer) => ({
+    color: layer.material.color,
+    map: layer.material.colorTexture ? loadTexture(layer.material.colorTexture, true) : undefined,
+    metalness: layer.material.metalness,
+    metalnessMap: layer.material.metalnessTexture ? loadTexture(layer.material.metalnessTexture, false) : undefined,
+    opacity: layer.opacity,
+    roughness: layer.material.roughness,
+    roughnessMap: layer.material.roughnessTexture ? loadTexture(layer.material.roughnessTexture, false) : undefined,
+  })));
   applyTextureVariationToStandardMaterial(material, spec.textureVariation);
   return material;
 }

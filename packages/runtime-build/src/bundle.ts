@@ -51,27 +51,47 @@ export async function externalizeRuntimeAssets(
 
   await Promise.all(
     manifest.materials.map(async (material) => {
+      await externalizeRuntimeMaterialTextures(material, `${assetDir}/textures/${slugify(material.id)}`, {
+        copyExternalAssets,
+        files,
+        pathBySource,
+        pendingBySource,
+        usedPaths
+      });
+    })
+  );
+
+  await Promise.all(
+    manifest.nodes.map(async (node) => {
+      if (node.kind !== "brush" && node.kind !== "mesh" && node.kind !== "primitive") {
+        return;
+      }
+
+      const geometryLevels = [node.geometry, ...(node.lods?.map((lod) => lod.geometry) ?? [])];
+
       await Promise.all(
-        TEXTURE_FIELDS.map(async (field) => {
-          const source = material[field];
+        geometryLevels.flatMap((geometry, geometryIndex) =>
+          geometry.primitives.flatMap(async (primitive, primitiveIndex) => {
+            const baseStem = `${assetDir}/textures/${slugify(node.id)}-${geometryIndex}-${primitiveIndex}`;
+            await externalizeRuntimeMaterialTextures(primitive.material, `${baseStem}-base`, {
+              copyExternalAssets,
+              files,
+              pathBySource,
+              pendingBySource,
+              usedPaths
+            });
 
-          if (!source) {
-            return;
-          }
-
-          const bundledPath = await materializeSource(source, {
-            copyExternalAssets,
-            files,
-            pathBySource,
-            pendingBySource,
-            preferredStem: `${assetDir}/textures/${slugify(material.id)}-${textureFieldSuffix(field)}`,
-            usedPaths
-          });
-
-          if (bundledPath) {
-            material[field] = bundledPath;
-          }
-        })
+            await Promise.all((primitive.blendLayers ?? (primitive.blend ? [primitive.blend] : [])).map(async (layer, layerIndex) => {
+              await externalizeRuntimeMaterialTextures(layer.material, `${baseStem}-blend-${layerIndex}`, {
+                copyExternalAssets,
+                files,
+                pathBySource,
+                pendingBySource,
+                usedPaths
+              });
+            }));
+          })
+        )
       );
     })
   );
@@ -519,6 +539,41 @@ function textureFieldSuffix(field: TextureField) {
     default:
       return "normal";
   }
+}
+
+async function externalizeRuntimeMaterialTextures(
+  material: RuntimeScene["materials"][number],
+  preferredStem: string,
+  context: {
+    copyExternalAssets: boolean;
+    files: RuntimeBundleFile[];
+    pathBySource: Map<string, string>;
+    pendingBySource: Map<string, Promise<string | undefined>>;
+    usedPaths: Set<string>;
+  }
+) {
+  await Promise.all(
+    TEXTURE_FIELDS.map(async (field) => {
+      const source = material[field];
+
+      if (!source) {
+        return;
+      }
+
+      const bundledPath = await materializeSource(source, {
+        copyExternalAssets: context.copyExternalAssets,
+        files: context.files,
+        pathBySource: context.pathBySource,
+        pendingBySource: context.pendingBySource,
+        preferredStem: `${preferredStem}-${textureFieldSuffix(field)}`,
+        usedPaths: context.usedPaths
+      });
+
+      if (bundledPath) {
+        material[field] = bundledPath;
+      }
+    })
+  );
 }
 
 function inferModelExtension(path: string, modelFormat: unknown) {

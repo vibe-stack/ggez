@@ -1,6 +1,6 @@
 import { memo } from "react";
 import type { GridSnapValue } from "@ggez/render-pipeline";
-import type { BrushShape, EntityType, LightType, PrimitiveShape } from "@ggez/shared";
+import type { BrushShape, EntityType, LightType, Material, PrimitiveShape } from "@ggez/shared";
 import type { ToolId } from "@ggez/tool-system";
 import { AnimatePresence, motion } from "motion/react";
 import { CreationToolBar } from "@/components/editor-shell/CreationToolBar";
@@ -20,6 +20,9 @@ type ToolPaletteProps = {
   activeToolId: ToolId;
   currentSnapSize: GridSnapValue;
   gridSnapValues: readonly GridSnapValue[];
+  materialPaintBrushOpacity: number;
+  materialPaintMode?: "erase" | "paint" | null;
+  materials: Material[];
   meshEditMode: MeshEditMode;
   onMeshEditToolbarAction: (action: MeshEditToolbarActionRequest["kind"]) => void;
   onInvertSelectionNormals: () => void;
@@ -35,6 +38,8 @@ type ToolPaletteProps = {
   onPlaceProp: (shape: PrimitiveShape) => void;
   onPlayPhysics: () => void;
   onRaiseTop: () => void;
+  onSelectMaterial: (materialId: string) => void;
+  onSetMaterialPaintBrushOpacity: (value: number) => void;
   onSetSculptBrushRadius: (value: number) => void;
   onSetSculptBrushStrength: (value: number) => void;
   onStartAiModelPlacement: () => void;
@@ -49,6 +54,7 @@ type ToolPaletteProps = {
   onSetViewMode: (viewMode: ViewModeId) => void;
   physicsPlayback: "paused" | "running" | "stopped";
   renderMode: ViewportRenderMode;
+  selectedMaterialId: string;
   sculptMode?: "deflate" | "inflate" | null;
   sculptBrushRadius: number;
   sculptBrushStrength: number;
@@ -66,6 +72,9 @@ function ToolPaletteInner({
   activeToolId,
   currentSnapSize,
   gridSnapValues,
+  materialPaintBrushOpacity,
+  materialPaintMode,
+  materials,
   meshEditMode,
   onMeshEditToolbarAction,
   onInvertSelectionNormals,
@@ -81,6 +90,8 @@ function ToolPaletteInner({
   onPlaceProp,
   onPlayPhysics,
   onRaiseTop,
+  onSelectMaterial,
+  onSetMaterialPaintBrushOpacity,
   onSetSculptBrushRadius,
   onSetSculptBrushStrength,
   onStartAiModelPlacement,
@@ -95,6 +106,7 @@ function ToolPaletteInner({
   onSetViewMode,
   physicsPlayback,
   renderMode,
+  selectedMaterialId,
   sculptMode,
   sculptBrushRadius,
   sculptBrushStrength,
@@ -154,6 +166,7 @@ function ToolPaletteInner({
               onBevel={() => onMeshEditToolbarAction("bevel")}
               onCut={() => onMeshEditToolbarAction("cut")}
               onDelete={() => onMeshEditToolbarAction("delete")}
+              onEraseMaterial={() => onMeshEditToolbarAction("erase-material")}
               onExtrude={() => onMeshEditToolbarAction("extrude")}
               meshEditMode={meshEditMode}
               onFillFace={() => onMeshEditToolbarAction("fill-face")}
@@ -162,15 +175,22 @@ function ToolPaletteInner({
               onInvertNormals={() => onMeshEditToolbarAction("invert-normals")}
               onLowerTop={onLowerTop}
               onMerge={() => onMeshEditToolbarAction("merge")}
+              onPaintMaterial={() => onMeshEditToolbarAction("paint-material")}
               onRaiseTop={onRaiseTop}
+              onSelectMaterial={onSelectMaterial}
               onSetSculptBrushRadius={onSetSculptBrushRadius}
               onSetSculptBrushStrength={onSetSculptBrushStrength}
+              onSetMaterialPaintBrushOpacity={onSetMaterialPaintBrushOpacity}
               onSetMeshEditMode={onSetMeshEditMode}
               onSubdivide={() => onMeshEditToolbarAction("subdivide")}
               onSetTransformMode={onSetTransformMode}
+              materialPaintBrushOpacity={materialPaintBrushOpacity}
+              materialPaintMode={materialPaintMode}
+              materials={materials}
               sculptMode={sculptMode}
               sculptBrushRadius={sculptBrushRadius}
               sculptBrushStrength={sculptBrushStrength}
+              selectedMaterialId={selectedMaterialId}
               selectedGeometry={selectedGeometry}
               selectedMesh={selectedMesh}
               transformMode={transformMode}
@@ -191,9 +211,13 @@ function areToolPalettePropsEqual(previous: ToolPaletteProps, next: ToolPaletteP
     previous.activeToolId === next.activeToolId &&
     previous.currentSnapSize === next.currentSnapSize &&
     previous.gridSnapValues === next.gridSnapValues &&
+    previous.materialPaintBrushOpacity === next.materialPaintBrushOpacity &&
+    previous.materialPaintMode === next.materialPaintMode &&
+    previous.materials === next.materials &&
     previous.meshEditMode === next.meshEditMode &&
     previous.physicsPlayback === next.physicsPlayback &&
     previous.renderMode === next.renderMode &&
+    previous.selectedMaterialId === next.selectedMaterialId &&
     previous.sculptMode === next.sculptMode &&
     previous.sculptBrushRadius === next.sculptBrushRadius &&
     previous.sculptBrushStrength === next.sculptBrushStrength &&

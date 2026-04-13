@@ -4,6 +4,7 @@ import type {
   BrushShape,
   Brush,
   EditableMesh,
+  EditableMeshMaterialLayer,
   Entity,
   EntityType,
   GeometryNode,
@@ -76,6 +77,8 @@ type EditorShellProps = {
   hiddenSceneItemIds: string[];
   jobs: WorkerJob[];
   lockedSceneItemIds: string[];
+  materialPaintBrushOpacity: number;
+  materialPaintMode?: "erase" | "paint" | null;
   meshEditMode: MeshEditMode;
   meshEditToolbarAction?: MeshEditToolbarActionRequest;
   modelAssets: ModelAssetLibraryItem[];
@@ -85,6 +88,7 @@ type EditorShellProps = {
   onActivateViewport: (viewportId: ViewportPaneId) => void;
   onApplyMaterial: (materialId: string, scope: "faces" | "object", faceIds: string[]) => void;
   onClipSelection: (axis: TransformAxis) => void;
+  onCommitMeshMaterialLayers: (nodeId: string, layers: EditableMeshMaterialLayer[] | undefined, beforeLayers?: EditableMeshMaterialLayer[] | undefined) => void;
   onCommitMeshTopology: (nodeId: string, mesh: EditableMesh) => void;
   onCreateBrush: () => void;
   onDeleteAsset: (assetId: string) => void;
@@ -127,6 +131,7 @@ type EditorShellProps = {
   onPlacePrimitiveNode: (data: PrimitiveNodeData, transform: Transform, name: string) => void;
   onPlaceProp: (shape: PrimitiveShape) => void;
   onPlayPhysics: () => void;
+  onMaterialPaintModeChange: (mode: "erase" | "paint" | null) => void;
   onPreviewBrushData: (nodeId: string, brush: Brush) => void;
   onPreviewEntityTransform: (entityId: string, transform: Transform) => void;
   onPreviewMeshData: (nodeId: string, mesh: EditableMesh) => void;
@@ -140,6 +145,7 @@ type EditorShellProps = {
   onStartAiModelPlacement: () => void;
   onToggleSceneItemLock: (itemId: string) => void;
   onToggleSceneItemVisibility: (itemId: string) => void;
+  onSetMaterialPaintBrushOpacity: (value: number) => void;
   onSetUvOffset: (scope: "faces" | "object", faceIds: string[], uvOffset: Vec2) => void;
   onSetUvScale: (scope: "faces" | "object", faceIds: string[], uvScale: Vec2) => void;
   onSelectNodes: (nodeIds: string[]) => void;
@@ -217,6 +223,8 @@ export function EditorShell({
   hiddenSceneItemIds,
   jobs,
   lockedSceneItemIds,
+  materialPaintBrushOpacity,
+  materialPaintMode,
   meshEditMode,
   meshEditToolbarAction,
   modelAssets,
@@ -226,6 +234,7 @@ export function EditorShell({
   onActivateViewport,
   onApplyMaterial,
   onClipSelection,
+  onCommitMeshMaterialLayers,
   onCommitMeshTopology,
   onCreateBrush,
   onAssignAssetLod,
@@ -268,6 +277,7 @@ export function EditorShell({
   onPlacePrimitiveNode,
   onPlaceProp,
   onPlayPhysics,
+  onMaterialPaintModeChange,
   onPreviewBrushData,
   onPreviewEntityTransform,
   onPreviewMeshData,
@@ -281,6 +291,7 @@ export function EditorShell({
   onStartAiModelPlacement,
   onToggleSceneItemLock,
   onToggleSceneItemVisibility,
+  onSetMaterialPaintBrushOpacity,
   onSetUvOffset,
   onSetUvScale,
   onSelectNodes,
@@ -367,14 +378,17 @@ export function EditorShell({
           dprScale={resolveViewportDprScale(viewportQuality)}
           hiddenSceneItemIds={effectiveHiddenSceneItemIds}
           isActiveViewport={activeViewportId === viewportId}
+          materialPaintBrushOpacity={materialPaintBrushOpacity}
           meshEditMode={meshEditMode}
           meshEditToolbarAction={meshEditToolbarAction}
           sculptBrushRadius={sculptBrushRadius}
           sculptBrushStrength={sculptBrushStrength}
           onActivateViewport={onActivateViewport}
           onClearSelection={onClearSelection}
+          onCommitMeshMaterialLayers={onCommitMeshMaterialLayers}
           onCommitMeshTopology={onCommitMeshTopology}
           onFocusNode={onFocusNode}
+          onMaterialPaintModeChange={activeViewportId === viewportId ? onMaterialPaintModeChange : () => {}}
           onPlaceAsset={onPlaceAsset}
           onPlaceAiModelPlaceholder={onPlaceAiModelPlaceholder}
           onPlaceBrush={onPlaceBrush}
@@ -401,6 +415,7 @@ export function EditorShell({
           renderMode={renderMode}
           renderScene={renderScene}
           sceneSettings={sceneSettings}
+          selectedMaterialId={selectedMaterialId}
           selectedScenePathId={selectedScenePathId}
           selectedEntity={selectedEntity}
           selectedNode={selectedNode}
@@ -462,6 +477,9 @@ export function EditorShell({
           activeToolId={activeToolId}
           currentSnapSize={activeViewport.grid.snapSize}
           gridSnapValues={gridSnapValues}
+          materialPaintBrushOpacity={materialPaintBrushOpacity}
+          materialPaintMode={materialPaintMode}
+          materials={materials}
           meshEditMode={meshEditMode}
           onInvertSelectionNormals={onInvertSelectionNormals}
           onLowerTop={() => onExtrudeSelection("y", -1)}
@@ -477,6 +495,8 @@ export function EditorShell({
           onPlaceProp={onPlaceProp}
           onPlayPhysics={onPlayPhysics}
           onRaiseTop={() => onExtrudeSelection("y", 1)}
+          onSelectMaterial={onSelectMaterial}
+          onSetMaterialPaintBrushOpacity={onSetMaterialPaintBrushOpacity}
           onSetSculptBrushRadius={onSetSculptBrushRadius}
           onSetSculptBrushStrength={onSetSculptBrushStrength}
           onStartAiModelPlacement={onStartAiModelPlacement}
@@ -494,6 +514,7 @@ export function EditorShell({
           onSetViewMode={onSetViewMode}
           physicsPlayback={physicsPlayback}
           renderMode={renderMode}
+          selectedMaterialId={selectedMaterialId}
           sculptMode={sculptMode}
           sculptBrushRadius={sculptBrushRadius}
           sculptBrushStrength={sculptBrushStrength}

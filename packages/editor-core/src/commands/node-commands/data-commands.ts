@@ -1,4 +1,4 @@
-import type { Brush, EditableMesh } from "@ggez/shared";
+import type { Brush, EditableMesh, EditableMeshMaterialLayer } from "@ggez/shared";
 import { isBrushNode, isMeshNode } from "@ggez/shared";
 import type { Command } from "../command-stack";
 import type { SceneDocument } from "../../document/scene-document";
@@ -88,5 +88,51 @@ export function createSetMeshDataCommand(
       nextNode.data = structuredClone(before);
       nextScene.touch();
     }
+  };
+}
+
+export function createSetMeshMaterialLayersCommand(
+  scene: SceneDocument,
+  nodeId: string,
+  nextLayers: EditableMeshMaterialLayer[] | undefined,
+  beforeLayers?: EditableMeshMaterialLayer[] | undefined,
+): Command {
+  const node = scene.getNode(nodeId);
+
+  if (!node || !isMeshNode(node)) {
+    return {
+      label: "set mesh material layers",
+      execute() {},
+      undo() {},
+    };
+  }
+
+  const before = structuredClone(beforeLayers ?? node.data.materialLayers);
+  const next = structuredClone(nextLayers);
+
+  return {
+    label: "set mesh material layers",
+    execute(nextScene) {
+      const nextNode = nextScene.getNode(nodeId);
+
+      if (!nextNode || !isMeshNode(nextNode)) {
+        return;
+      }
+
+      nextNode.data.materialBlend = undefined;
+      nextNode.data.materialLayers = structuredClone(next);
+      nextScene.touch();
+    },
+    undo(nextScene) {
+      const nextNode = nextScene.getNode(nodeId);
+
+      if (!nextNode || !isMeshNode(nextNode)) {
+        return;
+      }
+
+      nextNode.data.materialBlend = undefined;
+      nextNode.data.materialLayers = structuredClone(before);
+      nextScene.touch();
+    },
   };
 }

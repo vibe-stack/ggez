@@ -2,12 +2,32 @@ import { resolveTransformPivot, vec3, type Transform, type Vec3 } from "@ggez/sh
 import { BufferGeometry, Euler, Float32BufferAttribute, Object3D, Quaternion, Vector3 } from "three";
 import type { DerivedSurfaceGroup } from "@ggez/render-pipeline";
 
-export function createIndexedGeometry(positions: number[], indices?: number[], uvs?: number[], groups?: DerivedSurfaceGroup[]) {
+export function createIndexedGeometry(
+  positions: number[],
+  indices?: number[],
+  uvs?: number[],
+  groups?: DerivedSurfaceGroup[],
+  blendLayerWeights?: number[][],
+) {
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
 
   if (uvs) {
     geometry.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
+  }
+
+  blendLayerWeights?.forEach((weights, index) => {
+    geometry.setAttribute(`whBlendWeight${index}`, new Float32BufferAttribute(weights, 1));
+  });
+
+  const activeBlendAttributeNames = new Set((blendLayerWeights ?? []).map((_, index) => `whBlendWeight${index}`));
+  Object.keys(geometry.attributes)
+    .filter((attributeName) => attributeName.startsWith("whBlendWeight") && !activeBlendAttributeNames.has(attributeName))
+    .forEach((attributeName) => geometry.deleteAttribute(attributeName));
+  if (!blendLayerWeights?.length) {
+    Object.keys(geometry.attributes)
+      .filter((attributeName) => attributeName.startsWith("whBlendWeight"))
+      .forEach((attributeName) => geometry.deleteAttribute(attributeName));
   }
 
   if (indices) {

@@ -82,10 +82,20 @@ export type EditableMeshFace = {
   uvs?: Vec2[];
 };
 
+export type EditableMeshMaterialLayer = {
+  materialId: MaterialID;
+  opacity: number;
+  weights: number[];
+};
+
+export type EditableMeshMaterialBlend = EditableMeshMaterialLayer;
+
 export type EditableMesh = {
   vertices: EditableMeshVertex[];
   halfEdges: EditableMeshHalfEdge[];
   faces: EditableMeshFace[];
+  materialLayers?: EditableMeshMaterialLayer[];
+  materialBlend?: EditableMeshMaterialBlend;
   physics?: PropPhysics;
   role?: PrimitiveRole;
 };

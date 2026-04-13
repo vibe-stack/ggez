@@ -49,7 +49,17 @@ export type RuntimeMaterial = {
   transparent?: boolean;
 };
 
+export type RuntimePrimitiveMaterialLayer = {
+  material: RuntimeMaterial;
+  opacity: number;
+  weights: number[];
+};
+
+export type RuntimePrimitiveMaterialBlend = RuntimePrimitiveMaterialLayer;
+
 export type RuntimePrimitive = {
+  blendLayers?: RuntimePrimitiveMaterialLayer[];
+  blend?: RuntimePrimitiveMaterialBlend;
   indices: number[];
   material: RuntimeMaterial;
   normals: number[];

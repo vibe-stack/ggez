@@ -78,6 +78,10 @@ export function createDeleteMaterialCommand(
           nodeId: node.id,
           next: {
             ...structuredClone(node.data),
+            materialBlend:
+              node.data.materialBlend?.materialId === materialId
+                ? undefined
+                : structuredClone(node.data.materialBlend),
             faces: node.data.faces.map((face) =>
               face.materialId === materialId
                 ? {

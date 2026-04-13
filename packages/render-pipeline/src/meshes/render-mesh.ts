@@ -7,6 +7,7 @@ import {
   isMeshNode,
   isModelNode,
   isPrimitiveNode,
+  normalizeEditableMeshMaterialLayers,
   normalizeVec3,
   resolveModelAssetFile,
   resolveModelAssetFiles,
@@ -72,10 +73,16 @@ export type DerivedSurfaceGroup = {
 };
 
 export type DerivedSurfaceGeometry = {
+  blendLayerWeights?: number[][];
   groups: DerivedSurfaceGroup[];
   positions: number[];
   indices: number[];
   uvs: number[];
+};
+
+export type RenderMaterialLayer = {
+  material: RenderMaterial;
+  opacity: number;
 };
 
 export type DerivedRenderMesh = {
@@ -101,6 +108,7 @@ export type DerivedRenderMesh = {
   primitive?: RenderPrimitive;
   surface?: DerivedSurfaceGeometry;
   material: RenderMaterial;
+  materialLayers?: RenderMaterialLayer[];
   materials?: RenderMaterial[];
 };
 
@@ -184,6 +192,7 @@ export function createDerivedRenderMesh(
       transparent: appearance.transparent,
       wireframe: appearance.wireframe
     },
+    materialLayers: surfaceResult?.materialLayers,
     materials: surfaceResult?.materials
   };
 }
@@ -404,7 +413,7 @@ function resolveModelStringMetadata(asset: Asset | undefined, key: string) {
 function createBrushSurface(
   node: Extract<GeometryNode, { kind: "brush" }>['data'],
   materialsById: Map<MaterialID, Material>
-): { materials: RenderMaterial[]; surface: DerivedSurfaceGeometry } | undefined {
+): { materialBlend?: RenderMaterialBlend; materials: RenderMaterial[]; surface: DerivedSurfaceGeometry } | undefined {
   const rebuilt = reconstructBrushFaces(node);
 
   if (!rebuilt.valid || rebuilt.faces.length === 0) {
@@ -430,25 +439,32 @@ function createBrushSurface(
 function createEditableMeshSurface(
   node: Extract<GeometryNode, { kind: "mesh" }>['data'],
   materialsById: Map<MaterialID, Material>
-): { materials: RenderMaterial[]; surface: DerivedSurfaceGeometry } | undefined {
+): { materialBlend?: RenderMaterialBlend; materials: RenderMaterial[]; surface: DerivedSurfaceGeometry } | undefined {
+  const materialLayers = normalizeEditableMeshMaterialLayers(node.materialLayers, node.vertices.length, node.materialBlend);
+  const vertexIndexById = new Map(node.vertices.map((vertex, index) => [vertex.id, index] as const));
   const mappedFaces = node.faces.map((face) => {
     const triangulated = triangulateMeshFace(node, face.id);
+    const faceVertices = getFaceVertices(node, face.id);
 
-    if (!triangulated) {
+    if (!triangulated || faceVertices.length === 0) {
       return undefined;
     }
 
     return {
+      blendLayerWeights: materialLayers?.map((layer) =>
+        faceVertices.map((vertex) => layer.weights[vertexIndexById.get(vertex.id) ?? -1] ?? 0)
+      ),
       materialId: face.materialId,
       normal: triangulated.normal,
       triangleIndices: triangulated.indices,
       uvOffset: face.uvOffset,
       uvScale: face.uvScale,
       uvs: face.uvs,
-      vertices: getFaceVertices(node, face.id).map((vertex) => vertex.position)
+      vertices: faceVertices.map((vertex) => vertex.position)
     };
   });
   const faces: Array<{
+    blendLayerWeights?: number[][];
     materialId?: MaterialID;
     normal: Vec3;
     triangleIndices: number[];
@@ -457,6 +473,7 @@ function createEditableMeshSurface(
     uvs?: Vec2[];
     vertices: Vec3[];
   }> = mappedFaces.filter((face) => face !== undefined) as Array<{
+    blendLayerWeights?: number[][];
     materialId?: MaterialID;
     normal: Vec3;
     triangleIndices: number[];
@@ -470,11 +487,22 @@ function createEditableMeshSurface(
     return undefined;
   }
 
-  return buildDerivedSurface(faces, materialsById, "#6ed5c0", 0.05, 0.82);
+  return buildDerivedSurface(
+    faces,
+    materialsById,
+    "#6ed5c0",
+    0.05,
+    0.82,
+    materialLayers?.map((layer) => ({
+      material: resolveRenderMaterial(materialsById.get(layer.materialId), "#6ed5c0", 0.05, 0.82),
+      opacity: layer.opacity,
+    })),
+  );
 }
 
 function buildDerivedSurface(
   faces: Array<{
+    blendLayerWeights?: number[][];
     materialId?: MaterialID;
     normal: Vec3;
     triangleIndices: number[];
@@ -486,10 +514,12 @@ function buildDerivedSurface(
   materialsById: Map<MaterialID, Material>,
   fallbackColor: string,
   fallbackMetalness: number,
-  fallbackRoughness: number
-): { materials: RenderMaterial[]; surface: DerivedSurfaceGeometry } {
+  fallbackRoughness: number,
+  materialLayers?: RenderMaterialLayer[],
+): { materialLayers?: RenderMaterialLayer[]; materials: RenderMaterial[]; surface: DerivedSurfaceGeometry } {
   const materialIndexByKey = new Map<string, number>();
   const materials: RenderMaterial[] = [];
+  const blendLayerWeights = (materialLayers ?? []).map(() => [] as number[]);
   const positions: number[] = [];
   const indices: number[] = [];
   const uvs: number[] = [];
@@ -515,6 +545,13 @@ function buildDerivedSurface(
       ? face.uvs.flatMap((uv) => [uv.x, uv.y])
       : projectPlanarUvs(face.vertices, face.normal, face.uvScale, face.uvOffset);
     uvs.push(...faceUvs);
+    if (materialLayers?.length) {
+      materialLayers.forEach((_, layerIndex) => {
+        blendLayerWeights[layerIndex]!.push(
+          ...(face.blendLayerWeights?.[layerIndex]?.slice(0, face.vertices.length) ?? Array.from({ length: face.vertices.length }, () => 0))
+        );
+      });
+    }
 
     const groupStart = indices.length;
     face.triangleIndices.forEach((index) => {
@@ -530,8 +567,10 @@ function buildDerivedSurface(
   });
 
   return {
+    materialLayers,
     materials,
     surface: {
+      ...(materialLayers?.length ? { blendLayerWeights } : {}),
       groups,
       indices,
       positions,

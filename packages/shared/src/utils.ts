@@ -1,5 +1,7 @@
 import type {
   BrushNode,
+  EditableMeshMaterialLayer,
+  EditableMeshMaterialBlend,
   Entity,
   GeometryNode,
   GroupNode,
@@ -135,6 +137,55 @@ export function averageVec3(vectors: Vec3[]): Vec3 {
 
 export function almostEqual(left: number, right: number, epsilon = 0.0001): boolean {
   return Math.abs(left - right) <= epsilon;
+}
+
+export function clamp01(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(1, value));
+}
+
+export function normalizeEditableMeshMaterialBlend(
+  blend: EditableMeshMaterialBlend | undefined,
+  vertexCount: number,
+): EditableMeshMaterialBlend | undefined {
+  if (!blend?.materialId || vertexCount <= 0) {
+    return undefined;
+  }
+
+  const weights = Array.from({ length: vertexCount }, (_, index) =>
+    clamp01(blend.weights[index] ?? 0),
+  );
+
+  if (!weights.some((weight) => weight > 0.0001)) {
+    return undefined;
+  }
+
+  return {
+    materialId: blend.materialId,
+    opacity: clamp01(blend.opacity),
+    weights,
+  };
+}
+
+export function normalizeEditableMeshMaterialLayers(
+  layers: EditableMeshMaterialLayer[] | undefined,
+  vertexCount: number,
+  legacyBlend?: EditableMeshMaterialBlend,
+): EditableMeshMaterialLayer[] | undefined {
+  const sourceLayers = Array.isArray(layers) && layers.length > 0
+    ? layers
+    : legacyBlend
+      ? [legacyBlend]
+      : [];
+
+  const normalized = sourceLayers
+    .map((layer) => normalizeEditableMeshMaterialBlend(layer, vertexCount))
+    .filter((layer): layer is EditableMeshMaterialLayer => Boolean(layer));
+
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 export function snapValue(value: number, increment: number): number {

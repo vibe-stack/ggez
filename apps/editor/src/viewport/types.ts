@@ -4,6 +4,7 @@ import type {
   BrushShape,
   Brush,
   EditableMesh,
+  EditableMeshMaterialLayer,
   Entity,
   GeometryNode,
   PrimitiveNodeData,
@@ -22,11 +23,13 @@ export type MeshEditToolbarAction =
   | "cut"
   | "delete"
   | "extrude"
+  | "erase-material"
   | "fill-face"
   | "inflate"
   | "invert-normals"
   | "merge"
   | "deflate"
+  | "paint-material"
   | "subdivide";
 
 export type MeshEditToolbarActionRequest = {
@@ -43,10 +46,13 @@ export type ViewportCanvasProps = {
   isActiveViewport: boolean;
   meshEditMode: MeshEditMode;
   meshEditToolbarAction?: MeshEditToolbarActionRequest;
+  materialPaintBrushOpacity: number;
   sculptBrushRadius: number;
   sculptBrushStrength: number;
+  onMaterialPaintModeChange: (mode: "erase" | "paint" | null) => void;
   onActivateViewport: (viewportId: ViewportPaneId) => void;
   onClearSelection: () => void;
+  onCommitMeshMaterialLayers: (nodeId: string, layers: EditableMeshMaterialLayer[] | undefined, beforeLayers?: EditableMeshMaterialLayer[] | undefined) => void;
   onCommitMeshTopology: (nodeId: string, mesh: EditableMesh) => void;
   onFocusNode: (nodeId: string) => void;
   onPlaceAsset: (position: { x: number; y: number; z: number }) => void;
@@ -75,6 +81,7 @@ export type ViewportCanvasProps = {
   renderScene: DerivedRenderScene;
   renderMode: ViewportRenderMode;
   sceneSettings: SceneSettings;
+  selectedMaterialId: string;
   selectedScenePathId?: string;
   selectedEntity?: Entity;
   selectedNode?: GeometryNode;

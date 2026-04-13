@@ -25,6 +25,7 @@ import {
   createSetBrushDataCommand,
   createSetEntityCommand,
   createSetMeshDataCommand,
+  createSetMeshMaterialLayersCommand,
   createSetNodeCommand,
   createSetNodeTransformCommand,
   createPlaceEntityCommand,
@@ -174,6 +175,8 @@ export function App() {
   const [sceneRevision, setSceneRevision] = useState(0);
   const [selectionRevision, setSelectionRevision] = useState(0);
   const [worldRevision, setWorldRevision] = useState(0);
+  const [materialPaintBrushOpacity, setMaterialPaintBrushOpacity] = useState(0.85);
+  const [materialPaintMode, setMaterialPaintMode] = useState<"erase" | "paint" | null>(null);
   const [sculptMode, setSculptMode] = useState<"deflate" | "inflate" | null>(null);
   const [sculptBrushRadius, setSculptBrushRadius] = useState(3);
   const [sculptBrushStrength, setSculptBrushStrength] = useState(0.2);
@@ -617,6 +620,21 @@ export function App() {
       )
     );
     enqueueWorkerJob("Mesh edit", { task: "triangulation", worker: "meshWorker" }, 800);
+  };
+
+  const handleCommitMeshMaterialLayers = (
+    nodeId: string,
+    layers: EditableMesh["materialLayers"],
+    beforeLayers?: EditableMesh["materialLayers"],
+  ) => {
+    const node = editor.scene.getNode(nodeId);
+
+    if (!node || !isMeshNode(node)) {
+      return;
+    }
+
+    editor.execute(createSetMeshMaterialLayersCommand(editor.scene, nodeId, structuredClone(layers), structuredClone(beforeLayers)));
+    setSceneRevision((revision) => revision + 1);
   };
 
   const handlePreviewNodeTransform = (nodeId: string, transform: Transform) => {
@@ -2206,6 +2224,8 @@ export function App() {
         gridSnapValues={gridSnapValues}
         jobs={[...workerJobs, ...exportJobs]}
         meshEditToolbarAction={meshEditToolbarAction}
+        materialPaintBrushOpacity={materialPaintBrushOpacity}
+        materialPaintMode={materialPaintMode}
         modelAssets={modelAssets}
         onActivateViewport={handleActivateViewport}
         onInvertSelectionNormals={handleInvertSelectionNormals}
@@ -2219,6 +2239,7 @@ export function App() {
         onDeleteSelection={handleDeleteSelection}
         onDuplicateSelection={handleDuplicateSelection}
         onClearSelection={handleClearSelection}
+        onCommitMeshMaterialLayers={handleCommitMeshMaterialLayers}
         onCommitMeshTopology={handleCommitMeshTopology}
         onDeleteMaterial={handleDeleteMaterial}
         onExportEngine={handleExportEngine}
@@ -2249,6 +2270,7 @@ export function App() {
         onPlacePrimitiveNode={handlePlacePrimitiveNode}
         onPlaceProp={handlePlaceProp}
         onPlayPhysics={handlePlayPhysics}
+        onMaterialPaintModeChange={setMaterialPaintMode}
         onPreviewBrushData={handlePreviewBrushData}
         onPreviewEntityTransform={handlePreviewEntityTransform}
         onPreviewMeshData={handlePreviewMeshData}
@@ -2269,6 +2291,7 @@ export function App() {
         onSetMeshEditMode={setMeshEditMode}
         onSetSculptBrushRadius={setSculptBrushRadius}
         onSetSculptBrushStrength={setSculptBrushStrength}
+        onSetMaterialPaintBrushOpacity={setMaterialPaintBrushOpacity}
         onSetRightPanel={handleSetRightPanel}
         onSetActiveBrushShape={setActiveBrushShape}
         onSetSnapEnabled={handleSetSnapEnabled}
