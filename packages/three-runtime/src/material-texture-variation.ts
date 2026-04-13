@@ -133,9 +133,9 @@ WhTextureVariation whResolveTextureVariation( vec2 uv ) {
 const MAP_FRAGMENT_REPLACEMENT = /* glsl */ `
 #ifdef USE_MAP
 
-  WhTextureVariation whVariation = whResolveTextureVariation( vWhTextureVariationUv );
-  vec4 sampledDiffuseColorA = texture2D( map, whVariation.uvA );
-  vec4 sampledDiffuseColorB = texture2D( map, whVariation.uvB );
+  WhTextureVariation whVariationForMap = whResolveTextureVariation( vWhTextureVariationUv );
+  vec4 sampledDiffuseColorA = texture2D( map, whVariationForMap.uvA );
+  vec4 sampledDiffuseColorB = texture2D( map, whVariationForMap.uvB );
 
   #ifdef DECODE_VIDEO_TEXTURE
 
@@ -144,7 +144,7 @@ const MAP_FRAGMENT_REPLACEMENT = /* glsl */ `
 
   #endif
 
-  vec4 sampledDiffuseColor = mix( sampledDiffuseColorA, sampledDiffuseColorB, whVariation.blend );
+  vec4 sampledDiffuseColor = mix( sampledDiffuseColorA, sampledDiffuseColorB, whVariationForMap.blend );
   diffuseColor *= sampledDiffuseColor;
 
 #endif
@@ -153,10 +153,10 @@ const MAP_FRAGMENT_REPLACEMENT = /* glsl */ `
 const NORMAL_FRAGMENT_REPLACEMENT = /* glsl */ `
 #ifdef USE_NORMALMAP_OBJECTSPACE
 
-  WhTextureVariation whVariation = whResolveTextureVariation( vWhTextureVariationUv );
-  vec3 normalA = texture2D( normalMap, whVariation.uvA ).xyz * 2.0 - 1.0;
-  vec3 normalB = texture2D( normalMap, whVariation.uvB ).xyz * 2.0 - 1.0;
-  normal = normalize( mix( normalA, normalB, whVariation.blend ) );
+  WhTextureVariation whVariationForNormal = whResolveTextureVariation( vWhTextureVariationUv );
+  vec3 normalA = texture2D( normalMap, whVariationForNormal.uvA ).xyz * 2.0 - 1.0;
+  vec3 normalB = texture2D( normalMap, whVariationForNormal.uvB ).xyz * 2.0 - 1.0;
+  normal = normalize( mix( normalA, normalB, whVariationForNormal.blend ) );
 
   #ifdef FLIP_SIDED
 
@@ -174,12 +174,12 @@ const NORMAL_FRAGMENT_REPLACEMENT = /* glsl */ `
 
 #elif defined( USE_NORMALMAP_TANGENTSPACE )
 
-  WhTextureVariation whVariation = whResolveTextureVariation( vWhTextureVariationUv );
-  vec3 mapNA = texture2D( normalMap, whVariation.uvA ).xyz * 2.0 - 1.0;
-  vec3 mapNB = texture2D( normalMap, whVariation.uvB ).xyz * 2.0 - 1.0;
-  mapNA.xy = whTransformNormalXY( mapNA.xy, whVariation.mirrorA, whVariation.rotationA );
-  mapNB.xy = whTransformNormalXY( mapNB.xy, whVariation.mirrorB, whVariation.rotationB );
-  vec3 mapN = mix( mapNA, mapNB, whVariation.blend );
+  WhTextureVariation whVariationForNormal = whResolveTextureVariation( vWhTextureVariationUv );
+  vec3 mapNA = texture2D( normalMap, whVariationForNormal.uvA ).xyz * 2.0 - 1.0;
+  vec3 mapNB = texture2D( normalMap, whVariationForNormal.uvB ).xyz * 2.0 - 1.0;
+  mapNA.xy = whTransformNormalXY( mapNA.xy, whVariationForNormal.mirrorA, whVariationForNormal.rotationA );
+  mapNB.xy = whTransformNormalXY( mapNB.xy, whVariationForNormal.mirrorB, whVariationForNormal.rotationB );
+  vec3 mapN = mix( mapNA, mapNB, whVariationForNormal.blend );
   mapN.xy *= normalScale;
 
   normal = normalize( tbn * mapN );
@@ -196,10 +196,10 @@ float roughnessFactor = roughness;
 
 #ifdef USE_ROUGHNESSMAP
 
-  WhTextureVariation whVariation = whResolveTextureVariation( vWhTextureVariationUv );
-  vec4 texelRoughnessA = texture2D( roughnessMap, whVariation.uvA );
-  vec4 texelRoughnessB = texture2D( roughnessMap, whVariation.uvB );
-  vec4 texelRoughness = mix( texelRoughnessA, texelRoughnessB, whVariation.blend );
+  WhTextureVariation whVariationForRoughness = whResolveTextureVariation( vWhTextureVariationUv );
+  vec4 texelRoughnessA = texture2D( roughnessMap, whVariationForRoughness.uvA );
+  vec4 texelRoughnessB = texture2D( roughnessMap, whVariationForRoughness.uvB );
+  vec4 texelRoughness = mix( texelRoughnessA, texelRoughnessB, whVariationForRoughness.blend );
 
   roughnessFactor *= texelRoughness.g;
 
@@ -211,10 +211,10 @@ float metalnessFactor = metalness;
 
 #ifdef USE_METALNESSMAP
 
-  WhTextureVariation whVariation = whResolveTextureVariation( vWhTextureVariationUv );
-  vec4 texelMetalnessA = texture2D( metalnessMap, whVariation.uvA );
-  vec4 texelMetalnessB = texture2D( metalnessMap, whVariation.uvB );
-  vec4 texelMetalness = mix( texelMetalnessA, texelMetalnessB, whVariation.blend );
+  WhTextureVariation whVariationForMetalness = whResolveTextureVariation( vWhTextureVariationUv );
+  vec4 texelMetalnessA = texture2D( metalnessMap, whVariationForMetalness.uvA );
+  vec4 texelMetalnessB = texture2D( metalnessMap, whVariationForMetalness.uvB );
+  vec4 texelMetalness = mix( texelMetalnessA, texelMetalnessB, whVariationForMetalness.blend );
 
   metalnessFactor *= texelMetalness.b;
 
@@ -290,7 +290,7 @@ function injectTextureVariationVertexShader(source: string) {
     )
     .replace(
       "#include <uv_vertex>",
-      `#include <uv_vertex>\n#ifdef USE_UV\n\tvWhTextureVariationUv = uv;\n#endif`,
+      `#include <uv_vertex>\nvWhTextureVariationUv = uv;`,
     );
 }
 

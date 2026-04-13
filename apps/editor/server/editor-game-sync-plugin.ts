@@ -1,6 +1,7 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { parseWebHammerEngineBundleZip } from "@ggez/runtime-build";
 import type { Plugin, PreviewServer, ViteDevServer } from "vite";
 import {
   getLiveEditorRegistration,
@@ -62,17 +63,23 @@ function registerEditorGameSyncApi(server: ViteDevServer | PreviewServer) {
 
     if (req.method === "POST" && pathname === "/api/editor-sync/push") {
       try {
-        const body = await readJsonBody<EditorSyncPushRequest>(req);
-        const runtimeBundle = body.bundle;
-
-        if (!runtimeBundle) {
-          sendJson(res, 400, { error: "Missing runtime bundle." });
-          return;
-        }
+        const requestStartedAt = performance.now();
+        const contentType = req.headers["content-type"] ?? "";
+        const binaryBody = contentType.includes("application/json") ? undefined : await readBinaryBody(req);
+        const body = contentType.includes("application/json")
+          ? await readJsonBody<EditorSyncPushRequest>(req)
+          : undefined;
+        const bodyReadCompletedAt = performance.now();
+        const runtimeBundle = contentType.includes("application/json")
+          ? body?.bundle
+          : binaryBody
+            ? parseWebHammerEngineBundleZip(new Uint8Array(binaryBody))
+            : undefined;
+        const bundleParsedAt = performance.now();
 
         const games = await listLiveGameRegistrations();
-        const targetGame = body.gameId
-          ? await getLiveGameRegistration(body.gameId)
+        const targetGame = resolveHeaderValue(req.headers["x-web-hammer-game-id"]) || body?.gameId
+          ? await getLiveGameRegistration(resolveHeaderValue(req.headers["x-web-hammer-game-id"]) || body?.gameId || "")
           : games[0];
 
         if (!targetGame) {
@@ -80,7 +87,15 @@ function registerEditorGameSyncApi(server: ViteDevServer | PreviewServer) {
           return;
         }
 
-        const metadata = normalizeEditorMetadata(body.metadata);
+        if (!runtimeBundle) {
+          sendJson(res, 400, { error: "Missing runtime bundle." });
+          return;
+        }
+
+        const metadata = normalizeEditorMetadata({
+          projectName: resolveHeaderValue(req.headers["x-web-hammer-project-name"]) || body?.metadata?.projectName,
+          projectSlug: resolveHeaderValue(req.headers["x-web-hammer-project-slug"]) || body?.metadata?.projectSlug
+        });
         const sceneDir = join(targetGame.sceneRoot, metadata.projectSlug!);
 
         await mkdir(sceneDir, { recursive: true });
@@ -110,8 +125,11 @@ function registerEditorGameSyncApi(server: ViteDevServer | PreviewServer) {
           await mkdir(dirname(outputPath), { recursive: true });
           await writeFile(outputPath, Buffer.from(file.bytes));
         }
+        const filesWrittenAt = performance.now();
 
-        if (body.forceSwitch) {
+        const forceSwitch = resolveHeaderValue(req.headers["x-web-hammer-force-switch"]) === "1" || Boolean(body?.forceSwitch);
+
+        if (forceSwitch) {
           await setGameCommand(targetGame.id, {
             issuedAt: Date.now(),
             nonce: `${Date.now()}:${metadata.projectSlug}`,
@@ -121,13 +139,21 @@ function registerEditorGameSyncApi(server: ViteDevServer | PreviewServer) {
         }
 
         sendJson(res, 200, {
-          forceSwitch: Boolean(body.forceSwitch),
+          forceSwitch,
           game: targetGame,
           projectName: metadata.projectName,
           projectSlug: metadata.projectSlug,
           sceneDir,
           scenePath: relative(targetGame.projectRoot, sceneDir)
         });
+
+        console.info(
+          `[editor-sync-server] push completed in ${formatDuration(performance.now() - requestStartedAt)} ` +
+            `(read=${formatDuration(bodyReadCompletedAt - requestStartedAt)}, ` +
+            `parse=${formatDuration(bundleParsedAt - bodyReadCompletedAt)}, ` +
+            `write=${formatDuration(filesWrittenAt - bundleParsedAt)}, ` +
+            `files=${runtimeBundle.files.length}, bytes=${formatBytes(sumBundleBytes(runtimeBundle.files))}, slug=${metadata.projectSlug})`
+        );
       } catch (error) {
         sendJson(res, 500, {
           error: error instanceof Error ? error.message : "Failed to push scene to game."
@@ -183,19 +209,55 @@ function registerEditorPresence(server: ViteDevServer | PreviewServer) {
 }
 
 async function readJsonBody<T>(request: IncomingMessage): Promise<T> {
+  const body = await readBinaryBody(request);
+  return JSON.parse(Buffer.from(body).toString("utf8")) as T;
+}
+
+async function readBinaryBody(request: IncomingMessage): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];
 
   for await (const chunk of request) {
     chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
   }
 
-  const body = Buffer.concat(chunks).toString("utf8");
-  return JSON.parse(body) as T;
+  return Buffer.concat(chunks);
 }
 
 function sendJson(response: ServerResponse, statusCode: number, payload: unknown) {
   response.writeHead(statusCode, { "Content-Type": "application/json" });
   response.end(JSON.stringify(payload));
+}
+
+function resolveHeaderValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function sumBundleBytes(files: Array<{ bytes: Uint8Array | number[] }>) {
+  return files.reduce((total, file) => total + file.bytes.length, 0);
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  if (bytes < 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function formatDuration(milliseconds: number) {
+  if (milliseconds < 1000) {
+    return `${milliseconds.toFixed(1)} ms`;
+  }
+
+  return `${(milliseconds / 1000).toFixed(2)} s`;
 }
 
 function normalizeEditorMetadata(metadata?: EditorFileMetadata) {

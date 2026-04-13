@@ -146,4 +146,40 @@ describe("deriveRenderScene", () => {
     expect(scene.instancedMeshes[0]?.mesh.modelPath).toBe("crate.glb");
     expect(scene.instancedMeshes[0]?.instances[0]?.nodeId).toBe("node:model-instance");
   });
+
+  test("resolves texture library ids to concrete material texture sources", () => {
+    const material: Material = {
+      color: "#ffffff",
+      colorTexture: "texture:brick:color",
+      id: "material:brick",
+      name: "Brick"
+    };
+    const nodes: GeometryNode[] = [
+      {
+        data: {
+          materialId: material.id,
+          role: "prop",
+          shape: "cube",
+          size: vec3(1, 1, 1)
+        },
+        id: "node:brick",
+        kind: "primitive",
+        name: "Brick Cube",
+        transform: makeTransform(vec3(0, 0, 0))
+      }
+    ];
+
+    const scene = deriveRenderScene(nodes, [], [material], [], [
+      {
+        createdAt: "2026-04-13T00:00:00.000Z",
+        dataUrl: "data:image/png;base64,AAAA",
+        id: "texture:brick:color",
+        kind: "color",
+        name: "Brick Color",
+        source: "import"
+      }
+    ]);
+
+    expect(scene.meshes[0]?.material.colorTexture).toBe("data:image/png;base64,AAAA");
+  });
 });

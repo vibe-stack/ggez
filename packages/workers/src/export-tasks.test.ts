@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { exportEngineBundle, serializeGltfScene } from "./export-tasks";
+import { createWorldBundleFromLegacyScene, type SceneDocumentSnapshot } from "@ggez/editor-core";
+import { exportEngineArchive, exportEngineBundle, serializeGltfScene } from "./export-tasks";
 import { createSerializedModelAssetFiles, makeTransform, vec3, type SceneSettings } from "@ggez/shared";
-import type { SceneDocumentSnapshot } from "@ggez/editor-core";
 import { buildRuntimeBundleFromSnapshot, buildRuntimeSceneFromSnapshot } from "@ggez/runtime-build";
 import { CURRENT_RUNTIME_SCENE_VERSION } from "@ggez/runtime-format";
 
@@ -702,5 +702,31 @@ describe("exportEngineBundle", () => {
     expect(gltf.meshes).toHaveLength(1);
     expect(gltf.nodes.filter((node) => typeof node.mesh === "number")).toHaveLength(2);
     expect(gltf.nodes[0]?.mesh).toBe(gltf.nodes[1]?.mesh);
+  });
+
+  test("creates archived world runtime exports", async () => {
+    const snapshot: SceneDocumentSnapshot = {
+      assets: [],
+      entities: [],
+      layers: [],
+      materials: [],
+      nodes: [
+        {
+          data: {},
+          id: "node:test",
+          kind: "group",
+          name: "Test",
+          transform: makeTransform(vec3(0, 0, 0))
+        }
+      ],
+      settings,
+      textures: []
+    };
+
+    const archive = await exportEngineArchive(createWorldBundleFromLegacyScene(snapshot));
+
+    expect(archive.fileExtension).toBe("world.runtime.zip");
+    expect(archive.mimeType).toBe("application/zip");
+    expect(archive.bytes.byteLength).toBeGreaterThan(0);
   });
 });

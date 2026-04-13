@@ -53,7 +53,7 @@ import {
   type WorldPersistenceBundle
 } from "@ggez/editor-core";
 import { convertBrushToEditableMesh, invertEditableMeshNormals } from "@ggez/geometry-kernel";
-import { createRuntimeWorldBundleZip, type RuntimeWorldBundle } from "@ggez/runtime-build";
+import { type RuntimeWorldBundle } from "@ggez/runtime-build";
 import { createDerivedRenderSceneCache, deriveRenderSceneCached, gridSnapValues, type ViewportState } from "@ggez/render-pipeline";
 import {
   buildModelLodLevelOrder,
@@ -100,10 +100,7 @@ import {
   createWorkerTaskManager,
   type WorkerJob
 } from "@ggez/workers";
-import {
-  createWebHammerEngineBundleZip,
-  isWebHammerEngineBundle
-} from "@ggez/three-runtime";
+import { isWebHammerEngineBundle } from "@ggez/three-runtime";
 import { slugifyProjectName, type EditorFileMetadata } from "@ggez/dev-sync";
 import { WorldEditorShell } from "@/components/WorldEditorShell";
 import { useGameConnection } from "@/app/hooks/useGameConnection";
@@ -152,6 +149,8 @@ import {
 } from "@/viewport/viewports";
 import { loadStoredSceneEditorDraft, saveSceneEditorDraft } from "@/lib/draft-storage";
 
+const RUNTIME_SYNC_DEBUG_FINGERPRINT = "sync-ui 2026-04-13e";
+
 export function App() {
   const [worldEditor] = useState(() => createWorldEditorCore(createSceneDocumentSnapshot(createSeedSceneDocument())));
   const [editor] = useState(() => createSceneEditorAdapter(worldEditor));
@@ -182,6 +181,7 @@ export function App() {
   const [projectName, setProjectName] = useState("Untitled Scene");
   const [projectSlug, setProjectSlug] = useState("untitled-scene");
   const [projectSlugDirty, setProjectSlugDirty] = useState(false);
+  const [runtimeSyncDebugLabel, setRuntimeSyncDebugLabel] = useState(`${RUNTIME_SYNC_DEBUG_FINGERPRINT} idle`);
   const [hiddenSceneItemIds, setHiddenSceneItemIds] = useState<string[]>([]);
   const [lockedSceneItemIds, setLockedSceneItemIds] = useState<string[]>([]);
   const [draftHydrated, setDraftHydrated] = useState(false);
@@ -227,7 +227,10 @@ export function App() {
         workingSet.mode === "world" && flattenedWorldSnapshot
           ? flattenedWorldSnapshot.assets
           : editor.scene.assets.values(),
-        renderSceneCacheRef.current
+        renderSceneCacheRef.current,
+        workingSet.mode === "world" && flattenedWorldSnapshot
+          ? flattenedWorldSnapshot.textures
+          : editor.scene.textures.values()
       ),
     [editor, flattenedWorldSnapshot, sceneRevision, workingSet.mode]
   );
@@ -1794,7 +1797,12 @@ export function App() {
       "Load .whmap"
     );
 
-    if (typeof payload !== "string" && !isWebHammerEngineBundle(payload) && !isRuntimeWorldBundlePayload(payload)) {
+    if (
+      typeof payload !== "string" &&
+      !("bytes" in payload) &&
+      !isWebHammerEngineBundle(payload) &&
+      !isRuntimeWorldBundlePayload(payload)
+    ) {
       applyProjectMetadata(extractProjectMetadata(payload));
 
       if (isWorldPersistenceBundlePayload(payload)) {
@@ -1884,21 +1892,14 @@ export function App() {
   const handleExportEngine = async () => {
     const payload = await runWorkerRequest(
       {
-        kind: "engine-export",
+        kind: "engine-export-archive",
         snapshot: buildWorldBundle()
       },
       "Export runtime scene"
     );
 
-    if (isWebHammerEngineBundle(payload)) {
-      const zip = createWebHammerEngineBundleZip(payload);
-      downloadBinaryFile(`${resolvedProjectSlug}.runtime.zip`, zip, "application/zip");
-      return;
-    }
-
-    if (typeof payload !== "string" && isRuntimeWorldBundlePayload(payload)) {
-      const zip = createRuntimeWorldBundleZip(payload);
-      downloadBinaryFile(`${resolvedProjectSlug}.world.runtime.zip`, zip, "application/zip");
+    if (typeof payload !== "string" && "bytes" in payload) {
+      downloadBinaryFile(`${resolvedProjectSlug}.${payload.fileExtension}`, payload.bytes, payload.mimeType);
     }
   };
 
@@ -1934,33 +1935,65 @@ export function App() {
       setProjectSlugDirty(true);
     }
 
-    const exportPayload = await runWorkerRequest(
-      {
-        kind: "engine-export",
-        snapshot: {
-          ...buildActiveSceneSnapshot(),
-          metadata: {
-            projectName: nextProjectName,
-            projectSlug: nextProjectSlug
+    const exportStartedAt = performance.now();
+    setRuntimeSyncDebugLabel(`${RUNTIME_SYNC_DEBUG_FINGERPRINT} exporting ${nextProjectSlug}`);
+
+    try {
+      const exportPayload = await runWorkerRequest(
+        {
+          kind: "engine-export-archive",
+          snapshot: {
+            ...buildActiveSceneSnapshot(),
+            metadata: {
+              projectName: nextProjectName,
+              projectSlug: nextProjectSlug
+            }
           }
-        }
-      },
-      "Push runtime scene"
-    );
+        },
+        "Push runtime scene"
+      );
 
-    if (!isWebHammerEngineBundle(exportPayload)) {
-      throw new Error("Failed to export a runtime bundle for editor sync.");
-    }
-
-    return gameConnection.pushScene({
-      bundle: serializeRuntimeBundleForSync(exportPayload),
-      forceSwitch: options?.forceSwitch,
-      gameId: options?.gameId ?? gameConnection.activeGame?.id,
-      metadata: {
-        projectName: nextProjectName,
-        projectSlug: nextProjectSlug
+      if (typeof exportPayload === "string" || !("bytes" in exportPayload)) {
+        throw new Error("Failed to export a runtime archive for editor sync.");
       }
-    });
+
+      const exportDuration = performance.now() - exportStartedAt;
+      const archiveSize = formatBytes(exportPayload.bytes.byteLength);
+      setRuntimeSyncDebugLabel(
+        `${RUNTIME_SYNC_DEBUG_FINGERPRINT} export ${formatDuration(exportDuration)} ${archiveSize}`
+      );
+
+      console.info(
+        `[editor] Push runtime scene archive ready in ${formatDuration(exportDuration)} ` +
+          `(archive=${archiveSize}, slug=${nextProjectSlug})`
+      );
+
+      const uploadStartedAt = performance.now();
+      setRuntimeSyncDebugLabel(`${RUNTIME_SYNC_DEBUG_FINGERPRINT} uploading ${archiveSize}`);
+
+      const pushResult = await gameConnection.pushScene({
+        archive: {
+          bytes: exportPayload.bytes,
+          mimeType: exportPayload.mimeType
+        },
+        forceSwitch: options?.forceSwitch,
+        gameId: options?.gameId ?? gameConnection.activeGame?.id,
+        metadata: {
+          projectName: nextProjectName,
+          projectSlug: nextProjectSlug
+        }
+      });
+
+      setRuntimeSyncDebugLabel(
+        `${RUNTIME_SYNC_DEBUG_FINGERPRINT} done export ${formatDuration(exportDuration)} / upload ${formatDuration(performance.now() - uploadStartedAt)}`
+      );
+
+      return pushResult;
+    } catch (pushError) {
+      const message = pushError instanceof Error ? pushError.message : "Push failed";
+      setRuntimeSyncDebugLabel(`${RUNTIME_SYNC_DEBUG_FINGERPRINT} error ${message}`);
+      throw pushError;
+    }
   };
 
   const copilot = useCopilot(editor, {
@@ -2166,6 +2199,7 @@ export function App() {
         effectiveLockedSceneItemIds={effectiveLockedSceneItemIds}
         hiddenSceneItemIds={hiddenSceneItemIds}
         canRedo={editor.commands.canRedo()}
+        runtimeSyncDebugLabel={runtimeSyncDebugLabel}
         canUndo={editor.commands.canUndo()}
         lockedSceneItemIds={lockedSceneItemIds}
         editor={editor}
@@ -2327,6 +2361,30 @@ export function App() {
       />
     </>
   );
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  if (bytes < 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function formatDuration(milliseconds: number) {
+  if (milliseconds < 1000) {
+    return `${milliseconds.toFixed(1)} ms`;
+  }
+
+  return `${(milliseconds / 1000).toFixed(2)} s`;
 }
 
 async function resolveImportedModelFiles(files: File[], configuredLevels: WorldLodLevelDefinition[]) {
@@ -2576,15 +2634,4 @@ function resolveFileStem(filename?: string) {
   }
 
   return filename.replace(/\.[^.]+$/, "") || "Imported Scene";
-}
-
-function serializeRuntimeBundleForSync(bundle: Parameters<typeof createWebHammerEngineBundleZip>[0]) {
-  return {
-    files: bundle.files.map((file) => ({
-      bytes: Array.from(file.bytes),
-      mimeType: file.mimeType,
-      path: file.path
-    })),
-    manifest: bundle.manifest
-  };
 }

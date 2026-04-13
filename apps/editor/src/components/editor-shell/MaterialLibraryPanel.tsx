@@ -20,6 +20,9 @@ import {
 } from "lucide-react";
 import {
   createBlockoutTextureDataUri,
+  createTextureRecordMap,
+  resolveTextureReferenceSource,
+  textureReferenceMatches,
   vec2,
   type EditableMesh,
   type GeometryNode,
@@ -116,6 +119,7 @@ export function MaterialLibraryPanel({
   textures,
 }: MaterialLibraryPanelProps) {
   const [activeMaterialId, setActiveMaterialId] = useState(selectedMaterialId);
+  const texturesById = useMemo(() => createTextureRecordMap(textures), [textures]);
   const selectedMaterial = useMemo(
     () => materials.find((material) => material.id === activeMaterialId),
     [activeMaterialId, materials],
@@ -363,7 +367,7 @@ export function MaterialLibraryPanel({
 
     setDraftMaterial((current) => ({
       ...current,
-      [textureBrowserState.field]: texture.dataUrl,
+      [textureBrowserState.field]: texture.id,
     }));
   };
 
@@ -375,7 +379,7 @@ export function MaterialLibraryPanel({
         const field = TEXTURE_FIELD_BY_KIND[texture.kind];
         next = {
           ...next,
-          [field]: texture.dataUrl,
+          [field]: texture.id,
         };
       }
 
@@ -388,7 +392,7 @@ export function MaterialLibraryPanel({
       const next = { ...current };
 
       (["colorTexture", "normalTexture", "metalnessTexture", "roughnessTexture"] as const).forEach((field) => {
-        if (next[field] === texture.dataUrl) {
+        if (textureReferenceMatches(next[field], texture)) {
           next[field] = undefined;
         }
       });
@@ -514,7 +518,7 @@ export function MaterialLibraryPanel({
                         style={{
                           backgroundColor: material.color,
                           backgroundImage: material.colorTexture
-                            ? `url(${material.colorTexture})`
+                            ? `url(${resolveTextureReferenceSource(material.colorTexture, texturesById)})`
                             : undefined,
                         }}
                       />
@@ -725,7 +729,7 @@ export function MaterialLibraryPanel({
         onOpenChange={setMeshUvEditorOpen}
         open={meshUvEditorOpen}
         textureName={selectedMaterial?.name}
-        textureSource={selectedMaterial?.colorTexture}
+        textureSource={resolveTextureReferenceSource(selectedMaterial?.colorTexture, texturesById)}
       />
     </>
   );

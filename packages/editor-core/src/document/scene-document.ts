@@ -12,7 +12,14 @@ import type {
   SceneSettings,
   TextureRecord
 } from "@ggez/shared";
-import { createDefaultSceneSettings, isInstancingNode, makeTransform, normalizeSceneSettings, vec3 } from "@ggez/shared";
+import {
+  createDefaultSceneSettings,
+  isInstancingNode,
+  makeTransform,
+  MATERIAL_TEXTURE_FIELDS,
+  normalizeSceneSettings,
+  vec3
+} from "@ggez/shared";
 
 export type SceneDocument = {
   nodes: Map<NodeID, GeometryNode>;
@@ -250,6 +257,12 @@ export function createSceneDocumentSnapshot(scene: SceneDocument): SceneDocument
   };
 }
 
+export function normalizeSceneDocumentSnapshot(snapshot: SceneDocumentSnapshot): SceneDocumentSnapshot {
+  const scene = createSceneDocument();
+  loadSceneDocumentSnapshot(scene, snapshot);
+  return createSceneDocumentSnapshot(scene);
+}
+
 export function loadSceneDocumentSnapshot(scene: SceneDocument, snapshot: SceneDocumentSnapshot) {
   scene.nodes.clear();
   scene.entities.clear();
@@ -376,14 +389,7 @@ export function createSeedSceneDocument(): SceneDocument {
   return document;
 }
 
-const TEXTURE_FIELDS = [
-  "colorTexture",
-  "normalTexture",
-  "metalnessTexture",
-  "roughnessTexture"
-] as const;
-
-type TextureField = (typeof TEXTURE_FIELDS)[number];
+type TextureField = (typeof MATERIAL_TEXTURE_FIELDS)[number];
 
 const TEXTURE_KIND_BY_FIELD: Record<TextureField, TextureRecord["kind"]> = {
   colorTexture: "color",
@@ -393,21 +399,32 @@ const TEXTURE_KIND_BY_FIELD: Record<TextureField, TextureRecord["kind"]> = {
 };
 
 export function ensureSceneTextureLibrary(scene: SceneDocument) {
-  const existingDataUrls = new Set(
-    Array.from(scene.textures.values(), (texture) => texture.dataUrl)
+  const textureByDataUrl = new Map(
+    Array.from(scene.textures.values(), (texture) => [texture.dataUrl, texture] as const)
   );
 
   for (const material of scene.materials.values()) {
-    for (const field of TEXTURE_FIELDS) {
-      const dataUrl = material[field];
+    for (const field of MATERIAL_TEXTURE_FIELDS) {
+      const reference = material[field];
 
-      if (!dataUrl || existingDataUrls.has(dataUrl)) {
+      if (!reference) {
+        continue;
+      }
+
+      const existingTexture = scene.textures.get(reference) ?? textureByDataUrl.get(reference);
+
+      if (existingTexture) {
+        material[field] = existingTexture.id;
+        continue;
+      }
+
+      if (!reference.startsWith("data:")) {
         continue;
       }
 
       const texture: TextureRecord = {
         createdAt: new Date().toISOString(),
-        dataUrl,
+        dataUrl: reference,
         id: `texture:${material.id}:${field}`,
         kind: TEXTURE_KIND_BY_FIELD[field],
         name: `${material.name} ${formatTextureKind(TEXTURE_KIND_BY_FIELD[field])}`,
@@ -415,7 +432,8 @@ export function ensureSceneTextureLibrary(scene: SceneDocument) {
       };
 
       scene.textures.set(texture.id, texture);
-      existingDataUrls.add(dataUrl);
+      textureByDataUrl.set(texture.dataUrl, texture);
+      material[field] = texture.id;
     }
   }
 }

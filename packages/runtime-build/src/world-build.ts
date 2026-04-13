@@ -78,7 +78,11 @@ export async function buildRuntimeWorldBundleFromWorld(
   };
 }
 
-export function createRuntimeWorldBundleZip(bundle: RuntimeWorldBundle, worldIndexPath = "world.runtime.json") {
+export function createRuntimeWorldBundleZip(
+  bundle: RuntimeWorldBundle,
+  worldIndexPath = "world.runtime.json",
+  compressionLevel: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 = 6
+) {
   const entries: Record<string, Uint8Array> = {
     [worldIndexPath]: new TextEncoder().encode(JSON.stringify(bundle.index, null, 2))
   };
@@ -88,7 +92,7 @@ export function createRuntimeWorldBundleZip(bundle: RuntimeWorldBundle, worldInd
   });
 
   return zipSync(entries, {
-    level: 6
+    level: compressionLevel
   });
 }
 

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { SceneDocumentSnapshot, WorldPersistenceBundle } from "@ggez/editor-core";
 import type { RuntimeWorldBundle } from "@ggez/runtime-build";
 import type { WebHammerEngineBundle } from "@ggez/three-runtime";
-import type { WorkerJob, WorkerRequest, WorkerResponse } from "@ggez/workers";
+import type { WorkerArchivePayload, WorkerJob, WorkerRequest, WorkerResponse } from "@ggez/workers";
 
 export type ExportWorkerRequest = WorkerRequest extends infer Request
   ? Request extends { id: string }
@@ -19,7 +19,9 @@ export function useExportWorker() {
       string,
       {
         reject: (reason?: unknown) => void;
-        resolve: (payload: string | SceneDocumentSnapshot | WorldPersistenceBundle | WebHammerEngineBundle | RuntimeWorldBundle) => void;
+        resolve: (
+          payload: string | SceneDocumentSnapshot | WorldPersistenceBundle | WebHammerEngineBundle | RuntimeWorldBundle | WorkerArchivePayload
+        ) => void;
       }
     >()
   );
@@ -61,7 +63,7 @@ export function useExportWorker() {
   const runWorkerRequest = (
     request: ExportWorkerRequest,
     label: string
-  ): Promise<string | SceneDocumentSnapshot | WorldPersistenceBundle | WebHammerEngineBundle | RuntimeWorldBundle> => {
+  ): Promise<string | SceneDocumentSnapshot | WorldPersistenceBundle | WebHammerEngineBundle | RuntimeWorldBundle | WorkerArchivePayload> => {
     const id = `export:${requestCounterRef.current++}`;
     const workerTask =
       request.kind === "whmap-save"

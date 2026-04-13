@@ -7,10 +7,20 @@ import type {
   Material,
   MaterialID,
   NodeID,
+  TextureRecord,
   Transform,
   Vec3
 } from "@ggez/shared";
-import { isGroupNode, isInstancingNode, isLightNode, resolveInstancingSourceNode, resolveSceneGraph, vec3 } from "@ggez/shared";
+import {
+  cloneMaterialWithResolvedTextureSources,
+  createTextureRecordMap,
+  isGroupNode,
+  isInstancingNode,
+  isLightNode,
+  resolveInstancingSourceNode,
+  resolveSceneGraph,
+  vec3
+} from "@ggez/shared";
 import { createDerivedRenderMesh, type DerivedRenderMesh } from "../meshes/render-mesh";
 
 export type DerivedEntityMarker = {
@@ -87,6 +97,7 @@ type CachedDerivedRenderMeshEntry = {
 export type DerivedRenderSceneCache = {
   assetRefs: Map<AssetID, Asset>;
   materialRefs: Map<MaterialID, Material>;
+  textureRefs: Map<TextureRecord["id"], TextureRecord>;
   meshEntries: Map<NodeID, CachedDerivedRenderMeshEntry>;
 };
 
@@ -94,6 +105,7 @@ export function createDerivedRenderSceneCache(): DerivedRenderSceneCache {
   return {
     assetRefs: new Map(),
     materialRefs: new Map(),
+    textureRefs: new Map(),
     meshEntries: new Map()
   };
 }
@@ -102,9 +114,10 @@ export function deriveRenderScene(
   nodes: Iterable<GeometryNode>,
   entities: Iterable<Entity> = [],
   materials: Iterable<Material> = [],
-  assets: Iterable<Asset> = []
+  assets: Iterable<Asset> = [],
+  textures: Iterable<TextureRecord> = []
 ): DerivedRenderScene {
-  return deriveRenderSceneCached(nodes, entities, materials, assets, createDerivedRenderSceneCache());
+  return deriveRenderSceneCached(nodes, entities, materials, assets, createDerivedRenderSceneCache(), textures);
 }
 
 export function deriveRenderSceneCached(
@@ -112,17 +125,23 @@ export function deriveRenderSceneCached(
   entities: Iterable<Entity> = [],
   materials: Iterable<Material> = [],
   assets: Iterable<Asset> = [],
-  cache: DerivedRenderSceneCache
+  cache: DerivedRenderSceneCache,
+  textures: Iterable<TextureRecord> = []
 ): DerivedRenderScene {
   const materialList = Array.from(materials);
   const assetList = Array.from(assets);
+  const textureList = Array.from(textures);
   const sourceNodes = Array.from(nodes);
   const sourceEntities = Array.from(entities);
-  const materialsById = new Map(materialList.map((material) => [material.id, material] as const));
+  const texturesById = createTextureRecordMap(textureList);
+  const materialsById = new Map(
+    materialList.map((material) => [material.id, cloneMaterialWithResolvedTextureSources(material, texturesById)] as const)
+  );
   const assetsById = new Map(assetList.map((asset) => [asset.id, asset] as const));
   const materialsChanged = haveReferencedValuesChanged(materialList, cache.materialRefs);
   const assetsChanged = haveReferencedValuesChanged(assetList, cache.assetRefs);
-  const shouldRebuildAllMeshes = materialsChanged || assetsChanged;
+  const texturesChanged = haveReferencedValuesChanged(textureList, cache.textureRefs);
+  const shouldRebuildAllMeshes = materialsChanged || assetsChanged || texturesChanged;
   const meshes: DerivedRenderMesh[] = [];
   const instancedMeshes: DerivedInstancedMesh[] = [];
   const lights: DerivedLight[] = [];
@@ -230,6 +249,7 @@ export function deriveRenderSceneCached(
 
   replaceReferenceMap(cache.materialRefs, materialList);
   replaceReferenceMap(cache.assetRefs, assetList);
+  replaceReferenceMap(cache.textureRefs, textureList);
 
   const entityMarkers = Array.from(sourceEntities, (entity) => ({
     entityId: entity.id,

@@ -9,9 +9,15 @@ import {
   type WebHammerEngineBundle,
   type WebHammerEngineScene
 } from "@ggez/runtime-format";
-import { createSerializedModelAssetFiles, resolveModelAssetFiles, resolveModelFormat, type ModelAssetFile } from "@ggez/shared";
+import {
+  createSerializedModelAssetFiles,
+  isTextureReferenceId,
+  resolveModelAssetFiles,
+  resolveModelFormat,
+  type ModelAssetFile
+} from "@ggez/shared";
 
-const TEXTURE_FIELDS = ["baseColorTexture", "metallicRoughnessTexture", "normalTexture"] as const;
+const TEXTURE_FIELDS = ["baseColorTexture", "metallicRoughnessTexture", "normalTexture", "metalnessTexture", "roughnessTexture"] as const;
 
 type TextureField = (typeof TEXTURE_FIELDS)[number];
 
@@ -34,47 +40,55 @@ export async function externalizeRuntimeAssets(
   scene: RuntimeScene,
   options: ExternalizeRuntimeAssetsOptions = {}
 ): Promise<RuntimeBundle> {
+  const startedAt = now();
   const manifest = structuredClone(scene);
   const files: RuntimeBundleFile[] = [];
   const assetDir = trimSlashes(options.assetDir ?? "assets");
   const copyExternalAssets = options.copyExternalAssets ?? true;
   const pathBySource = new Map<string, string>();
+  const pendingBySource = new Map<string, Promise<string | undefined>>();
   const usedPaths = new Set<string>();
 
-  for (const material of manifest.materials) {
-    for (const field of TEXTURE_FIELDS) {
-      const source = material[field];
+  await Promise.all(
+    manifest.materials.map(async (material) => {
+      await Promise.all(
+        TEXTURE_FIELDS.map(async (field) => {
+          const source = material[field];
 
-      if (!source) {
-        continue;
-      }
+          if (!source) {
+            return;
+          }
 
-      const bundledPath = await materializeSource(source, {
-        copyExternalAssets,
-        files,
-        pathBySource,
-        preferredStem: `${assetDir}/textures/${slugify(material.id)}-${textureFieldSuffix(field)}`,
-        usedPaths
-      });
+          const bundledPath = await materializeSource(source, {
+            copyExternalAssets,
+            files,
+            pathBySource,
+            pendingBySource,
+            preferredStem: `${assetDir}/textures/${slugify(material.id)}-${textureFieldSuffix(field)}`,
+            usedPaths
+          });
 
-      if (bundledPath) {
-        material[field] = bundledPath;
-      }
-    }
-  }
+          if (bundledPath) {
+            material[field] = bundledPath;
+          }
+        })
+      );
+    })
+  );
+  const materialTexturesCompletedAt = now();
 
-  for (const asset of manifest.assets) {
+  await Promise.all(manifest.assets.map(async (asset) => {
     if (asset.type !== "model") {
-      continue;
+      return;
     }
 
     const authoredFiles = resolveModelAssetFiles(asset);
-    const rewrittenFiles: ModelAssetFile[] = [];
 
     const bundledPath = await materializeSource(asset.path, {
       copyExternalAssets,
       files,
       pathBySource,
+      pendingBySource,
       preferredExtension: inferModelExtension(asset.path, asset.metadata.modelFormat),
       preferredStem: `${assetDir}/models/${slugify(asset.id)}`,
       usedPaths
@@ -85,11 +99,12 @@ export async function externalizeRuntimeAssets(
     }
 
     if (authoredFiles.length > 0) {
-      for (const authoredFile of authoredFiles) {
+      const rewrittenFiles = await Promise.all(authoredFiles.map(async (authoredFile) => {
         const bundledModelPath = await materializeSource(authoredFile.path, {
           copyExternalAssets,
           files,
           pathBySource,
+          pendingBySource,
           preferredExtension: inferModelExtension(authoredFile.path, authoredFile.format),
           preferredStem: `${assetDir}/models/${slugify(asset.id)}-${authoredFile.level}`,
           usedPaths
@@ -100,18 +115,19 @@ export async function externalizeRuntimeAssets(
               copyExternalAssets,
               files,
               pathBySource,
+              pendingBySource,
               preferredStem: `${assetDir}/model-textures/${slugify(asset.id)}-${authoredFile.level}`,
               usedPaths
             })
           : undefined;
 
-        rewrittenFiles.push({
+        return {
           ...authoredFile,
           format: resolveModelFormat(authoredFile.format, bundledModelPath ?? authoredFile.path),
           path: bundledModelPath ?? authoredFile.path,
           texturePath: bundledTexturePath ?? authoredFile.texturePath
-        });
-      }
+        };
+      }));
 
       asset.metadata.modelFiles = createSerializedModelAssetFiles(rewrittenFiles);
       const highFile = rewrittenFiles.find((file) => file.level === "high") ?? rewrittenFiles[0];
@@ -131,6 +147,7 @@ export async function externalizeRuntimeAssets(
         copyExternalAssets,
         files,
         pathBySource,
+        pendingBySource,
         preferredStem: `${assetDir}/model-textures/${slugify(asset.id)}`,
         usedPaths
       });
@@ -139,7 +156,8 @@ export async function externalizeRuntimeAssets(
         asset.metadata.texturePath = bundledTexturePath;
       }
     }
-  }
+  }));
+  const assetsCompletedAt = now();
 
   const modelAssetsById = new Map(
     manifest.assets
@@ -147,26 +165,27 @@ export async function externalizeRuntimeAssets(
       .map((asset) => [asset.id, asset] as const)
   );
 
-  for (const node of manifest.nodes) {
+  await Promise.all(manifest.nodes.map(async (node) => {
     if (node.kind !== "model") {
-      continue;
+      return;
     }
 
     const asset = modelAssetsById.get(node.data.assetId);
 
     if (asset?.path) {
       node.data.path = asset.path;
-      continue;
+      return;
     }
 
     if (!node.data.path) {
-      continue;
+      return;
     }
 
     const bundledPath = await materializeSource(node.data.path, {
       copyExternalAssets,
       files,
       pathBySource,
+      pendingBySource,
       preferredExtension: inferModelExtension(node.data.path, undefined),
       preferredStem: `${assetDir}/models/${slugify(node.id)}`,
       usedPaths
@@ -175,19 +194,21 @@ export async function externalizeRuntimeAssets(
     if (bundledPath) {
       node.data.path = bundledPath;
     }
-  }
+  }));
+  const nodeModelsCompletedAt = now();
 
-  for (const node of manifest.nodes) {
+  await Promise.all(manifest.nodes.map(async (node) => {
     if (node.kind !== "model" || !node.lods?.length) {
-      continue;
+      return;
     }
 
-    for (const lod of node.lods) {
+    await Promise.all(node.lods.map(async (lod) => {
       lod.path =
         (await materializeSource(lod.path, {
           copyExternalAssets,
           files,
           pathBySource,
+          pendingBySource,
           preferredExtension: inferModelExtension(lod.path, lod.format),
           preferredStem: `${assetDir}/models/${slugify(node.id)}-${lod.level}`,
           usedPaths
@@ -199,12 +220,14 @@ export async function externalizeRuntimeAssets(
             copyExternalAssets,
             files,
             pathBySource,
+            pendingBySource,
             preferredStem: `${assetDir}/model-textures/${slugify(node.id)}-${lod.level}`,
             usedPaths
           })) ?? lod.texturePath;
       }
-    }
-  }
+    }));
+  }));
+  const lodsCompletedAt = now();
 
   const skyboxSource = manifest.settings.world.skybox.source;
 
@@ -213,6 +236,7 @@ export async function externalizeRuntimeAssets(
       copyExternalAssets,
       files,
       pathBySource,
+      pendingBySource,
       preferredExtension: manifest.settings.world.skybox.format === "hdr" ? "hdr" : inferExtensionFromPath(skyboxSource),
       preferredStem: `${assetDir}/skyboxes/${slugify(manifest.settings.world.skybox.name || "skybox")}`,
       usedPaths
@@ -222,10 +246,11 @@ export async function externalizeRuntimeAssets(
       manifest.settings.world.skybox.source = bundledSkyboxPath;
     }
   }
+  const skyboxCompletedAt = now();
 
-  for (const entity of manifest.entities) {
+  await Promise.all(manifest.entities.map(async (entity) => {
     if (entity.type !== "vfx-object") {
-      continue;
+      return;
     }
 
     const existingAssetPath = typeof entity.properties.vfxBundleAssetPath === "string"
@@ -236,7 +261,7 @@ export async function externalizeRuntimeAssets(
       : existingAssetPath;
 
     if (!bundleSource) {
-      continue;
+      return;
     }
 
     const bundleFileName = typeof entity.properties.vfxBundleFileName === "string"
@@ -247,6 +272,7 @@ export async function externalizeRuntimeAssets(
       copyExternalAssets,
       files,
       pathBySource,
+      pendingBySource,
       preferredExtension: inferExtensionFromPath(bundleFileName) ?? inferExtensionFromPath(bundleSource) ?? "vfxbundle",
       preferredStem: `${assetDir}/vfx/${slugify(preferredBaseName)}`,
       usedPaths
@@ -256,7 +282,19 @@ export async function externalizeRuntimeAssets(
       entity.properties.vfxBundleAssetPath = bundledVfxPath;
       entity.properties.vfxBundleDataUrl = "";
     }
-  }
+  }));
+  const entitiesCompletedAt = now();
+
+  console.info(
+    `[runtime-build] externalizeRuntimeAssets completed in ${formatDuration(entitiesCompletedAt - startedAt)} ` +
+      `(materials=${formatDuration(materialTexturesCompletedAt - startedAt)}, ` +
+      `assets=${formatDuration(assetsCompletedAt - materialTexturesCompletedAt)}, ` +
+      `modelNodes=${formatDuration(nodeModelsCompletedAt - assetsCompletedAt)}, ` +
+      `lods=${formatDuration(lodsCompletedAt - nodeModelsCompletedAt)}, ` +
+      `skybox=${formatDuration(skyboxCompletedAt - lodsCompletedAt)}, ` +
+      `entities=${formatDuration(entitiesCompletedAt - skyboxCompletedAt)}, ` +
+      `files=${files.length}, bytes=${formatBytes(sumBundleFileBytes(files))})`
+  );
 
   return {
     files,
@@ -353,6 +391,7 @@ async function materializeSource(
     copyExternalAssets: boolean;
     files: RuntimeBundleFile[];
     pathBySource: Map<string, string>;
+    pendingBySource: Map<string, Promise<string | undefined>>;
     preferredExtension?: string;
     preferredStem: string;
     usedPaths: Set<string>;
@@ -364,49 +403,82 @@ async function materializeSource(
     return existing;
   }
 
-  if (isDataUrl(source)) {
-    const parsed = parseDataUrl(source);
+  const pending = context.pendingBySource.get(source);
+
+  if (pending) {
+    return pending;
+  }
+
+  const task = (async () => {
+    if (isTextureReferenceId(source)) {
+      return undefined;
+    }
+
+    if (isDataUrl(source)) {
+      // Use fetch() to decode the data URL — the browser/Bun runtime uses
+      // optimised native base64 decoding, which is orders of magnitude faster
+      // than the manual atob + charCodeAt loop in JavaScript.
+      // Extract the MIME type directly from the URL rather than the response
+      // headers: headers may include `;charset=…` params that would break
+      // extension inference (e.g. "image/svg+xml;charset=UTF-8" → ".bin").
+      const mimeType = extractDataUrlMimeType(source);
+      const bytes = new Uint8Array(await (await fetch(source)).arrayBuffer());
+      const path = ensureUniquePath(
+        `${context.preferredStem}.${inferExtension(mimeType, context.preferredExtension)}`,
+        context.usedPaths
+      );
+
+      context.files.push({
+        bytes,
+        mimeType,
+        path
+      });
+      context.pathBySource.set(source, path);
+      return path;
+    }
+
+    if (!context.copyExternalAssets) {
+      return undefined;
+    }
+
+    const response = await fetch(source);
+
+    if (!response.ok) {
+      throw new Error(`Failed to bundle asset: ${source}`);
+    }
+
+    const blob = await response.blob();
+    const bytes = new Uint8Array(await blob.arrayBuffer());
     const path = ensureUniquePath(
-      `${context.preferredStem}.${inferExtension(parsed.mimeType, context.preferredExtension)}`,
+      `${context.preferredStem}.${inferExtension(blob.type, context.preferredExtension ?? inferExtensionFromPath(source))}`,
       context.usedPaths
     );
 
     context.files.push({
-      bytes: parsed.bytes,
-      mimeType: parsed.mimeType,
+      bytes,
+      mimeType: blob.type || "application/octet-stream",
       path
     });
     context.pathBySource.set(source, path);
+
     return path;
+  })();
+
+  context.pendingBySource.set(source, task);
+
+  try {
+    return await task;
+  } finally {
+    context.pendingBySource.delete(source);
   }
-
-  if (!context.copyExternalAssets) {
-    return undefined;
-  }
-
-  const response = await fetch(source);
-
-  if (!response.ok) {
-    throw new Error(`Failed to bundle asset: ${source}`);
-  }
-
-  const blob = await response.blob();
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  const path = ensureUniquePath(
-    `${context.preferredStem}.${inferExtension(blob.type, context.preferredExtension ?? inferExtensionFromPath(source))}`,
-    context.usedPaths
-  );
-
-  context.files.push({
-    bytes,
-    mimeType: blob.type || "application/octet-stream",
-    path
-  });
-  context.pathBySource.set(source, path);
-
-  return path;
 }
 
+function extractDataUrlMimeType(source: string) {
+  const match = /^data:([^;,]+)/i.exec(source);
+  return match?.[1] ?? "application/octet-stream";
+}
+
+// parseDataUrl kept for environments where fetch of data: URLs is unsupported.
 function parseDataUrl(source: string) {
   const match = /^data:([^;,]+)?(?:;charset=[^;,]+)?(;base64)?,(.*)$/i.exec(source);
 
@@ -440,6 +512,10 @@ function textureFieldSuffix(field: TextureField) {
       return "color";
     case "metallicRoughnessTexture":
       return "orm";
+    case "metalnessTexture":
+      return "metalness";
+    case "roughnessTexture":
+      return "roughness";
     default:
       return "normal";
   }
@@ -558,6 +634,38 @@ function slugify(value: string) {
 
 function trimSlashes(value: string) {
   return value.replace(/^\/+|\/+$/g, "");
+}
+
+function sumBundleFileBytes(files: RuntimeBundleFile[]) {
+  return files.reduce((total, file) => total + file.bytes.byteLength, 0);
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  if (bytes < 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function formatDuration(milliseconds: number) {
+  if (milliseconds < 1000) {
+    return `${milliseconds.toFixed(1)} ms`;
+  }
+
+  return `${(milliseconds / 1000).toFixed(2)} s`;
+}
+
+function now() {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
 }
 
 function stripExtension(path: string) {

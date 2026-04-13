@@ -12,6 +12,7 @@ type StatusBarProps = {
   gridSnapValues: readonly GridSnapValue[];
   jobs: WorkerJob[];
   meshEditMode: MeshEditMode;
+  runtimeSyncDebugLabel: string;
   selectedNode?: GeometryNode;
   viewModeLabel: string;
   viewport: ViewportState;
@@ -24,6 +25,7 @@ export function StatusBar({
   gridSnapValues,
   jobs,
   meshEditMode,
+  runtimeSyncDebugLabel,
   selectedNode,
   viewModeLabel,
   viewport
@@ -53,6 +55,9 @@ export function StatusBar({
             <span>{meshEditMode} mode</span>
           </>
         ) : null}
+      </div>
+      <div className="absolute left-1/2 max-w-[50vw] -translate-x-1/2 truncate rounded-full border border-white/8 bg-black/35 px-2.5 py-1 text-center text-[10px] tracking-[0.12em] text-foreground/68">
+        {runtimeSyncDebugLabel}
       </div>
       <JobStatus jobs={jobs} />
     </div>

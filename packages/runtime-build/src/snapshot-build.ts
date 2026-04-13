@@ -1,9 +1,11 @@
 import { getFaceVertices, reconstructBrushFaces, triangulateMeshFace } from "@ggez/geometry-kernel";
 import type { SceneDocumentSnapshot } from "@ggez/editor-core";
 import {
+  createTextureRecordMap,
   createBlockoutTextureDataUri,
   crossVec3,
   dotVec3,
+  isTextureReferenceId,
   isBrushNode,
   isGroupNode,
   isInstancingNode,
@@ -12,12 +14,14 @@ import {
   isPrimitiveNode,
   normalizeVec3,
   resolveModelAssetFile,
+  resolveTextureReferenceSource,
   resolveInstancingSourceNode,
   subVec3,
   vec3,
   type Asset,
   type Material,
   type MaterialID,
+  type TextureRecord,
   type Vec2,
   type Vec3
 } from "@ggez/shared";
@@ -61,6 +65,20 @@ const gltfExporter = new GLTFExporter();
 const mtlLoader = new MTLLoader();
 const modelTextureLoader = new TextureLoader();
 
+type BuildRuntimeSceneFromSnapshotOptions = {
+  embedExternalTextures?: boolean;
+  /**
+   * When true the metalness + roughness textures are stored as separate fields
+   * (`metalnessTexture` / `roughnessTexture`) instead of being pixel-composited
+   * into a single combined ORM texture at export time.
+   *
+   * This is the fast path for bundle export: compositing large PNGs for every
+   * material is extremely slow (minutes–hours for 200 MB of textures) and
+   * completely unnecessary because Three.js accepts separate maps.
+   */
+  skipMetalRoughnessComposite?: boolean;
+};
+
 export async function buildRuntimeScene(input: SceneDocumentSnapshot | RuntimeScene | string): Promise<RuntimeScene> {
   if (typeof input === "string") {
     return parseRuntimeScene(input);
@@ -77,18 +95,30 @@ export async function buildRuntimeBundleFromSnapshot(
   snapshot: SceneDocumentSnapshot,
   options: ExternalizeRuntimeAssetsOptions = {}
 ): Promise<RuntimeBundle> {
-  return externalizeRuntimeAssets(await buildRuntimeSceneFromSnapshot(snapshot), options);
+  return externalizeRuntimeAssets(
+    await buildRuntimeSceneFromSnapshot(snapshot, {
+      embedExternalTextures: false,
+      skipMetalRoughnessComposite: true
+    }),
+    options
+  );
 }
 
 export async function serializeRuntimeScene(snapshot: SceneDocumentSnapshot): Promise<string> {
-  return JSON.stringify(await buildRuntimeSceneFromSnapshot(snapshot));
+  return JSON.stringify(await buildRuntimeSceneFromSnapshot(snapshot, { embedExternalTextures: true }));
 }
 
-export async function buildRuntimeSceneFromSnapshot(snapshot: SceneDocumentSnapshot): Promise<RuntimeScene> {
+export async function buildRuntimeSceneFromSnapshot(
+  snapshot: SceneDocumentSnapshot,
+  options: BuildRuntimeSceneFromSnapshotOptions = {}
+): Promise<RuntimeScene> {
   const assetsById = new Map(snapshot.assets.map((asset) => [asset.id, asset]));
   const referencedModelAssetIds = collectReferencedModelAssetIds(snapshot);
   const materialsById = new Map(snapshot.materials.map((material) => [material.id, material]));
-  const exportedMaterials = await Promise.all(snapshot.materials.map((material) => resolveRuntimeMaterial(material)));
+  const texturesById = createTextureRecordMap(snapshot.textures ?? []);
+  const exportedMaterials = await Promise.all(
+    snapshot.materials.map((material) => resolveRuntimeMaterial(material, texturesById, options))
+  );
   const exportedAt = new Date().toISOString();
   const exportedNodes: RuntimeScene["nodes"] = [];
 
@@ -109,7 +139,7 @@ export async function buildRuntimeSceneFromSnapshot(snapshot: SceneDocumentSnaps
     }
 
     if (isBrushNode(node)) {
-      const geometry = await buildExportGeometry(node, materialsById);
+      const geometry = await buildExportGeometry(node, materialsById, texturesById, options);
       exportedNodes.push({
         data: node.data,
         geometry,
@@ -126,7 +156,7 @@ export async function buildRuntimeSceneFromSnapshot(snapshot: SceneDocumentSnaps
     }
 
     if (isMeshNode(node)) {
-      const geometry = await buildExportGeometry(node, materialsById);
+      const geometry = await buildExportGeometry(node, materialsById, texturesById, options);
       exportedNodes.push({
         data: node.data,
         geometry,
@@ -143,7 +173,7 @@ export async function buildRuntimeSceneFromSnapshot(snapshot: SceneDocumentSnaps
     }
 
     if (isPrimitiveNode(node)) {
-      const geometry = await buildExportGeometry(node, materialsById);
+      const geometry = await buildExportGeometry(node, materialsById, texturesById, options);
       exportedNodes.push({
         data: node.data,
         geometry,
@@ -282,7 +312,9 @@ function isSceneDocumentSnapshotLike(value: unknown): value is SceneDocumentSnap
 
 async function buildExportGeometry(
   node: Extract<SceneDocumentSnapshot["nodes"][number], { kind: "brush" | "mesh" | "primitive" }>,
-  materialsById: Map<MaterialID, Material>
+  materialsById: Map<MaterialID, Material>,
+  texturesById: Map<string, TextureRecord>,
+  options: BuildRuntimeSceneFromSnapshotOptions
 ) {
   const fallbackMaterial = await resolveRuntimeMaterial({
     color: node.kind === "brush" ? "#f69036" : node.kind === "primitive" && node.data.role === "prop" ? "#7f8ea3" : "#6ed5c0",
@@ -290,7 +322,7 @@ async function buildExportGeometry(
     metalness: node.kind === "brush" ? 0 : node.kind === "primitive" && node.data.role === "prop" ? 0.12 : 0.05,
     name: `${node.name} Default`,
     roughness: node.kind === "brush" ? 0.95 : node.kind === "primitive" && node.data.role === "prop" ? 0.64 : 0.82
-  });
+  }, texturesById, options);
   const primitiveByMaterial = new Map<string, RuntimeGeometry["primitives"][number]>();
 
   const appendFace = async (params: {
@@ -302,7 +334,9 @@ async function buildExportGeometry(
     uvs?: Vec2[];
     vertices: Vec3[];
   }) => {
-    const material = params.faceMaterialId ? await resolveRuntimeMaterial(materialsById.get(params.faceMaterialId)) : fallbackMaterial;
+    const material = params.faceMaterialId
+      ? await resolveRuntimeMaterial(materialsById.get(params.faceMaterialId), texturesById, options)
+      : fallbackMaterial;
     const primitive = primitiveByMaterial.get(material.id) ?? {
       indices: [],
       material,
@@ -366,7 +400,9 @@ async function buildExportGeometry(
   }
 
   if (isPrimitiveNode(node)) {
-    const material = node.data.materialId ? await resolveRuntimeMaterial(materialsById.get(node.data.materialId)) : fallbackMaterial;
+    const material = node.data.materialId
+      ? await resolveRuntimeMaterial(materialsById.get(node.data.materialId), texturesById, options)
+      : fallbackMaterial;
     const primitive = buildPrimitiveGeometry(node.data.shape, node.data.size, node.data.radialSegments ?? 24);
 
     if (primitive) {
@@ -997,7 +1033,11 @@ function buildPrimitiveGeometry(shape: "cone" | "cube" | "cylinder" | "sphere", 
   return primitive;
 }
 
-async function resolveRuntimeMaterial(material?: Material): Promise<RuntimeMaterial> {
+async function resolveRuntimeMaterial(
+  material: Material | undefined,
+  texturesById: Map<string, TextureRecord>,
+  options: BuildRuntimeSceneFromSnapshotOptions
+): Promise<RuntimeMaterial> {
   const resolved = (material ?? {
     color: "#ffffff",
     emissiveColor: "#000000",
@@ -1013,22 +1053,59 @@ async function resolveRuntimeMaterial(material?: Material): Promise<RuntimeMater
       scale: number;
     };
   };
+  const embedExternal = options.embedExternalTextures ?? true;
+  const baseColorTextureSource = resolveTextureReferenceSource(
+    resolved.colorTexture ?? resolveGeneratedBlockoutTexture(resolved),
+    texturesById
+  );
+  const normalTextureSource = resolveTextureReferenceSource(resolved.normalTexture, texturesById);
+  const metalnessTextureSource = resolveTextureReferenceSource(resolved.metalnessTexture, texturesById);
+  const roughnessTextureSource = resolveTextureReferenceSource(resolved.roughnessTexture, texturesById);
+
+  if (options.skipMetalRoughnessComposite) {
+    // Fast path: keep metalness + roughness as separate assets — no heavy
+    // pixel decode / OffscreenCanvas composite / PNG re-encode per material.
+    // Runtimes assign them to metalnessMap / roughnessMap individually.
+    return {
+      baseColorTexture: await resolveEmbeddedTextureUri(baseColorTextureSource, embedExternal),
+      color: resolved.color,
+      emissiveColor: resolved.emissiveColor ?? "#000000",
+      emissiveIntensity: Math.max(0, resolved.emissiveIntensity ?? 0),
+      id: resolved.id,
+      metallicFactor: resolved.metalness ?? 0,
+      metallicRoughnessTexture: undefined,
+      metalnessTexture: await resolveEmbeddedTextureUri(metalnessTextureSource, false),
+      name: resolved.name,
+      normalTexture: await resolveEmbeddedTextureUri(normalTextureSource, embedExternal),
+      opacity: clamp01(resolved.opacity ?? 1),
+      roughnessFactor: resolved.roughness ?? 0.8,
+      roughnessTexture: await resolveEmbeddedTextureUri(roughnessTextureSource, false),
+      side: resolved.side,
+      textureVariation: resolved.textureVariation
+        ? {
+            enabled: resolved.textureVariation.enabled,
+            scale: resolved.textureVariation.scale
+          }
+        : undefined,
+      transparent: resolved.transparent ?? false
+    };
+  }
 
   return {
-    baseColorTexture: await resolveEmbeddedTextureUri(resolved.colorTexture ?? resolveGeneratedBlockoutTexture(resolved)),
+    baseColorTexture: await resolveEmbeddedTextureUri(baseColorTextureSource, embedExternal),
     color: resolved.color,
     emissiveColor: resolved.emissiveColor ?? "#000000",
     emissiveIntensity: Math.max(0, resolved.emissiveIntensity ?? 0),
     id: resolved.id,
     metallicFactor: resolved.metalness ?? 0,
     metallicRoughnessTexture: await createMetallicRoughnessTextureDataUri(
-      resolved.metalnessTexture,
-      resolved.roughnessTexture,
+      metalnessTextureSource,
+      roughnessTextureSource,
       resolved.metalness ?? 0,
       resolved.roughness ?? 0.8
     ),
     name: resolved.name,
-    normalTexture: await resolveEmbeddedTextureUri(resolved.normalTexture),
+    normalTexture: await resolveEmbeddedTextureUri(normalTextureSource, embedExternal),
     opacity: clamp01(resolved.opacity ?? 1),
     roughnessFactor: resolved.roughness ?? 0.8,
     side: resolved.side,
@@ -1071,12 +1148,20 @@ function createFacePlaneBasis(normal: Vec3) {
   return { u, v };
 }
 
-async function resolveEmbeddedTextureUri(source?: string) {
+async function resolveEmbeddedTextureUri(source?: string, embedExternalTextures = true) {
   if (!source) {
     return undefined;
   }
 
+  if (isTextureReferenceId(source)) {
+    return undefined;
+  }
+
   if (source.startsWith("data:")) {
+    return source;
+  }
+
+  if (!embedExternalTextures) {
     return source;
   }
 
@@ -1137,6 +1222,10 @@ async function createMetallicRoughnessTextureDataUri(
 
 async function loadImagePixels(source?: string) {
   if (!source || typeof OffscreenCanvas === "undefined" || typeof createImageBitmap === "undefined") {
+    return undefined;
+  }
+
+  if (isTextureReferenceId(source)) {
     return undefined;
   }
 

@@ -31,6 +31,8 @@ import {
   buildRuntimeBundleFromSnapshot,
   buildRuntimeSceneFromSnapshot,
   buildRuntimeWorldBundleFromWorld,
+  createRuntimeWorldBundleZip,
+  createWebHammerEngineBundleZip,
   serializeRuntimeScene,
   type WebHammerEngineBundle
 } from "@ggez/runtime-build";
@@ -68,7 +70,13 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MTLLoader } from "three/examples/jsm/loaders/MTLLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 
-export type WorkerExportKind = "whmap-load" | "whmap-save" | "engine-export" | "gltf-export" | "ai-model-generate";
+export type WorkerArchivePayload = {
+  bytes: Uint8Array;
+  fileExtension: "runtime.zip" | "world.runtime.zip";
+  mimeType: "application/zip";
+};
+
+export type WorkerExportKind = "whmap-load" | "whmap-save" | "engine-export" | "engine-export-archive" | "gltf-export" | "ai-model-generate";
 
 export type WorkerRequest =
   | {
@@ -83,7 +91,7 @@ export type WorkerRequest =
     }
   | {
       id: string;
-      kind: "engine-export" | "gltf-export";
+      kind: "engine-export" | "engine-export-archive" | "gltf-export";
       snapshot: SceneDocumentSnapshot | WorldPersistenceBundle;
     }
   | {
@@ -97,7 +105,7 @@ export type WorkerResponse =
       id: string;
       kind: WorkerExportKind;
       ok: true;
-      payload: string | SceneDocumentSnapshot | WebHammerEngineBundle | WorldPersistenceBundle | RuntimeWorldBundle;
+      payload: string | SceneDocumentSnapshot | WebHammerEngineBundle | WorldPersistenceBundle | RuntimeWorldBundle | WorkerArchivePayload;
     }
   | {
       id: string;
@@ -110,6 +118,11 @@ const gltfLoader = new GLTFLoader();
 const gltfExporter = new GLTFExporter();
 const mtlLoader = new MTLLoader();
 const modelTextureLoader = new TextureLoader();
+
+function logWorkerTiming(label: string, startedAt: number, details?: string) {
+  const suffix = details ? ` ${details}` : "";
+  console.info(`[export-worker] ${label} completed in ${formatDuration(now() - startedAt)}${suffix}`);
+}
 
 export async function executeWorkerRequest(request: WorkerRequest): Promise<WorkerResponse> {
   try {
@@ -137,6 +150,15 @@ export async function executeWorkerRequest(request: WorkerRequest): Promise<Work
         kind: request.kind,
         ok: true,
         payload: await exportEngineBundle(request.snapshot)
+      };
+    }
+
+    if (request.kind === "engine-export-archive") {
+      return {
+        id: request.id,
+        kind: request.kind,
+        ok: true,
+        payload: await exportEngineArchive(request.snapshot)
       };
     }
 
@@ -211,11 +233,48 @@ export async function serializeEngineScene(snapshot: SceneDocumentSnapshot | Wor
 }
 
 export async function exportEngineBundle(snapshot: SceneDocumentSnapshot | WorldPersistenceBundle): Promise<WebHammerEngineBundle | RuntimeWorldBundle> {
+  const startedAt = now();
   if ("documents" in snapshot) {
-    return buildRuntimeWorldBundleFromWorld(snapshot);
+    const bundle = await buildRuntimeWorldBundleFromWorld(snapshot);
+    logWorkerTiming("buildRuntimeWorldBundleFromWorld", startedAt, `(files=${bundle.files.length}, bytes=${formatBytes(sumRuntimeBundleBytes(bundle.files))})`);
+    return bundle;
   }
 
-  return buildRuntimeBundleFromSnapshot(snapshot);
+  const bundle = await buildRuntimeBundleFromSnapshot(snapshot);
+  logWorkerTiming("buildRuntimeBundleFromSnapshot", startedAt, `(files=${bundle.files.length}, bytes=${formatBytes(sumRuntimeBundleBytes(bundle.files))})`);
+  return bundle;
+}
+
+export async function exportEngineArchive(snapshot: SceneDocumentSnapshot | WorldPersistenceBundle): Promise<WorkerArchivePayload> {
+  const startedAt = now();
+  const bundle = await exportEngineBundle(snapshot);
+  const bundledAt = now();
+
+  if ("index" in bundle) {
+    const bytes = createRuntimeWorldBundleZip(bundle, "world.runtime.json", 0);
+    console.info(
+      `[export-worker] createRuntimeWorldBundleZip completed in ${formatDuration(now() - bundledAt)} ` +
+        `(archive=${formatBytes(bytes.byteLength)}, sourceFiles=${bundle.files.length}, sourceBytes=${formatBytes(sumRuntimeBundleBytes(bundle.files))})`
+    );
+    logWorkerTiming("exportEngineArchive", startedAt, "(world)");
+    return {
+      bytes,
+      fileExtension: "world.runtime.zip",
+      mimeType: "application/zip"
+    };
+  }
+
+  const bytes = createWebHammerEngineBundleZip(bundle, { compressionLevel: 0 });
+  console.info(
+    `[export-worker] createWebHammerEngineBundleZip completed in ${formatDuration(now() - bundledAt)} ` +
+      `(archive=${formatBytes(bytes.byteLength)}, sourceFiles=${bundle.files.length}, sourceBytes=${formatBytes(sumRuntimeBundleBytes(bundle.files))})`
+  );
+  logWorkerTiming("exportEngineArchive", startedAt, "(scene)");
+  return {
+    bytes,
+    fileExtension: "runtime.zip",
+    mimeType: "application/zip"
+  };
 }
 
 async function buildEngineScene(snapshot: SceneDocumentSnapshot): Promise<WebHammerEngineScene> {
@@ -1121,6 +1180,38 @@ function patchMtlTextureReferences(mtlText: string, texturePath?: string) {
   });
 
   return hasDiffuseMap ? normalized : `${normalized.trim()}\nmap_Kd ${texturePath}\n`;
+}
+
+function sumRuntimeBundleBytes(files: Array<{ bytes: Uint8Array }>) {
+  return files.reduce((total, file) => total + file.bytes.byteLength, 0);
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  if (bytes < 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function formatDuration(milliseconds: number) {
+  if (milliseconds < 1000) {
+    return `${milliseconds.toFixed(1)} ms`;
+  }
+
+  return `${(milliseconds / 1000).toFixed(2)} s`;
+}
+
+function now() {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
 }
 
 function slugify(value: string) {

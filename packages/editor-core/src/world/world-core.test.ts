@@ -4,7 +4,12 @@ import { createSceneDocumentSnapshot } from "../document/scene-document";
 import { makeTransform, vec3 } from "@ggez/shared";
 import { createMoveNodeToDocumentCommand } from "./world-commands";
 import { parseWorldPersistenceBundle, serializeWorldPersistenceBundle } from "./persistence";
-import { createWorldBundleFromLegacyScene, createWorldEditorCore } from "./world-core";
+import {
+  createWorldBundleFromLegacyScene,
+  createWorldEditorCore,
+  flattenWorldBundle,
+  normalizeWorldPersistenceBundle
+} from "./world-core";
 import type { AuthoringDocumentSnapshot, WorldPersistenceBundle } from "./types";
 
 describe("world authoring core", () => {
@@ -65,6 +70,63 @@ describe("world authoring core", () => {
     expect(world.getDocumentSnapshot("document:b")?.metadata.mount.transform.position).toEqual(vec3(48, 0, -12));
     expect(world.getDocumentSummaries().find((document) => document.documentId === "document:b")?.mount.transform.position).toEqual(
       vec3(48, 0, -12)
+    );
+  });
+
+  test("normalizes legacy embedded material textures when creating world bundles", () => {
+    const scene = createSeedSceneDocument();
+    scene.setMaterial({
+      color: "#ffffff",
+      colorTexture: "data:image/png;base64,AAAA",
+      id: "material:test",
+      name: "Test"
+    });
+
+    const bundle = createWorldBundleFromLegacyScene(createSceneDocumentSnapshot(scene));
+    const document = bundle.documents["document:main"];
+
+    expect(document.textures).toHaveLength(1);
+    expect(document.materials.find((material) => material.id === "material:test")?.colorTexture).toBe("texture:material:test:colorTexture");
+  });
+
+  test("normalizes legacy embedded material textures when importing world bundles", () => {
+    const bundle = normalizeWorldPersistenceBundle(createTwoDocumentWorldBundle());
+    const target = bundle.documents["document:a"];
+    target.materials.push({
+      color: "#ffffff",
+      colorTexture: "data:image/png;base64,BBBB",
+      id: "material:legacy",
+      name: "Legacy"
+    });
+
+    const world = createWorldEditorCore(bundle);
+    const imported = world.getDocumentSnapshot("document:a");
+
+    expect(imported?.textures).toHaveLength(1);
+    expect(imported?.materials.find((material) => material.id === "material:legacy")?.colorTexture).toBe("texture:material:legacy:colorTexture");
+  });
+
+  test("namespaces material texture references when flattening world bundles", () => {
+    const bundle = createTwoDocumentWorldBundle();
+    bundle.documents["document:a"].materials.push({
+      color: "#ffffff",
+      colorTexture: "texture:wall",
+      id: "material:wall",
+      name: "Wall"
+    });
+    bundle.documents["document:a"].textures.push({
+      dataUrl: "data:image/png;base64,AAAA",
+      id: "texture:wall",
+      name: "Wall"
+    });
+
+    const flattened = flattenWorldBundle(bundle);
+
+    expect(flattened.materials.find((material) => material.id === "document:a::material:wall")?.colorTexture).toBe(
+      "document:a::texture:wall"
+    );
+    expect(flattened.textures.find((texture) => texture.id === "document:a::texture:wall")?.dataUrl).toBe(
+      "data:image/png;base64,AAAA"
     );
   });
 });

@@ -1,6 +1,8 @@
 import type { Asset, Entity, GeometryNode, Material, TextureRecord, Transform } from "@ggez/shared";
 import {
+  MATERIAL_TEXTURE_FIELDS,
   composeTransforms,
+  isTextureReferenceId,
   isBrushNode,
   isInstancingNode,
   isMeshNode,
@@ -11,7 +13,14 @@ import {
   vec3
 } from "@ggez/shared";
 import type { Command, CommandStack } from "../commands/command-stack";
-import { createSceneDocument, createSceneDocumentSnapshot, loadSceneDocumentSnapshot, type SceneDocument, type SceneDocumentSnapshot } from "../document/scene-document";
+import {
+  createSceneDocument,
+  createSceneDocumentSnapshot,
+  loadSceneDocumentSnapshot,
+  normalizeSceneDocumentSnapshot,
+  type SceneDocument,
+  type SceneDocumentSnapshot
+} from "../document/scene-document";
 import { createEventBus, type EventBus } from "../events/event-bus";
 import { createSelectionState, type SelectionMode, type SelectionState } from "../selection/selection";
 import { createBounds, createDocumentSpatialIndex, createWorldSpatialIndex, mergeBounds, type DocumentSpatialIndex, type WorldSpatialIndex } from "./spatial-index";
@@ -151,7 +160,7 @@ export type SceneEditorAdapter = {
 export function createWorldEditorCore(
   input: WorldPersistenceBundle | SceneDocumentSnapshot = createWorldBundleFromLegacyScene(createSceneDocumentSnapshot(createSceneDocument()))
 ): WorldEditorCore {
-  let storageBundle = isWorldPersistenceBundle(input) ? cloneWorldBundle(input) : createWorldBundleFromLegacyScene(input);
+  let storageBundle = isWorldPersistenceBundle(input) ? normalizeWorldPersistenceBundle(cloneWorldBundle(input)) : createWorldBundleFromLegacyScene(input);
   const world: WorldDocument = {
     crossDocumentRefs: new Map<string, CrossDocumentRef>(),
     documents: new Map<DocumentID, AuthoringDocument>(),
@@ -455,7 +464,7 @@ export function createWorldEditorCore(
     },
     history,
     importBundle(bundle, reason = "world:import") {
-      storageBundle = cloneWorldBundle(bundle);
+      storageBundle = normalizeWorldPersistenceBundle(cloneWorldBundle(bundle));
       world.selection.clear();
       world.workingSet = createInitialWorkingSet(storageBundle);
       history.done.length = 0;
@@ -1098,10 +1107,11 @@ export function createSceneEditorAdapter(world: WorldEditorCore): SceneEditorAda
 }
 
 export function createWorldBundleFromLegacyScene(snapshot: SceneDocumentSnapshot): WorldPersistenceBundle {
+  const normalizedSnapshot = normalizeSceneDocumentSnapshot(snapshot);
   const documentId = "document:main";
   const partitionId = "partition:main";
   const documentSnapshot: AuthoringDocumentSnapshot = {
-    ...structuredClone(snapshot),
+    ...structuredClone(normalizedSnapshot),
     crossDocumentRefs: [],
     documentId,
     metadata: {
@@ -1109,10 +1119,10 @@ export function createWorldBundleFromLegacyScene(snapshot: SceneDocumentSnapshot
       mount: {
         transform: makeTransform()
       },
-      name: snapshot.metadata?.projectName ?? "Main Scene",
+      name: normalizedSnapshot.metadata?.projectName ?? "Main Scene",
       partitionIds: [partitionId],
       path: `/documents/${documentId}.json`,
-      slug: snapshot.metadata?.projectSlug ?? "main-scene",
+      slug: normalizedSnapshot.metadata?.projectSlug ?? "main-scene",
       tags: ["legacy-import"]
     },
     version: 1
@@ -1124,7 +1134,7 @@ export function createWorldBundleFromLegacyScene(snapshot: SceneDocumentSnapshot
     },
     manifest: {
       activeDocumentId: documentId,
-      metadata: structuredClone(snapshot.metadata),
+      metadata: structuredClone(normalizedSnapshot.metadata),
       partitions: [
         {
           bounds: deriveSnapshotBounds(documentSnapshot),
@@ -1410,10 +1420,13 @@ export function flattenWorldBundle(
     });
 
     sourceSnapshot.materials.forEach((material) => {
-      const nextMaterial = {
-        ...structuredClone(material),
-        id: namespaceId(documentId, material.id)
-      };
+      const nextMaterial = remapMaterialForWorld(
+        {
+          ...structuredClone(material),
+          id: namespaceId(documentId, material.id)
+        },
+        (textureId) => namespaceId(documentId, textureId)
+      );
 
       if (!seenMaterialIds.has(nextMaterial.id)) {
         seenMaterialIds.add(nextMaterial.id);
@@ -1462,7 +1475,15 @@ export function flattenWorldBundle(
     assets: [...assets, ...bundle.sharedAssets.assets.map((asset) => ({ ...structuredClone(asset), id: namespaceSharedId(asset.id) }))],
     entities,
     layers,
-    materials: [...materials, ...bundle.sharedAssets.materials.map((material) => ({ ...structuredClone(material), id: namespaceSharedId(material.id) }))],
+    materials: [
+      ...materials,
+      ...bundle.sharedAssets.materials.map((material) =>
+        remapMaterialForWorld(
+          { ...structuredClone(material), id: namespaceSharedId(material.id) },
+          namespaceSharedId
+        )
+      )
+    ],
     metadata: structuredClone(bundle.manifest.metadata),
     nodes,
     settings: resolveFlattenedWorldSettings(bundle, includeDocumentIds[0]),
@@ -1470,8 +1491,47 @@ export function flattenWorldBundle(
   };
 }
 
+function remapMaterialForWorld(material: Material, remapTextureId: (textureId: string) => string): Material {
+  const nextMaterial = structuredClone(material);
+
+  MATERIAL_TEXTURE_FIELDS.forEach((field) => {
+    const reference = nextMaterial[field];
+
+    if (typeof reference === "string" && isTextureReferenceId(reference)) {
+      nextMaterial[field] = remapTextureId(reference);
+    }
+  });
+
+  return nextMaterial;
+}
+
 function cloneWorldBundle(bundle: WorldPersistenceBundle): WorldPersistenceBundle {
   return structuredClone(bundle);
+}
+
+export function normalizeWorldPersistenceBundle(bundle: WorldPersistenceBundle): WorldPersistenceBundle {
+  return {
+    ...structuredClone(bundle),
+    documents: Object.fromEntries(
+      Object.entries(bundle.documents).map(([documentId, snapshot]) => {
+        const normalizedScene = normalizeSceneDocumentSnapshot(snapshot);
+
+        return [
+          documentId,
+          {
+            ...structuredClone(snapshot),
+            assets: normalizedScene.assets,
+            entities: normalizedScene.entities,
+            layers: normalizedScene.layers,
+            materials: normalizedScene.materials,
+            nodes: normalizedScene.nodes,
+            settings: normalizedScene.settings,
+            textures: normalizedScene.textures
+          } satisfies AuthoringDocumentSnapshot
+        ];
+      })
+    )
+  };
 }
 
 function createDefaultDocumentMetadata(documentId: DocumentID, name: string): AuthoringDocumentMetadata {

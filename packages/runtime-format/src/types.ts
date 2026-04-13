@@ -26,12 +26,24 @@ export type RuntimeMaterial = {
   emissiveColor?: string;
   emissiveIntensity?: number;
   id: string;
+  /**
+   * Optional separate metalness texture (blue channel). When present alongside
+   * `roughnessTexture` (and `metallicRoughnessTexture` is absent) it means the
+   * export skipped the expensive offline pixel-composite step and stored the
+   * channels as independent files. Runtimes should assign each map directly.
+   */
+  metalnessTexture?: string;
   metallicFactor: number;
+  /** Combined ORM texture (G=roughness, B=metalness) in glTF convention. */
   metallicRoughnessTexture?: string;
   name: string;
   normalTexture?: string;
   opacity?: number;
   roughnessFactor: number;
+  /**
+   * Optional separate roughness texture (green channel). See `metalnessTexture`.
+   */
+  roughnessTexture?: string;
   side?: MaterialRenderSide;
   textureVariation?: MaterialTextureVariation;
   transparent?: boolean;

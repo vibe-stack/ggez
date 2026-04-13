@@ -51,6 +51,7 @@ import {
   findPrimaryLight as findNodePrimaryLight
 } from "./object-factory";
 import { applyTextureVariationToStandardMaterial } from "./material-texture-variation";
+import { applyTextureVariationToNodeMaterial } from "./material-texture-variation-node";
 import type {
   WebHammerEngineBundle,
   WebHammerEngineModelNode,
@@ -91,6 +92,13 @@ export type WebHammerSceneLoaderOptions = {
   lod?: WebHammerSceneLodOptions;
   receiveShadow?: boolean;
   resolveAssetUrl?: (context: WebHammerAssetResolverContext) => Promise<string> | string;
+  /**
+   * When true, materials with texture variation are created as
+   * `MeshStandardNodeMaterial` (three/webgpu) with TSL-based voronoi variation
+   * instead of using the WebGL `onBeforeCompile` hook. Required when the scene
+   * is rendered with `WebGPURenderer`.
+   */
+  useNodeMaterials?: boolean;
 };
 
 export type WebHammerSceneLodOptions = {
@@ -937,7 +945,7 @@ async function createThreeMaterial(
     return cached;
   }
 
-  const material = new MeshStandardMaterial({
+  const materialParams = {
     color: materialSpec.color,
     emissive: materialSpec.emissiveColor ?? "#000000",
     emissiveIntensity: materialSpec.emissiveIntensity ?? 0,
@@ -946,7 +954,17 @@ async function createThreeMaterial(
     roughness: materialSpec.roughnessFactor,
     side: resolveMaterialSide(materialSpec.side),
     transparent: materialSpec.transparent ?? false
-  });
+  };
+
+  const useNodeMaterial = options.useNodeMaterials && materialSpec.textureVariation?.enabled;
+  let material: MeshStandardMaterial;
+
+  if (useNodeMaterial) {
+    const { MeshStandardNodeMaterial } = await import("three/webgpu");
+    material = new MeshStandardNodeMaterial(materialParams) as unknown as MeshStandardMaterial;
+  } else {
+    material = new MeshStandardMaterial(materialParams);
+  }
 
   if (materialSpec.baseColorTexture) {
     const texture = await loadTexture(materialSpec.baseColorTexture, materialSpec, "baseColorTexture", textureCache, options);
@@ -968,9 +986,35 @@ async function createThreeMaterial(
     );
     material.metalnessMap = ormTexture;
     material.roughnessMap = ormTexture;
+  } else {
+    // Separate-channel path: bundle exports skip the expensive ORM composite
+    // and store metalness / roughness as independent textures instead.
+    if (materialSpec.metalnessTexture) {
+      material.metalnessMap = await loadTexture(
+        materialSpec.metalnessTexture,
+        materialSpec,
+        "metallicRoughnessTexture",
+        textureCache,
+        options
+      );
+    }
+
+    if (materialSpec.roughnessTexture) {
+      material.roughnessMap = await loadTexture(
+        materialSpec.roughnessTexture,
+        materialSpec,
+        "metallicRoughnessTexture",
+        textureCache,
+        options
+      );
+    }
   }
 
-  applyTextureVariationToStandardMaterial(material, materialSpec.textureVariation);
+  if (useNodeMaterial) {
+    applyTextureVariationToNodeMaterial(material as any, materialSpec.textureVariation);
+  } else {
+    applyTextureVariationToStandardMaterial(material, materialSpec.textureVariation);
+  }
 
   material.name = materialSpec.name;
   material.needsUpdate = true;

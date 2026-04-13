@@ -179,6 +179,7 @@ type EditorShellProps = {
   physicsRevision: number;
   renderScene: DerivedRenderScene;
   renderMode: ViewportRenderMode;
+  runtimeSyncDebugLabel: string;
   sceneSettings: SceneSettings;
   selectedScenePathId?: string;
   selectedAssetId: string;
@@ -319,6 +320,7 @@ export function EditorShell({
   physicsRevision,
   renderScene,
   renderMode,
+  runtimeSyncDebugLabel,
   sceneSettings,
   selectedScenePathId,
   selectedAssetId,
@@ -583,6 +585,7 @@ export function EditorShell({
           gridSnapValues={gridSnapValues}
           jobs={jobs}
           meshEditMode={meshEditMode}
+          runtimeSyncDebugLabel={runtimeSyncDebugLabel}
           selectedNode={selectedNode}
           viewModeLabel={getViewModePreset(viewMode).shortLabel}
           viewport={activeViewport}

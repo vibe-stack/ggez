@@ -1,4 +1,4 @@
-import type { Material, TextureRecord } from "@ggez/shared";
+import { MATERIAL_TEXTURE_FIELDS, textureReferenceMatches, type Material, type TextureRecord } from "@ggez/shared";
 import type { Command } from "../command-stack";
 import type { SceneDocument } from "../../document/scene-document";
 
@@ -42,14 +42,11 @@ export function createDeleteTextureCommand(
 
   const affectedMaterials = Array.from(scene.materials.values())
     .filter((material) =>
-      material.colorTexture === texture.dataUrl ||
-      material.normalTexture === texture.dataUrl ||
-      material.metalnessTexture === texture.dataUrl ||
-      material.roughnessTexture === texture.dataUrl
+      MATERIAL_TEXTURE_FIELDS.some((field) => textureReferenceMatches(material[field], texture))
     )
     .map((material) => ({
       before: structuredClone(material),
-      next: removeTextureFromMaterial(material, texture.dataUrl, fallbackColor)
+      next: removeTextureFromMaterial(material, texture, fallbackColor)
     }));
 
   return {
@@ -71,25 +68,25 @@ export function createDeleteTextureCommand(
 
 function removeTextureFromMaterial(
   material: Material,
-  dataUrl: string,
+  texture: Pick<TextureRecord, "dataUrl" | "id">,
   fallbackColor: string
 ) {
   const next = structuredClone(material);
 
-  if (next.colorTexture === dataUrl) {
+  if (textureReferenceMatches(next.colorTexture, texture)) {
     next.colorTexture = undefined;
     next.color = fallbackColor;
   }
 
-  if (next.normalTexture === dataUrl) {
+  if (textureReferenceMatches(next.normalTexture, texture)) {
     next.normalTexture = undefined;
   }
 
-  if (next.metalnessTexture === dataUrl) {
+  if (textureReferenceMatches(next.metalnessTexture, texture)) {
     next.metalnessTexture = undefined;
   }
 
-  if (next.roughnessTexture === dataUrl) {
+  if (textureReferenceMatches(next.roughnessTexture, texture)) {
     next.roughnessTexture = undefined;
   }
 

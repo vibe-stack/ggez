@@ -10,13 +10,9 @@ type EditorSyncPushResponse = {
 };
 
 type PushSceneOptions = {
-  bundle: {
-    files: Array<{
-      bytes: number[];
-      mimeType: string;
-      path: string;
-    }>;
-    manifest: unknown;
+  archive: {
+    bytes: Uint8Array;
+    mimeType: "application/zip";
   };
   forceSwitch?: boolean;
   gameId?: string;
@@ -96,10 +92,21 @@ export function useGameConnection() {
     setIsPushing(true);
 
     try {
+      const startedAt = performance.now();
+      const bodyBytes = new Uint8Array(options.archive.bytes.byteLength);
+      bodyBytes.set(options.archive.bytes);
+      console.info(
+        `[editor-sync] pushScene starting ` +
+          `(archive=${formatBytes(bodyBytes.byteLength)}, gameId=${options.gameId ?? "auto"}, slug=${options.metadata.projectSlug ?? "untitled"})`
+      );
       const response = await fetch("/api/editor-sync/push", {
-        body: JSON.stringify(options),
+        body: bodyBytes.buffer,
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": options.archive.mimeType,
+          "X-Web-Hammer-Force-Switch": options.forceSwitch ? "1" : "0",
+          "X-Web-Hammer-Game-Id": options.gameId ?? "",
+          "X-Web-Hammer-Project-Name": options.metadata.projectName ?? "",
+          "X-Web-Hammer-Project-Slug": options.metadata.projectSlug ?? ""
         },
         method: "POST"
       });
@@ -108,6 +115,8 @@ export function useGameConnection() {
       if (!response.ok) {
         throw new Error(payload.error ?? "Failed to push scene to game.");
       }
+
+      console.info(`[editor-sync] pushScene request completed in ${formatDuration(performance.now() - startedAt)}`);
 
       setLastPush(payload);
       setError(undefined);
@@ -148,4 +157,28 @@ export function useGameConnection() {
     selectedGameId,
     setSelectedGameId
   };
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  if (bytes < 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function formatDuration(milliseconds: number) {
+  if (milliseconds < 1000) {
+    return `${milliseconds.toFixed(1)} ms`;
+  }
+
+  return `${(milliseconds / 1000).toFixed(2)} s`;
 }
