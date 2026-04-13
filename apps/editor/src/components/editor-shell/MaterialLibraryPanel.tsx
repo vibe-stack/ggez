@@ -908,6 +908,52 @@ function MaterialEditorForm({
       </div>
 
       <div className="space-y-2">
+        <PanelLabel>Voronoi Variation</PanelLabel>
+        <Button
+          className={cn(
+            "w-full justify-between rounded-xl bg-white/4 text-xs text-foreground/70 hover:bg-white/7",
+            draftMaterial.textureVariation?.enabled && "bg-emerald-500/14 text-emerald-200"
+          )}
+          onClick={() =>
+            onChangeDraft((current) => ({
+              ...current,
+              textureVariation: current.textureVariation?.enabled
+                ? undefined
+                : {
+                    enabled: true,
+                    scale: current.textureVariation?.scale ?? 4,
+                  },
+            }))
+          }
+          size="sm"
+          type="button"
+          variant="ghost"
+        >
+          <span>Cell Rotate + Blend</span>
+          <span>{draftMaterial.textureVariation?.enabled ? "On" : "Off"}</span>
+        </Button>
+        <DragInput
+          compact
+          disabled={!draftMaterial.textureVariation?.enabled}
+          label="Scale"
+          max={32}
+          min={1}
+          onChange={(value) =>
+            onChangeDraft((current) => ({
+              ...current,
+              textureVariation: {
+                enabled: true,
+                scale: value,
+              },
+            }))
+          }
+          precision={2}
+          step={0.25}
+          value={draftMaterial.textureVariation?.scale ?? 4}
+        />
+      </div>
+
+      <div className="space-y-2">
         {TEXTURE_FIELDS.map(({ field, icon: Icon, label }) => (
           <div
             className="flex items-center gap-2 rounded-xl bg-white/4 px-2 py-2"
@@ -1015,6 +1061,12 @@ function createDraftMaterial(material?: Material): Material {
         metalness: material.metalness ?? 0,
         opacity: material.opacity ?? 1,
         roughness: material.roughness ?? 0.8,
+        textureVariation: material.textureVariation
+          ? {
+              enabled: material.textureVariation.enabled,
+              scale: material.textureVariation.scale,
+            }
+          : undefined,
         transparent: material.transparent ?? false,
       }
     : {
@@ -1027,6 +1079,7 @@ function createDraftMaterial(material?: Material): Material {
         name: "Custom Material",
         opacity: 1,
         roughness: 0.8,
+        textureVariation: undefined,
         transparent: false,
       };
 }

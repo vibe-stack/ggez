@@ -44,6 +44,7 @@ import type {
   WebHammerExportModelLod
 } from "./types";
 import { resolveConfiguredSceneLodLevels, type WebHammerSceneLoaderOptions, type WebHammerSceneLodOptions } from "./loader";
+import { applyTextureVariationToStandardMaterial } from "./material-texture-variation";
 
 type TextureSlot = "baseColorTexture" | "metallicRoughnessTexture" | "normalTexture";
 
@@ -553,6 +554,8 @@ async function createThreeMaterial(
     material.metalnessMap = ormTexture;
     material.roughnessMap = ormTexture;
   }
+
+  applyTextureVariationToStandardMaterial(material, materialSpec.textureVariation);
 
   material.name = materialSpec.name;
   material.needsUpdate = true;

@@ -39,6 +39,10 @@ const runtimeScene: RuntimeScene = {
       name: "Test",
       opacity: 0.42,
       roughnessFactor: 1,
+      textureVariation: {
+        enabled: true,
+        scale: 6
+      },
       transparent: true
     }
   ],
@@ -109,6 +113,10 @@ describe("runtime-build", () => {
     expect(unpacked.manifest.materials[0]?.emissiveColor).toBe("#ff6600");
     expect(unpacked.manifest.materials[0]?.emissiveIntensity).toBe(0.75);
     expect(unpacked.manifest.materials[0]?.opacity).toBe(0.42);
+    expect(unpacked.manifest.materials[0]?.textureVariation).toEqual({
+      enabled: true,
+      scale: 6
+    });
     expect(unpacked.manifest.materials[0]?.transparent).toBe(true);
     expect(unpacked.manifest.entities[0]?.properties.vfxBundleAssetPath).toBe("assets/vfx/campfire.vfxbundle");
     expect(unpacked.manifest.entities[0]?.properties.vfxBundleDataUrl).toBe("");

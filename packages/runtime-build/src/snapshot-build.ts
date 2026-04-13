@@ -998,7 +998,7 @@ function buildPrimitiveGeometry(shape: "cone" | "cube" | "cylinder" | "sphere", 
 }
 
 async function resolveRuntimeMaterial(material?: Material): Promise<RuntimeMaterial> {
-  const resolved = material ?? {
+  const resolved = (material ?? {
     color: "#ffffff",
     emissiveColor: "#000000",
     emissiveIntensity: 0,
@@ -1007,6 +1007,11 @@ async function resolveRuntimeMaterial(material?: Material): Promise<RuntimeMater
     name: "Default Material",
     opacity: 1,
     roughness: 0.8
+  }) as Material & {
+    textureVariation?: {
+      enabled: boolean;
+      scale: number;
+    };
   };
 
   return {
@@ -1027,6 +1032,12 @@ async function resolveRuntimeMaterial(material?: Material): Promise<RuntimeMater
     opacity: clamp01(resolved.opacity ?? 1),
     roughnessFactor: resolved.roughness ?? 0.8,
     side: resolved.side,
+    textureVariation: resolved.textureVariation
+      ? {
+          enabled: resolved.textureVariation.enabled,
+          scale: resolved.textureVariation.scale
+        }
+      : undefined,
     transparent: resolved.transparent ?? false
   };
 }

@@ -101,7 +101,6 @@ import {
 } from "@/viewport/viewports";
 import { useEffect, useMemo, useRef, useState, type PointerEventHandler } from "react";
 import { BufferGeometry, Camera, Color, Float32BufferAttribute, Matrix4, Object3D, Plane, Raycaster, Vector2, Vector3 } from "three";
-import { WebGPURenderer } from "three/webgpu";
 import type {
   ArcState,
   BevelState,
@@ -2975,11 +2974,6 @@ export function ViewportCanvas({
       <Canvas
         camera={canvasCamera}
         dpr={Math.max(0.5, Math.min((typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1) * dprScale, 2.5))}
-        gl={async (props: object) => {
-          const renderer = new WebGPURenderer(props as Record<string, unknown>);
-          await renderer.init();
-          return renderer as any;
-        }}
         orthographic={viewport.projection === "orthographic"}
         onCreated={(state: RootState) => {
           cameraRef.current = state.camera;

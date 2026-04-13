@@ -6,6 +6,7 @@ import type {
   InstancingNode,
   Layer,
   LightNode,
+  MaterialTextureVariation,
   MaterialRenderSide,
   MeshNode,
   ModelNode,
@@ -32,6 +33,7 @@ export type RuntimeMaterial = {
   opacity?: number;
   roughnessFactor: number;
   side?: MaterialRenderSide;
+  textureVariation?: MaterialTextureVariation;
   transparent?: boolean;
 };
 

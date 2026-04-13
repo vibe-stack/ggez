@@ -60,6 +60,7 @@ export type RenderMaterial = {
   roughness: number;
   roughnessTexture?: string;
   side?: MaterialRenderSide;
+  textureVariation?: Material["textureVariation"];
   transparent?: boolean;
   wireframe: boolean;
 };
@@ -179,6 +180,7 @@ export function createDerivedRenderMesh(
       roughness: appearance.roughness,
       roughnessTexture: appearance.roughnessTexture,
       side: appearance.side,
+      textureVariation: appearance.textureVariation,
       transparent: appearance.transparent,
       wireframe: appearance.wireframe
     },
@@ -207,6 +209,7 @@ function getRenderAppearance(
   roughness: number;
   roughnessTexture?: string;
   side?: MaterialRenderSide;
+  textureVariation?: Material["textureVariation"];
   transparent?: boolean;
   primitiveLabel: string;
 } {
@@ -230,6 +233,7 @@ function getRenderAppearance(
       roughness: material?.roughness ?? 0.95,
       roughnessTexture: material?.roughnessTexture,
       side: material?.side,
+      textureVariation: material?.textureVariation,
       transparent: material?.transparent,
       wireframe: false,
       primitiveLabel: "box"
@@ -256,6 +260,7 @@ function getRenderAppearance(
       roughness: material?.roughness ?? 0.82,
       roughnessTexture: material?.roughnessTexture,
       side: material?.side,
+      textureVariation: material?.textureVariation,
       transparent: material?.transparent,
       wireframe: false,
       primitiveLabel: "poly"
@@ -294,6 +299,7 @@ function getRenderAppearance(
       roughness: material?.roughness ?? (node.data.role === "brush" ? 0.95 : 0.64),
       roughnessTexture: material?.roughnessTexture,
       side: material?.side,
+      textureVariation: material?.textureVariation,
       transparent: material?.transparent,
       wireframe: false,
       primitiveLabel: node.data.shape
@@ -556,6 +562,7 @@ function resolveRenderMaterial(
     roughness: material?.roughness ?? fallbackRoughness,
     roughnessTexture: material?.roughnessTexture,
     side: material?.side,
+    textureVariation: material?.textureVariation,
     transparent: material?.transparent,
     wireframe: false
   };

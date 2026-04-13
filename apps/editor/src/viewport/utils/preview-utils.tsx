@@ -29,6 +29,7 @@ import {
   renderModeUsesRenderableSurfaces, renderModeUsesSolidMaterials,
   type ViewportRenderMode
 } from "@/viewport/viewports";
+import { applyTextureVariationToStandardMaterial } from "@ggez/three-runtime";
 import { createIndexedGeometry } from "./geometry";
 import { Side } from "three";
 import { DoubleSide } from "three";
@@ -215,7 +216,7 @@ export function createPreviewMaterial(spec: DerivedRenderMesh["material"], selec
   const transparent = spec.transparent ?? false;
   const opacity = transparent ? spec.opacity ?? 1 : 1;
 
-  return new MeshStandardMaterial({
+  const material = new MeshStandardMaterial({
     color: colorTexture ? "#ffffff" : selected ? "#ffb35a" : hovered ? "#d8f4f0" : spec.color,
     emissive: selected ? "#f69036" : hovered ? "#2a7f74" : spec.emissiveColor ?? "#000000",
     emissiveIntensity: selected ? 0.38 : hovered ? 0.14 : spec.emissiveIntensity ?? 0,
@@ -231,6 +232,9 @@ export function createPreviewMaterial(spec: DerivedRenderMesh["material"], selec
     ...(normalTexture ? { normalMap: normalTexture } : {}),
     ...(roughnessTexture ? { roughnessMap: roughnessTexture } : {})
   });
+
+  applyTextureVariationToStandardMaterial(material, spec.textureVariation);
+  return material;
 }
 
 export function createSolidSurfaceMaterial(

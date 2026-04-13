@@ -210,6 +210,11 @@ export type MaterialCategory = "blockout" | "custom" | "flat";
 
 export type MaterialRenderSide = "back" | "double" | "front";
 
+export type MaterialTextureVariation = {
+  enabled: boolean;
+  scale: number;
+};
+
 export type TextureKind = "color" | "normal" | "metalness" | "roughness";
 
 export type TextureSource = "ai" | "import" | "upload";
@@ -246,6 +251,7 @@ export type Material = {
   path?: string;
   roughness?: number;
   roughnessTexture?: string;
+  textureVariation?: MaterialTextureVariation;
 };
 
 export type Layer = {

@@ -1040,6 +1040,7 @@ describe("loadWebHammerEngineScene", () => {
     expect((material as MeshStandardMaterial).emissiveIntensity).toBeCloseTo(0.6, 5);
     expect((material as MeshStandardMaterial).emissive.getHexString()).toBe("ff5500");
   });
+
 });
 
 function findFirstMesh(object: ReturnType<Awaited<ReturnType<typeof loadWebHammerEngineScene>>["nodes"]["get"]>) {

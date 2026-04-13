@@ -19,6 +19,10 @@ import { RenderInstancedMeshBatch, RenderInstancedModelPhysicsBatch } from "./In
 import { RuntimePlayer } from "./RuntimePlayer";
 import { PhysicsPropMesh, RenderLightNode, RenderStaticMesh, StaticPhysicsCollider } from "./PreviewRendererHelpers";
 
+// The main editor viewport runs on the stable default R3F WebGL renderer.
+// Keep the WebGPU-only VFX preview path disabled here until it has a WebGL fallback.
+const EDITOR_VIEWPORT_SUPPORTS_WEBGPU_VFX = false;
+
 
 export function ScenePreview({
   hiddenSceneItemIds = [],
@@ -54,7 +58,10 @@ export function ScenePreview({
   const hiddenIds = useMemo(() => new Set(hiddenSceneItemIds), [hiddenSceneItemIds]);
   const selectedIdSet = useMemo(() => new Set(selectedNodeIds), [selectedNodeIds]);
   const physicsActive = renderModeUsesRenderableSurfaces(renderMode) && physicsPlayback !== "stopped" && sceneSettings.world.physicsEnabled;
-  const vfxPlaybackActive = renderModeUsesFullLighting(renderMode) && physicsPlayback !== "stopped";
+  const vfxPlaybackActive =
+    EDITOR_VIEWPORT_SUPPORTS_WEBGPU_VFX &&
+    renderModeUsesFullLighting(renderMode) &&
+    physicsPlayback !== "stopped";
   const { physicsPropMeshes, playerSpawn, staticMeshes, visibleEntityMarkers, visibleGroups, visibleInstancedMeshes, visibleLights } = useMemo(() => {
     const nextPlayerSpawn = physicsActive
       ? renderScene.entityMarkers.find((entity) => entity.entityType === "player-spawn")

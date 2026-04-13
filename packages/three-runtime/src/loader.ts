@@ -50,6 +50,7 @@ import {
   extractPhysics as extractNodePhysics,
   findPrimaryLight as findNodePrimaryLight
 } from "./object-factory";
+import { applyTextureVariationToStandardMaterial } from "./material-texture-variation";
 import type {
   WebHammerEngineBundle,
   WebHammerEngineModelNode,
@@ -968,6 +969,8 @@ async function createThreeMaterial(
     material.metalnessMap = ormTexture;
     material.roughnessMap = ormTexture;
   }
+
+  applyTextureVariationToStandardMaterial(material, materialSpec.textureVariation);
 
   material.name = materialSpec.name;
   material.needsUpdate = true;

@@ -632,7 +632,7 @@ async function buildExportGeometry(
     vertices: Vec3[];
   }) => {
     const material = params.faceMaterialId ? await resolveExportMaterial(materialsById.get(params.faceMaterialId)) : fallbackMaterial;
-    const primitive = primitiveByMaterial.get(material.id) ?? {
+    const primitive: WebHammerExportGeometry["primitives"][number] = primitiveByMaterial.get(material.id) ?? {
       indices: [],
       material,
       normals: [],
@@ -1401,7 +1401,7 @@ function buildPrimitiveGeometry(shape: "cone" | "cube" | "cylinder" | "sphere", 
 }
 
 async function resolveExportMaterial(material?: Material) {
-  const resolved = material ?? {
+  const resolved = (material ?? {
     color: "#ffffff",
     emissiveColor: "#000000",
     emissiveIntensity: 0,
@@ -1410,6 +1410,11 @@ async function resolveExportMaterial(material?: Material) {
     name: "Default Material",
     opacity: 1,
     roughness: 0.8
+  }) as Material & {
+    textureVariation?: {
+      enabled: boolean;
+      scale: number;
+    };
   };
 
   return {
@@ -1430,6 +1435,12 @@ async function resolveExportMaterial(material?: Material) {
     opacity: clamp01(resolved.opacity ?? 1),
     roughnessFactor: resolved.roughness ?? 0.8,
     side: resolved.side,
+    textureVariation: resolved.textureVariation
+      ? {
+          enabled: resolved.textureVariation.enabled,
+          scale: resolved.textureVariation.scale
+        }
+      : undefined,
     transparent: resolved.transparent ?? false
   } satisfies WebHammerExportMaterial;
 }
