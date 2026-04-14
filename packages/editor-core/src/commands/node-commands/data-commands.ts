@@ -119,8 +119,11 @@ export function createSetMeshMaterialLayersCommand(
         return;
       }
 
-      nextNode.data.materialBlend = undefined;
-      nextNode.data.materialLayers = structuredClone(next);
+      nextNode.data = {
+        ...structuredClone(nextNode.data),
+        materialBlend: undefined,
+        materialLayers: structuredClone(next),
+      };
       nextScene.touch();
     },
     undo(nextScene) {
@@ -130,8 +133,11 @@ export function createSetMeshMaterialLayersCommand(
         return;
       }
 
-      nextNode.data.materialBlend = undefined;
-      nextNode.data.materialLayers = structuredClone(before);
+      nextNode.data = {
+        ...structuredClone(nextNode.data),
+        materialBlend: undefined,
+        materialLayers: structuredClone(before),
+      };
       nextScene.touch();
     },
   };

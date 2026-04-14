@@ -888,7 +888,7 @@ function createRenderableGeometry(mesh: DerivedRenderMesh) {
   let geometry: BufferGeometry | undefined;
 
   if (mesh.surface) {
-    geometry = createIndexedGeometry(mesh.surface.positions, mesh.surface.indices, mesh.surface.uvs, mesh.surface.groups);
+    geometry = createIndexedGeometry(mesh.surface.positions, mesh.surface.indices, mesh.surface.uvs, mesh.surface.groups, mesh.surface.normals);
   } else if (mesh.primitive?.kind === "box") {
     geometry = new BoxGeometry(mesh.primitive.size.x, mesh.primitive.size.y, mesh.primitive.size.z);
   } else if (mesh.primitive?.kind === "sphere") {
@@ -908,7 +908,9 @@ function createRenderableGeometry(mesh: DerivedRenderMesh) {
     return undefined;
   }
 
-  geometry.computeVertexNormals();
+  if (!mesh.surface?.normals) {
+    geometry.computeVertexNormals();
+  }
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
   return geometry;
@@ -1126,10 +1128,15 @@ function createIndexedGeometry(
   positions: number[],
   indices?: number[],
   uvs?: number[],
-  groups?: Array<{ count: number; materialIndex: number; start: number }>
+  groups?: Array<{ count: number; materialIndex: number; start: number }>,
+  normals?: number[]
 ) {
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+
+  if (normals) {
+    geometry.setAttribute("normal", new Float32BufferAttribute(normals, 3));
+  }
 
   if (uvs) {
     geometry.setAttribute("uv", new Float32BufferAttribute(uvs, 2));

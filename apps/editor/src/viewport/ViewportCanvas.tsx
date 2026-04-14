@@ -2482,10 +2482,9 @@ export function ViewportCanvas({
       return {
         ...currentState,
         offset,
-              previewMesh:
+        previewMesh
       };
     });
-                  ? paintEditableMeshMaterialLayers(
   };
 
   const commitArcPreview = () => {
@@ -2543,10 +2542,9 @@ export function ViewportCanvas({
 
       return {
         ...currentState,
-              previewMesh:
+        previewMesh,
         width
       };
-                  ? paintEditableMeshMaterialLayers(
     });
   };
 
@@ -3419,9 +3417,6 @@ export function ViewportCanvas({
         {editorInteractionEnabled && isActiveViewport && bevelState && selectedDisplayNode ? <EditableMeshPreviewOverlay mesh={bevelState.previewMesh} node={selectedDisplayNode} /> : null}
         {editorInteractionEnabled && isActiveViewport && (extrudeState?.kind === "mesh" || extrudeState?.kind === "brush-mesh") && selectedDisplayNode ? (
           <EditableMeshPreviewOverlay mesh={extrudeState.previewMesh} node={selectedDisplayNode} />
-        ) : null}
-        {editorInteractionEnabled && isActiveViewport && materialPaintState?.dragging && materialPaintState.previewMesh && selectedDisplayNode ? (
-          <EditableMeshPreviewOverlay mesh={materialPaintState.previewMesh} node={selectedDisplayNode} presentation="solid" />
         ) : null}
         {editorInteractionEnabled && isActiveViewport && sculptState?.dragging && sculptState.previewMesh && selectedDisplayNode ? (
           <EditableMeshPreviewOverlay mesh={sculptState.previewMesh} node={selectedDisplayNode} presentation="solid" />

@@ -941,7 +941,7 @@ function MaterialEditorForm({
           disabled={!draftMaterial.textureVariation?.enabled}
           label="Scale"
           max={32}
-          min={1}
+          min={0.01}
           onChange={(value) =>
             onChangeDraft((current) => ({
               ...current,
@@ -952,7 +952,7 @@ function MaterialEditorForm({
             }))
           }
           precision={2}
-          step={0.25}
+          step={0.1}
           value={draftMaterial.textureVariation?.scale ?? 4}
         />
       </div>

@@ -93,32 +93,50 @@ export function MeshPhysicsInspector({
   const physics = node.data.physics;
 
   return (
-    <ToolSection title="Mesh Physics">
-      <BooleanField
-        checked={Boolean(physics)}
-        label="Enabled"
-        onCheckedChange={(checked) => {
-          if (checked) {
-            onUpdateMeshData(node.id, { ...node.data, physics: physics ?? createDefaultMeshPhysics() }, node.data);
-            return;
+    <>
+      <ToolSection title="Mesh Surface">
+        <BooleanField
+          checked={node.data.shading === "smooth"}
+          label="Smooth Shading"
+          onCheckedChange={(checked) =>
+            onUpdateMeshData(
+              node.id,
+              {
+                ...node.data,
+                shading: checked ? "smooth" : "flat"
+              },
+              node.data
+            )
           }
-          onUpdateMeshData(node.id, { ...node.data, physics: undefined }, node.data);
-        }}
-      />
-      {physics ? (
-        <PropPhysicsFields
-          onChange={(nextPhysics) =>
-            onUpdateMeshData(node.id, { ...node.data, physics: nextPhysics }, node.data)
-          }
-          showColliderTransformEditor
-          physics={physics}
         />
-      ) : (
-        <div className="rounded-xl bg-white/4 px-3 py-2 text-[11px] text-foreground/52">
-          Enable physics to simulate this mesh at runtime.
-        </div>
-      )}
-    </ToolSection>
+      </ToolSection>
+      <ToolSection title="Mesh Physics">
+        <BooleanField
+          checked={Boolean(physics)}
+          label="Enabled"
+          onCheckedChange={(checked) => {
+            if (checked) {
+              onUpdateMeshData(node.id, { ...node.data, physics: physics ?? createDefaultMeshPhysics() }, node.data);
+              return;
+            }
+            onUpdateMeshData(node.id, { ...node.data, physics: undefined }, node.data);
+          }}
+        />
+        {physics ? (
+          <PropPhysicsFields
+            onChange={(nextPhysics) =>
+              onUpdateMeshData(node.id, { ...node.data, physics: nextPhysics }, node.data)
+            }
+            showColliderTransformEditor
+            physics={physics}
+          />
+        ) : (
+          <div className="rounded-xl bg-white/4 px-3 py-2 text-[11px] text-foreground/52">
+            Enable physics to simulate this mesh at runtime.
+          </div>
+        )}
+      </ToolSection>
+    </>
   );
 }
 

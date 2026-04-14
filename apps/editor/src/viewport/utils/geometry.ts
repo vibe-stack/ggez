@@ -8,9 +8,14 @@ export function createIndexedGeometry(
   uvs?: number[],
   groups?: DerivedSurfaceGroup[],
   blendLayerWeights?: number[][],
+  normals?: number[],
 ) {
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+
+  if (normals) {
+    geometry.setAttribute("normal", new Float32BufferAttribute(normals, 3));
+  }
 
   if (uvs) {
     geometry.setAttribute("uv", new Float32BufferAttribute(uvs, 2));

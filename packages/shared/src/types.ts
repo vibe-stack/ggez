@@ -98,6 +98,7 @@ export type EditableMesh = {
   materialBlend?: EditableMeshMaterialBlend;
   physics?: PropPhysics;
   role?: PrimitiveRole;
+  shading?: "flat" | "smooth";
 };
 
 export type ModelReference = {

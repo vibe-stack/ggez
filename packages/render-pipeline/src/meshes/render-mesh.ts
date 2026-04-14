@@ -75,6 +75,7 @@ export type DerivedSurfaceGroup = {
 export type DerivedSurfaceGeometry = {
   blendLayerWeights?: number[][];
   groups: DerivedSurfaceGroup[];
+  normals?: number[];
   positions: number[];
   indices: number[];
   uvs: number[];
@@ -261,7 +262,7 @@ function getRenderAppearance(
       edgeThickness: material?.edgeThickness,
       emissiveColor: material?.emissiveColor,
       emissiveIntensity: material?.emissiveIntensity,
-      flatShaded: true,
+      flatShaded: node.data.shading !== "smooth",
       metalness: material?.metalness ?? 0.05,
       metalnessTexture: material?.metalnessTexture,
       normalTexture: material?.normalTexture,
@@ -413,7 +414,7 @@ function resolveModelStringMetadata(asset: Asset | undefined, key: string) {
 function createBrushSurface(
   node: Extract<GeometryNode, { kind: "brush" }>['data'],
   materialsById: Map<MaterialID, Material>
-): { materialBlend?: RenderMaterialBlend; materials: RenderMaterial[]; surface: DerivedSurfaceGeometry } | undefined {
+): { materialLayers?: RenderMaterialLayer[]; materials: RenderMaterial[]; surface: DerivedSurfaceGeometry } | undefined {
   const rebuilt = reconstructBrushFaces(node);
 
   if (!rebuilt.valid || rebuilt.faces.length === 0) {
@@ -431,6 +432,7 @@ function createBrushSurface(
     })),
     materialsById,
     "#f69036",
+    true,
     0,
     0.95
   );
@@ -439,7 +441,8 @@ function createBrushSurface(
 function createEditableMeshSurface(
   node: Extract<GeometryNode, { kind: "mesh" }>['data'],
   materialsById: Map<MaterialID, Material>
-): { materialBlend?: RenderMaterialBlend; materials: RenderMaterial[]; surface: DerivedSurfaceGeometry } | undefined {
+): { materialLayers?: RenderMaterialLayer[]; materials: RenderMaterial[]; surface: DerivedSurfaceGeometry } | undefined {
+  const flatShaded = node.shading !== "smooth";
   const materialLayers = normalizeEditableMeshMaterialLayers(node.materialLayers, node.vertices.length, node.materialBlend);
   const vertexIndexById = new Map(node.vertices.map((vertex, index) => [vertex.id, index] as const));
   const mappedFaces = node.faces.map((face) => {
@@ -491,10 +494,11 @@ function createEditableMeshSurface(
     faces,
     materialsById,
     "#6ed5c0",
+    flatShaded,
     0.05,
     0.82,
     materialLayers?.map((layer) => ({
-      material: resolveRenderMaterial(materialsById.get(layer.materialId), "#6ed5c0", 0.05, 0.82),
+      material: resolveRenderMaterial(materialsById.get(layer.materialId), "#6ed5c0", flatShaded, 0.05, 0.82),
       opacity: layer.opacity,
     })),
   );
@@ -513,6 +517,7 @@ function buildDerivedSurface(
   }>,
   materialsById: Map<MaterialID, Material>,
   fallbackColor: string,
+  flatShaded: boolean,
   fallbackMetalness: number,
   fallbackRoughness: number,
   materialLayers?: RenderMaterialLayer[],
@@ -528,7 +533,7 @@ function buildDerivedSurface(
 
   faces.forEach((face) => {
     const material = face.materialId ? materialsById.get(face.materialId) : undefined;
-    const renderMaterial = resolveRenderMaterial(material, fallbackColor, fallbackMetalness, fallbackRoughness);
+    const renderMaterial = resolveRenderMaterial(material, fallbackColor, flatShaded, fallbackMetalness, fallbackRoughness);
     const materialKey = face.materialId ?? `fallback:${fallbackColor}`;
     const materialIndex = materialIndexByKey.get(materialKey) ?? materials.length;
 
@@ -573,6 +578,7 @@ function buildDerivedSurface(
       ...(materialLayers?.length ? { blendLayerWeights } : {}),
       groups,
       indices,
+      normals: flatShaded ? undefined : computeSmoothNormals(positions, indices),
       positions,
       uvs
     }
@@ -582,6 +588,7 @@ function buildDerivedSurface(
 function resolveRenderMaterial(
   material: Material | undefined,
   fallbackColor: string,
+  flatShaded: boolean,
   fallbackMetalness: number,
   fallbackRoughness: number
 ): RenderMaterial {
@@ -593,7 +600,7 @@ function resolveRenderMaterial(
     edgeThickness: material?.edgeThickness,
     emissiveColor: material?.emissiveColor,
     emissiveIntensity: material?.emissiveIntensity,
-    flatShaded: true,
+    flatShaded,
     metalness: material?.metalness ?? fallbackMetalness,
     metalnessTexture: material?.metalnessTexture,
     normalTexture: material?.normalTexture,
@@ -628,4 +635,68 @@ function createFacePlaneBasis(normal: Vec3) {
   const v = normalizeVec3(crossVec3(normalizedNormal, u));
 
   return { u, v };
+}
+
+function computeSmoothNormals(positions: number[], indices: number[]): number[] {
+  const vertexCount = positions.length / 3;
+  const accNormals = new Float64Array(positions.length);
+
+  // Build a map from position key -> all vertex indices sharing that position
+  const posMap = new Map<string, number[]>();
+  for (let i = 0; i < vertexCount; i++) {
+    const key = `${positions[i * 3]},${positions[i * 3 + 1]},${positions[i * 3 + 2]}`;
+    const list = posMap.get(key);
+    if (list) {
+      list.push(i);
+    } else {
+      posMap.set(key, [i]);
+    }
+  }
+
+  // For each triangle, accumulate weighted face normal to all vertices at the same positions
+  for (let i = 0; i < indices.length; i += 3) {
+    const vi0 = indices[i]!;
+    const vi1 = indices[i + 1]!;
+    const vi2 = indices[i + 2]!;
+
+    const ax = positions[vi0 * 3]!, ay = positions[vi0 * 3 + 1]!, az = positions[vi0 * 3 + 2]!;
+    const bx = positions[vi1 * 3]!, by = positions[vi1 * 3 + 1]!, bz = positions[vi1 * 3 + 2]!;
+    const cx = positions[vi2 * 3]!, cy = positions[vi2 * 3 + 1]!, cz = positions[vi2 * 3 + 2]!;
+
+    const ex = bx - ax, ey = by - ay, ez = bz - az;
+    const fx = cx - ax, fy = cy - ay, fz = cz - az;
+
+    const nx = ey * fz - ez * fy;
+    const ny = ez * fx - ex * fz;
+    const nz = ex * fy - ey * fx;
+
+    for (const vi of [vi0, vi1, vi2]) {
+      const key = `${positions[vi * 3]},${positions[vi * 3 + 1]},${positions[vi * 3 + 2]}`;
+      const sharedIndices = posMap.get(key)!;
+      for (const si of sharedIndices) {
+        accNormals[si * 3] += nx;
+        accNormals[si * 3 + 1] += ny;
+        accNormals[si * 3 + 2] += nz;
+      }
+    }
+  }
+
+  const result = new Array<number>(positions.length);
+  for (let i = 0; i < vertexCount; i++) {
+    const x = accNormals[i * 3]!;
+    const y = accNormals[i * 3 + 1]!;
+    const z = accNormals[i * 3 + 2]!;
+    const len = Math.sqrt(x * x + y * y + z * z);
+    if (len > 0) {
+      result[i * 3] = x / len;
+      result[i * 3 + 1] = y / len;
+      result[i * 3 + 2] = z / len;
+    } else {
+      result[i * 3] = 0;
+      result[i * 3 + 1] = 1;
+      result[i * 3 + 2] = 0;
+    }
+  }
+
+  return result;
 }

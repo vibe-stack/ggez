@@ -74,6 +74,7 @@ export function useRenderableGeometry(mesh: DerivedRenderMesh, renderMode: Viewp
         mesh.surface.uvs,
         mesh.surface.groups,
         mesh.surface.blendLayerWeights,
+        mesh.surface.normals,
       );
     } else if (mesh.primitive?.kind === "box") {
       bufferGeometry = new BoxGeometry(...toTuple(mesh.primitive.size));
@@ -95,7 +96,9 @@ export function useRenderableGeometry(mesh: DerivedRenderMesh, renderMode: Viewp
     }
 
     if (renderModeUsesRenderableSurfaces(renderMode)) {
-      bufferGeometry.computeVertexNormals();
+      if (!mesh.surface?.normals) {
+        bufferGeometry.computeVertexNormals();
+      }
     }
     bufferGeometry.computeBoundingBox();
     bufferGeometry.computeBoundingSphere();
@@ -217,11 +220,7 @@ export function createPreviewMaterial(
   selected: boolean,
   hovered: boolean,
 ) {
-  const colorTexture = spec.colorTexture
-    ? loadTexture(spec.colorTexture, true)
-    : spec.category === "blockout"
-      ? loadTexture(createBlockoutTextureDataUri(spec.color, spec.edgeColor ?? "#f5f2ea", spec.edgeThickness ?? 0.018), true)
-      : undefined;
+  const colorTexture = resolvePreviewColorTexture(spec);
   const normalTexture = spec.normalTexture ? loadTexture(spec.normalTexture, false) : undefined;
   const metalnessTexture = spec.metalnessTexture ? loadTexture(spec.metalnessTexture, false) : undefined;
   const roughnessTexture = spec.roughnessTexture ? loadTexture(spec.roughnessTexture, false) : undefined;
@@ -247,7 +246,7 @@ export function createPreviewMaterial(
 
   applyMaterialLayersToStandardMaterial(material, layers?.map((layer) => ({
     color: layer.material.color,
-    map: layer.material.colorTexture ? loadTexture(layer.material.colorTexture, true) : undefined,
+    map: resolvePreviewColorTexture(layer.material),
     metalness: layer.material.metalness,
     metalnessMap: layer.material.metalnessTexture ? loadTexture(layer.material.metalnessTexture, false) : undefined,
     opacity: layer.opacity,
@@ -256,6 +255,21 @@ export function createPreviewMaterial(
   })));
   applyTextureVariationToStandardMaterial(material, spec.textureVariation);
   return material;
+}
+
+function resolvePreviewColorTexture(spec: DerivedRenderMesh["material"]) {
+  if (spec.colorTexture) {
+    return loadTexture(spec.colorTexture, true);
+  }
+
+  if (spec.category === "blockout") {
+    return loadTexture(
+      createBlockoutTextureDataUri(spec.color, spec.edgeColor ?? "#f5f2ea", spec.edgeThickness ?? 0.018),
+      true,
+    );
+  }
+
+  return undefined;
 }
 
 export function createSolidSurfaceMaterial(

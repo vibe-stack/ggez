@@ -38,8 +38,16 @@ export function applyMaterialLayersToStandardMaterial<T extends MeshStandardMate
 ) {
   const resolvedLayers = normalizeStandardMaterialBlendLayers(layers);
   const userData = material.userData as MaterialBlendUserData;
+  const materialWithDefines = material as T & { defines?: Record<string, string> };
 
   userData.whMaterialBlendLayers = resolvedLayers;
+
+  if (resolvedLayers.some((layer) => layer.map || layer.roughnessMap || layer.metalnessMap)) {
+    materialWithDefines.defines = {
+      ...(materialWithDefines.defines ?? {}),
+      USE_UV: "",
+    };
+  }
 
   if (!resolvedLayers.length) {
     material.needsUpdate = true;

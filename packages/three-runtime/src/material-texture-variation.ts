@@ -2,7 +2,7 @@ import type { MaterialTextureVariation } from "@ggez/shared";
 import { MeshStandardMaterial } from "three";
 
 const DEFAULT_TEXTURE_VARIATION_SCALE = 4;
-const MIN_TEXTURE_VARIATION_SCALE = 1;
+const MIN_TEXTURE_VARIATION_SCALE = 0.01;
 const MAX_TEXTURE_VARIATION_SCALE = 64;
 
 type ResolvedMaterialTextureVariation = {
@@ -69,7 +69,7 @@ vec2 whTransformNormalXY( vec2 xy, vec2 mirrorMask, float rotationIndex ) {
 }
 
 WhTextureVariation whResolveTextureVariation( vec2 uv ) {
-  float scale = max( 1.0, whTextureVariationScale );
+  float scale = max( 0.01, whTextureVariationScale );
   vec2 scaledUv = uv * scale;
   vec2 baseCell = floor( scaledUv );
   vec2 localUv = fract( scaledUv );

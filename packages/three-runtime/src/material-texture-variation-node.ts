@@ -55,7 +55,7 @@ const whHash22 = /* @__PURE__ */ Fn(([p]: [any]) => {
 // ---------------------------------------------------------------------------
 
 function buildVariationData(scaleUniform: ReturnType<typeof uniform>) {
-  const scale = max(float(1.0), scaleUniform);
+  const scale = max(float(0.01), scaleUniform);
   const scaledUv = uv().mul(scale);
   const baseCell = floor(scaledUv);
   const localUv = fract(scaledUv);
