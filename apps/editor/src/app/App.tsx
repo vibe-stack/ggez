@@ -56,11 +56,10 @@ import {
 } from "@ggez/editor-core";
 import { convertBrushToEditableMesh, invertEditableMeshNormals } from "@ggez/geometry-kernel";
 import { type RuntimeWorldBundle } from "@ggez/runtime-build";
-import { createDerivedRenderSceneCache, deriveRenderSceneCached, gridSnapValues, type ViewportState } from "@ggez/render-pipeline";
+import { createDerivedRenderSceneCache, deriveRenderSceneCached } from "@ggez/render-pipeline";
 import {
   buildModelLodLevelOrder,
   createSerializedModelAssetFiles,
-  type BrushShape,
   type GeometryNode,
   isBrushNode,
   isInstancingSourceNode,
@@ -98,7 +97,6 @@ import {
   type SceneSettings
 } from "@ggez/shared";
 import type { PrimitiveShape } from "@ggez/shared";
-import { createToolSession, defaultToolId, defaultTools, type ToolId } from "@ggez/tool-system";
 import {
   createWorkerTaskManager,
   type WorkerJob
@@ -107,16 +105,14 @@ import { isWebHammerEngineBundle } from "@ggez/three-runtime";
 import { slugifyProjectName, type EditorFileMetadata } from "@ggez/dev-sync";
 import { WorldEditorShell } from "@/components/WorldEditorShell";
 import { useGameConnection } from "@/app/hooks/useGameConnection";
-import { uiStore, type RightPanelId } from "@/state/ui-store";
+import { uiStore } from "@/state/ui-store";
 import type { Transform } from "@ggez/shared";
-import type { MeshEditMode } from "@/viewport/editing";
 import { useAppHotkeys } from "@/app/hooks/useAppHotkeys";
 import { useCopilot } from "@/app/hooks/useCopilot";
 import { GameConnectionControl } from "@/components/editor-shell/GameConnectionControl";
 import { useEditorSubscriptions } from "@/app/hooks/useEditorSubscriptions";
 import { useExportWorker } from "@/app/hooks/useExportWorker";
-import { clampSnapSize, resolveViewportSnapSize } from "@/viewport/utils/snap";
-import type { BrushToolMode, InstanceBrushSourceOption, MeshEditToolbarActionRequest } from "@/viewport/types";
+import { resolveViewportSnapSize } from "@/viewport/utils/snap";
 import {
   createDefaultEntity,
   createDefaultLightData,
@@ -144,57 +140,23 @@ import { createEditableMeshFromPlane, createEditableMeshFromPrimitiveData } from
 import { resolveEffectiveSceneItemIds, toggleSceneItemId } from "@/lib/scene-hierarchy";
 import {
   focusViewportOnPoint,
-  resolveVisibleViewportPaneIds,
   viewportPaneIds,
-  type ViewModeId,
   type ViewportPaneId,
-  type ViewportRenderMode
 } from "@/viewport/viewports";
 import { loadStoredSceneEditorDraft, saveSceneEditorDraft } from "@/lib/draft-storage";
-
-const RUNTIME_SYNC_DEBUG_FINGERPRINT = "sync-ui 2026-04-13e";
+import { projectSessionStore, RUNTIME_SYNC_DEBUG_FINGERPRINT } from "@/state/project-session-store";
+import { resetSceneSessionStore, sceneSessionStore } from "@/state/scene-session-store";
+import { queueMeshEditToolbarAction, resetToolSessionStore, toolSessionStore } from "@/state/tool-session-store";
 
 export function App() {
   const [worldEditor] = useState(() => createWorldEditorCore(createSceneDocumentSnapshot(createSeedSceneDocument())));
   const [editor] = useState(() => createSceneEditorAdapter(worldEditor));
-  const [activeToolId, setActiveToolId] = useState<ToolId>(defaultToolId);
-  const [activeBrushShape, setActiveBrushShape] = useState<BrushShape>("cube");
-  const [brushToolMode, setBrushToolMode] = useState<BrushToolMode>("create");
-  const [aiModelPlacementArmed, setAiModelPlacementArmed] = useState(false);
-  const [aiModelDraft, setAiModelDraft] = useState<{
-    error?: string;
-    nodeId: string;
-    prompt: string;
-  } | null>(null);
-  const [meshEditMode, setMeshEditMode] = useState<MeshEditMode>("vertex");
-  const [meshEditToolbarAction, setMeshEditToolbarAction] = useState<MeshEditToolbarActionRequest>();
-  const [physicsPlayback, setPhysicsPlayback] = useState<"paused" | "running" | "stopped">("stopped");
-  const [physicsRevision, setPhysicsRevision] = useState(0);
-  const [selectedMaterialFaceIds, setSelectedMaterialFaceIds] = useState<string[]>([]);
-  const [transformMode, setTransformMode] = useState<"rotate" | "scale" | "translate">("translate");
   const [workerManager] = useState(() => createWorkerTaskManager());
   const [workerJobs, setWorkerJobs] = useState<WorkerJob[]>([]);
   const [committedSceneRevision, setCommittedSceneRevision] = useState(0);
   const [sceneRevision, setSceneRevision] = useState(0);
   const [selectionRevision, setSelectionRevision] = useState(0);
   const [worldRevision, setWorldRevision] = useState(0);
-  const [materialPaintBrushOpacity, setMaterialPaintBrushOpacity] = useState(0.85);
-  const [materialPaintMode, setMaterialPaintMode] = useState<"erase" | "paint" | null>(null);
-  const [sculptMode, setSculptMode] = useState<"deflate" | "inflate" | null>(null);
-  const [sculptBrushRadius, setSculptBrushRadius] = useState(3);
-  const [sculptBrushStrength, setSculptBrushStrength] = useState(0.2);
-  const [instanceBrushSize, setInstanceBrushSize] = useState(2.5);
-  const [instanceBrushDensity, setInstanceBrushDensity] = useState(8);
-  const [instanceBrushRandomness, setInstanceBrushRandomness] = useState(0.35);
-  const [instanceBrushSourceNodeId, setInstanceBrushSourceNodeId] = useState("");
-  const [selectedScenePathId, setSelectedScenePathId] = useState<string>();
-  const [projectName, setProjectName] = useState("Untitled Scene");
-  const [projectSlug, setProjectSlug] = useState("untitled-scene");
-  const [projectSlugDirty, setProjectSlugDirty] = useState(false);
-  const [runtimeSyncDebugLabel, setRuntimeSyncDebugLabel] = useState(`${RUNTIME_SYNC_DEBUG_FINGERPRINT} idle`);
-  const [hiddenSceneItemIds, setHiddenSceneItemIds] = useState<string[]>([]);
-  const [lockedSceneItemIds, setLockedSceneItemIds] = useState<string[]>([]);
-  const [draftHydrated, setDraftHydrated] = useState(false);
   const latestDraftRef = useRef<ReturnType<typeof buildSceneDraftPayload> | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const sceneDocumentInputRef = useRef<HTMLInputElement | null>(null);
@@ -205,8 +167,19 @@ export function App() {
     assetId: string;
     level: ModelLodLevel;
   } | null>(null);
-  const ui = useSnapshot(uiStore);
-  const toolSession = useMemo(() => createToolSession(activeToolId), [activeToolId]);
+  const toolSessionSnapshot = useSnapshot(toolSessionStore);
+  const projectSessionSnapshot = useSnapshot(projectSessionStore);
+  const sceneSessionSnapshot = useSnapshot(sceneSessionStore);
+  const activeToolId = toolSessionSnapshot.activeToolId;
+  const aiModelDraft = toolSessionSnapshot.aiModelDraft;
+  const physicsPlayback = toolSessionSnapshot.physicsPlayback;
+  const projectName = projectSessionSnapshot.projectName;
+  const projectSlug = projectSessionSnapshot.projectSlug;
+  const projectSlugDirty = projectSessionSnapshot.projectSlugDirty;
+  const draftHydrated = projectSessionSnapshot.draftHydrated;
+  const hiddenSceneItemIds = sceneSessionSnapshot.hiddenSceneItemIds;
+  const lockedSceneItemIds = sceneSessionSnapshot.lockedSceneItemIds;
+  const selectedScenePathId = sceneSessionSnapshot.selectedScenePathId;
   const { downloadBinaryFile, downloadTextFile, exportJobs, runWorkerRequest } = useExportWorker();
   const gameConnection = useGameConnection();
   const workingSet = useMemo(() => worldEditor.getWorkingSet(), [worldEditor, worldRevision]);
@@ -250,42 +223,10 @@ export function App() {
   );
   const sceneNodes = useMemo(() => Array.from(editor.scene.nodes.values()), [editor, committedSceneRevision]);
   const sceneEntities = useMemo(() => Array.from(editor.scene.entities.values()), [editor, committedSceneRevision]);
-  const primarySelectedNode = useMemo(() => {
-    const selectedId = editor.selection.ids[0];
-    return selectedId ? editor.scene.getNode(selectedId) : undefined;
-  }, [editor, selectionRevision]);
   const modelAssets = useMemo(
     () => buildModelAssetLibrary(editor.scene.assets.values(), editor.scene.nodes.values()),
     [editor, committedSceneRevision]
   );
-  const instanceBrushSourceOptions = useMemo<InstanceBrushSourceOption[]>(
-    () =>
-      sceneNodes
-        .filter((node) => isInstancingSourceNode(node))
-        .map((node) => ({
-          id: node.id,
-          kind: node.kind,
-          label: `${node.name} · ${node.kind}`
-        })),
-    [sceneNodes]
-  );
-  const instanceBrushSourceNode = useMemo(
-    () => sceneNodes.find((node) => node.id === instanceBrushSourceNodeId && isInstancingSourceNode(node)),
-    [instanceBrushSourceNodeId, sceneNodes]
-  );
-  const instanceBrushSourceTransform = useMemo(() => {
-    if (!instanceBrushSourceNode) {
-      return undefined;
-    }
-
-    return (
-      renderScene.nodeTransforms.get(instanceBrushSourceNode.id) ??
-      (workingSet.mode === "world" && activeWorldDocumentId
-        ? renderScene.nodeTransforms.get(`${activeWorldDocumentId}::${instanceBrushSourceNode.id}`)
-        : undefined) ??
-      instanceBrushSourceNode.transform
-    );
-  }, [activeWorldDocumentId, instanceBrushSourceNode, renderScene.nodeTransforms, workingSet.mode]);
   const sceneItemIdSet = useMemo(
     () => new Set<string>([...sceneNodes.map((node) => node.id), ...sceneEntities.map((entity) => entity.id)]),
     [sceneEntities, sceneNodes]
@@ -317,8 +258,8 @@ export function App() {
       return nextIds.length === currentIds.length ? currentIds : nextIds;
     };
 
-    setHiddenSceneItemIds(filterValidIds);
-    setLockedSceneItemIds(filterValidIds);
+    sceneSessionStore.hiddenSceneItemIds = filterValidIds(sceneSessionStore.hiddenSceneItemIds);
+    sceneSessionStore.lockedSceneItemIds = filterValidIds(sceneSessionStore.lockedSceneItemIds);
   }, [sceneItemIdSet]);
 
   useEffect(() => {
@@ -346,8 +287,8 @@ export function App() {
       return;
     }
 
-    setAiModelDraft(null);
-    setAiModelPlacementArmed(false);
+    toolSessionStore.aiModelDraft = null;
+    toolSessionStore.aiModelPlacementArmed = false;
   }, [aiModelDraft, committedSceneRevision, editor]);
 
   useEffect(() => {
@@ -357,26 +298,15 @@ export function App() {
   }, [committedSceneRevision, editor]);
 
   useEffect(() => {
-    const currentIsValid = instanceBrushSourceOptions.some((option) => option.id === instanceBrushSourceNodeId);
-
-    if (currentIsValid) {
-      return;
-    }
-
-    const selectedSourceId = primarySelectedNode && isInstancingSourceNode(primarySelectedNode) ? primarySelectedNode.id : undefined;
-    setInstanceBrushSourceNodeId(selectedSourceId ?? instanceBrushSourceOptions[0]?.id ?? "");
-  }, [instanceBrushSourceNodeId, instanceBrushSourceOptions, primarySelectedNode]);
-
-  useEffect(() => {
     const scenePaths = editor.scene.settings.paths ?? [];
 
     if (scenePaths.length === 0) {
-      setSelectedScenePathId(undefined);
+      sceneSessionStore.selectedScenePathId = undefined;
       return;
     }
 
     if (!selectedScenePathId || !scenePaths.some((pathDefinition) => pathDefinition.id === selectedScenePathId)) {
-      setSelectedScenePathId(scenePaths[0]?.id);
+      sceneSessionStore.selectedScenePathId = scenePaths[0]?.id;
     }
   }, [committedSceneRevision, editor, selectedScenePathId]);
 
@@ -405,7 +335,7 @@ export function App() {
 
     if (firstResolved?.documentId && firstResolved.documentId !== activeWorldDocumentId) {
       worldEditor.setActiveDocument(firstResolved.documentId);
-      editor.syncFromWorld("world:select-document");
+      syncEditorFromWorld("world:select-document");
     }
 
     const localIds = nodeIds
@@ -418,20 +348,24 @@ export function App() {
   };
 
   const handleToggleSceneItemVisibility = (itemId: string) => {
-    setHiddenSceneItemIds((currentIds) => toggleSceneItemId(currentIds, itemId));
+    sceneSessionStore.hiddenSceneItemIds = toggleSceneItemId(sceneSessionStore.hiddenSceneItemIds, itemId);
   };
 
   const handleToggleSceneItemLock = (itemId: string) => {
-    setLockedSceneItemIds((currentIds) => toggleSceneItemId(currentIds, itemId));
+    sceneSessionStore.lockedSceneItemIds = toggleSceneItemId(sceneSessionStore.lockedSceneItemIds, itemId);
   };
 
-  const handleSetToolId = (toolId: ToolId) => {
-    setActiveToolId(toolId);
+  const syncEditorFromWorld = (reason: string) => {
+    editor.syncFromWorld(reason);
+    setWorldRevision((revision) => revision + 1);
+    setSceneRevision((revision) => revision + 1);
+    setCommittedSceneRevision((revision) => revision + 1);
+    setSelectionRevision((revision) => revision + 1);
   };
 
   useEffect(() => {
     if (activeToolId !== "mesh-edit") {
-      setSculptMode(null);
+      toolSessionStore.sculptMode = null;
       return;
     }
 
@@ -451,70 +385,6 @@ export function App() {
     );
   }, [activeToolId, committedSceneRevision, editor, selectionRevision]);
 
-  const handleSetRightPanel = (panel: RightPanelId | null) => {
-    uiStore.rightPanel = panel;
-  };
-
-  const handleActivateViewport = (viewportId: ViewportPaneId) => {
-    uiStore.activeViewportId = viewportId;
-  };
-
-  const resolveViewportFocusPoint = () => {
-    const selectedNodeId = editor.selection.ids[0];
-    const selectedNode = selectedNodeId ? editor.scene.getNode(selectedNodeId) : undefined;
-    const selectedEntity = !selectedNode && selectedNodeId ? editor.scene.getEntity(selectedNodeId) : undefined;
-
-    if (selectedNode) {
-      return renderScene.nodeTransforms.get(selectedNode.id)?.position ?? selectedNode.transform.position;
-    }
-
-    if (selectedEntity) {
-      return renderScene.entityTransforms.get(selectedEntity.id)?.position ?? selectedEntity.transform.position;
-    }
-
-    return vec3(0, 0, 0);
-  };
-
-  const handleSetViewMode = (viewMode: ViewModeId) => {
-    uiStore.viewMode = viewMode;
-
-    const visiblePaneIds = resolveVisibleViewportPaneIds(viewMode);
-
-    if (!visiblePaneIds.includes(uiStore.activeViewportId)) {
-      uiStore.activeViewportId = "perspective";
-    }
-
-    if (viewMode === "3d-only") {
-      return;
-    }
-
-    const focusPoint = resolveViewportFocusPoint();
-
-    (["top", "front", "side"] as const).forEach((viewportId) => {
-      focusViewportOnPoint(uiStore.viewports[viewportId], focusPoint);
-    });
-  };
-
-  const handleUpdateViewport = (viewportId: ViewportPaneId, viewport: ViewportState) => {
-    uiStore.viewports[viewportId].projection = viewport.projection;
-    uiStore.viewports[viewportId].camera = viewport.camera;
-  };
-
-  const handleToggleViewportQuality = () => {
-    uiStore.viewportQuality =
-      uiStore.viewportQuality === 0.5
-        ? 0.75
-        : uiStore.viewportQuality === 0.75
-          ? 1
-          : uiStore.viewportQuality === 1
-            ? 1.5
-            : 0.5;
-  };
-
-  const handleSetRenderMode = (renderMode: ViewportRenderMode) => {
-    uiStore.renderMode = renderMode;
-  };
-
   const handleClearSelection = () => {
     editor.clearSelection();
   };
@@ -524,7 +394,7 @@ export function App() {
 
     if (resolved.documentId && resolved.documentId !== activeWorldDocumentId) {
       worldEditor.setActiveDocument(resolved.documentId);
-      editor.syncFromWorld("world:focus-document");
+      syncEditorFromWorld("world:focus-document");
     }
 
     const node = editor.scene.getNode(resolved.localId);
@@ -557,25 +427,8 @@ export function App() {
     });
   };
 
-  const handleSetSnapSize = (snapSize: number) => {
-    const nextSnapSize = clampSnapSize(snapSize);
-
-    viewportPaneIds.forEach((viewportId) => {
-      uiStore.viewports[viewportId].grid.snapSize = nextSnapSize;
-    });
-  };
-
-  const handleSetSnapEnabled = (enabled: boolean) => {
-    viewportPaneIds.forEach((viewportId) => {
-      uiStore.viewports[viewportId].grid.enabled = enabled;
-    });
-  };
-
-  const handleMeshEditToolbarAction = (kind: MeshEditToolbarActionRequest["kind"]) => {
-    setMeshEditToolbarAction((current) => ({
-      id: (current?.id ?? 0) + 1,
-      kind
-    }));
+  const handleMeshEditToolbarAction = (kind: Parameters<typeof queueMeshEditToolbarAction>[0]) => {
+    queueMeshEditToolbarAction(kind);
   };
 
   const handleUpdateNodeTransform = (
@@ -1153,39 +1006,35 @@ export function App() {
   const handleArmAiModelPlacement = () => {
     if (aiModelDraft?.nodeId && editor.scene.getNode(aiModelDraft.nodeId)) {
       editor.select([aiModelDraft.nodeId], "object");
-      setActiveToolId("transform");
-      setTransformMode("scale");
-      setAiModelPlacementArmed(false);
+      toolSessionStore.activeToolId = "transform";
+      toolSessionStore.transformMode = "scale";
+      toolSessionStore.aiModelPlacementArmed = false;
       return;
     }
 
-    setAiModelPlacementArmed(true);
-    setAiModelDraft((current) =>
-      current
-        ? {
-            ...current,
-            error: undefined
-          }
-        : current
-    );
-    setActiveToolId("brush");
+    toolSessionStore.aiModelPlacementArmed = true;
+    toolSessionStore.aiModelDraft = toolSessionStore.aiModelDraft
+      ? {
+          ...toolSessionStore.aiModelDraft,
+          error: undefined
+        }
+      : toolSessionStore.aiModelDraft;
+    toolSessionStore.activeToolId = "brush";
   };
 
   const handleCancelAiModelPlacement = () => {
-    setAiModelPlacementArmed(false);
-    setAiModelDraft(null);
+    toolSessionStore.aiModelPlacementArmed = false;
+    toolSessionStore.aiModelDraft = null;
   };
 
   const handleUpdateAiModelPrompt = (prompt: string) => {
-    setAiModelDraft((current) =>
-      current
-        ? {
-            ...current,
-            error: undefined,
-            prompt
-          }
-        : current
-    );
+    toolSessionStore.aiModelDraft = toolSessionStore.aiModelDraft
+      ? {
+          ...toolSessionStore.aiModelDraft,
+          error: undefined,
+          prompt
+        }
+      : toolSessionStore.aiModelDraft;
   };
 
   const handlePlaceAiModelPlaceholder = (position: Vec3) => {
@@ -1197,14 +1046,14 @@ export function App() {
 
     editor.execute(command);
     editor.select([nodeId], "object");
-    setAiModelPlacementArmed(false);
-    setActiveToolId("transform");
-    setTransformMode("scale");
-    setAiModelDraft((current) => ({
+    toolSessionStore.aiModelPlacementArmed = false;
+    toolSessionStore.activeToolId = "transform";
+    toolSessionStore.transformMode = "scale";
+    toolSessionStore.aiModelDraft = {
       error: undefined,
       nodeId,
-      prompt: current?.prompt ?? ""
-    }));
+      prompt: toolSessionStore.aiModelDraft?.prompt ?? ""
+    };
     enqueueWorkerJob("AI proxy placement", { task: "triangulation", worker: "geometryWorker" }, 500);
   };
 
@@ -1217,19 +1066,17 @@ export function App() {
     const node = editor.scene.getNode(nodeId);
 
     if (!node || !isPrimitiveNode(node)) {
-      setAiModelDraft((current) =>
-        current
-          ? {
-              ...current,
-              error: "Proxy cube is missing."
-            }
-          : current
-      );
+      toolSessionStore.aiModelDraft = toolSessionStore.aiModelDraft
+        ? {
+            ...toolSessionStore.aiModelDraft,
+            error: "Proxy cube is missing."
+          }
+        : toolSessionStore.aiModelDraft;
       return;
     }
 
-    setAiModelDraft(null);
-    setAiModelPlacementArmed(false);
+    toolSessionStore.aiModelDraft = null;
+    toolSessionStore.aiModelPlacementArmed = false;
     void queueAiModelGeneration(nodeId, prompt.trim());
   };
 
@@ -1300,11 +1147,11 @@ export function App() {
       uiStore.rightPanel = "assets";
       enqueueWorkerJob("AI model generation", { task: "triangulation", worker: "geometryWorker" }, 700);
     } catch (error) {
-      setAiModelDraft({
+      toolSessionStore.aiModelDraft = {
         error: error instanceof Error ? error.message : "Failed to generate model.",
         nodeId,
         prompt
-      });
+      };
     }
   };
 
@@ -1356,8 +1203,10 @@ export function App() {
   };
 
   const handleCreateBrush = () => {
+    const { activeBrushShape } = toolSessionStore;
+
     if (activeBrushShape === "custom-polygon" || activeBrushShape === "stairs" || activeBrushShape === "ramp") {
-      setActiveToolId("brush");
+      toolSessionStore.activeToolId = "brush";
       return;
     }
 
@@ -1690,16 +1539,11 @@ export function App() {
 
   const handlePlayPhysics = () => {
     editor.clearSelection();
-    setPhysicsPlayback("running");
+    toolSessionStore.physicsPlayback = "running";
   };
 
   const handlePausePhysics = () => {
-    setPhysicsPlayback((current) => (current === "stopped" ? "stopped" : "paused"));
-  };
-
-  const handleStopPhysics = () => {
-    setPhysicsPlayback("stopped");
-    setPhysicsRevision((current) => current + 1);
+    toolSessionStore.physicsPlayback = toolSessionStore.physicsPlayback === "stopped" ? "stopped" : "paused";
   };
 
   const buildActiveSceneSnapshot = () => ({
@@ -1742,9 +1586,9 @@ export function App() {
 
     const nextProjectName = metadata.projectName?.trim() || resolvedProjectName;
     const nextProjectSlug = slugifyProjectName(metadata.projectSlug?.trim() || nextProjectName);
-    setProjectName(nextProjectName);
-    setProjectSlug(nextProjectSlug);
-    setProjectSlugDirty(Boolean(metadata.projectSlug));
+    projectSessionStore.projectName = nextProjectName;
+    projectSessionStore.projectSlug = nextProjectSlug;
+    projectSessionStore.projectSlugDirty = Boolean(metadata.projectSlug);
   };
 
   useEffect(() => {
@@ -1759,15 +1603,15 @@ export function App() {
         }
 
         worldEditor.importBundle(draft.snapshot, "world:restore-draft");
-        editor.syncFromWorld("world:restore-draft");
-        setProjectName(draft.projectName || "Untitled Scene");
-        setProjectSlug(slugifyProjectName(draft.projectSlug || draft.projectName || "Untitled Scene"));
-        setProjectSlugDirty(draft.projectSlugDirty);
+        syncEditorFromWorld("world:restore-draft");
+        projectSessionStore.projectName = draft.projectName || "Untitled Scene";
+        projectSessionStore.projectSlug = slugifyProjectName(draft.projectSlug || draft.projectName || "Untitled Scene");
+        projectSessionStore.projectSlugDirty = draft.projectSlugDirty;
       } catch (error) {
         console.warn("Failed to restore the Trident draft.", error);
       } finally {
         if (!cancelled) {
-          setDraftHydrated(true);
+          projectSessionStore.draftHydrated = true;
         }
       }
     })();
@@ -1811,17 +1655,17 @@ export function App() {
 
   const handleProjectNameChange = (value: string) => {
     const previousAutoSlug = slugifyProjectName(projectName);
-    setProjectName(value);
+    projectSessionStore.projectName = value;
 
     if (!projectSlugDirty || projectSlug === previousAutoSlug) {
-      setProjectSlug(slugifyProjectName(value));
-      setProjectSlugDirty(false);
+      projectSessionStore.projectSlug = slugifyProjectName(value);
+      projectSessionStore.projectSlugDirty = false;
     }
   };
 
   const handleProjectSlugChange = (value: string) => {
-    setProjectSlug(slugifyProjectName(value));
-    setProjectSlugDirty(true);
+    projectSessionStore.projectSlug = slugifyProjectName(value);
+    projectSessionStore.projectSlugDirty = true;
   };
 
   const handleNewFile = () => {
@@ -1831,20 +1675,15 @@ export function App() {
 
     const nextSnapshot = createSceneDocumentSnapshot(createSeedSceneDocument());
     worldEditor.importLegacySnapshot(nextSnapshot, "scene:new-file");
-    editor.syncFromWorld("scene:new-file");
+    syncEditorFromWorld("scene:new-file");
     editor.commands.clear();
 
-    setProjectName("Untitled Scene");
-    setProjectSlug("untitled-scene");
-    setProjectSlugDirty(false);
-    setSelectedScenePathId(undefined);
-    setSelectedMaterialFaceIds([]);
-    setHiddenSceneItemIds([]);
-    setLockedSceneItemIds([]);
-    setAiModelPlacementArmed(false);
-    setAiModelDraft(null);
-    setPhysicsPlayback("stopped");
-    setPhysicsRevision(0);
+    projectSessionStore.projectName = "Untitled Scene";
+    projectSessionStore.projectSlug = "untitled-scene";
+    projectSessionStore.projectSlugDirty = false;
+    projectSessionStore.runtimeSyncDebugLabel = `${RUNTIME_SYNC_DEBUG_FINGERPRINT} idle`;
+    resetSceneSessionStore();
+    resetToolSessionStore();
     uiStore.selectedAssetId = "";
     uiStore.selectedMaterialId = "material:blockout:concrete";
   };
@@ -1897,10 +1736,10 @@ export function App() {
 
       if (isWorldPersistenceBundlePayload(payload)) {
         worldEditor.importBundle(payload, "world:load-whmap");
-        editor.syncFromWorld("world:load-whmap");
+        syncEditorFromWorld("world:load-whmap");
       } else {
         worldEditor.importLegacySnapshot(payload, "scene:load-whmap");
-        editor.syncFromWorld("scene:load-whmap");
+        syncEditorFromWorld("scene:load-whmap");
       }
     }
 
@@ -1942,7 +1781,7 @@ export function App() {
         activeDocumentId
       };
       worldEditor.importBundle(nextBundle, "world:import-scene-document");
-      editor.syncFromWorld("world:import-scene-document");
+      syncEditorFromWorld("world:import-scene-document");
     }
 
     event.target.value = "";
@@ -2013,20 +1852,20 @@ export function App() {
     );
 
     if (options?.projectName) {
-      setProjectName(nextProjectName);
+      projectSessionStore.projectName = nextProjectName;
       if (!options.projectSlug) {
-        setProjectSlug(nextProjectSlug);
-        setProjectSlugDirty(false);
+        projectSessionStore.projectSlug = nextProjectSlug;
+        projectSessionStore.projectSlugDirty = false;
       }
     }
 
     if (options?.projectSlug) {
-      setProjectSlug(nextProjectSlug);
-      setProjectSlugDirty(true);
+      projectSessionStore.projectSlug = nextProjectSlug;
+      projectSessionStore.projectSlugDirty = true;
     }
 
     const exportStartedAt = performance.now();
-    setRuntimeSyncDebugLabel(`${RUNTIME_SYNC_DEBUG_FINGERPRINT} exporting ${nextProjectSlug}`);
+    projectSessionStore.runtimeSyncDebugLabel = `${RUNTIME_SYNC_DEBUG_FINGERPRINT} exporting ${nextProjectSlug}`;
 
     try {
       const exportPayload = await runWorkerRequest(
@@ -2049,9 +1888,7 @@ export function App() {
 
       const exportDuration = performance.now() - exportStartedAt;
       const archiveSize = formatBytes(exportPayload.bytes.byteLength);
-      setRuntimeSyncDebugLabel(
-        `${RUNTIME_SYNC_DEBUG_FINGERPRINT} export ${formatDuration(exportDuration)} ${archiveSize}`
-      );
+      projectSessionStore.runtimeSyncDebugLabel = `${RUNTIME_SYNC_DEBUG_FINGERPRINT} export ${formatDuration(exportDuration)} ${archiveSize}`;
 
       console.info(
         `[editor] Push runtime scene archive ready in ${formatDuration(exportDuration)} ` +
@@ -2059,7 +1896,7 @@ export function App() {
       );
 
       const uploadStartedAt = performance.now();
-      setRuntimeSyncDebugLabel(`${RUNTIME_SYNC_DEBUG_FINGERPRINT} uploading ${archiveSize}`);
+      projectSessionStore.runtimeSyncDebugLabel = `${RUNTIME_SYNC_DEBUG_FINGERPRINT} uploading ${archiveSize}`;
 
       const pushResult = await gameConnection.pushScene({
         archive: {
@@ -2074,14 +1911,13 @@ export function App() {
         }
       });
 
-      setRuntimeSyncDebugLabel(
-        `${RUNTIME_SYNC_DEBUG_FINGERPRINT} done export ${formatDuration(exportDuration)} / upload ${formatDuration(performance.now() - uploadStartedAt)}`
-      );
+      projectSessionStore.runtimeSyncDebugLabel =
+        `${RUNTIME_SYNC_DEBUG_FINGERPRINT} done export ${formatDuration(exportDuration)} / upload ${formatDuration(performance.now() - uploadStartedAt)}`;
 
       return pushResult;
     } catch (pushError) {
       const message = pushError instanceof Error ? pushError.message : "Push failed";
-      setRuntimeSyncDebugLabel(`${RUNTIME_SYNC_DEBUG_FINGERPRINT} error ${message}`);
+      projectSessionStore.runtimeSyncDebugLabel = `${RUNTIME_SYNC_DEBUG_FINGERPRINT} error ${message}`;
       throw pushError;
     }
   };
@@ -2106,7 +1942,7 @@ export function App() {
 
   const handleSetActiveWorldDocument = (documentId: string) => {
     worldEditor.setActiveDocument(documentId);
-    editor.syncFromWorld("world:set-active-document");
+    syncEditorFromWorld("world:set-active-document");
   };
 
   const handleCreateWorldDocument = () => {
@@ -2167,7 +2003,7 @@ export function App() {
     ];
     nextBundle.manifest.activeDocumentId = documentId;
     worldEditor.importBundle(nextBundle, "world:create-document");
-    editor.syncFromWorld("world:create-document");
+    syncEditorFromWorld("world:create-document");
   };
 
   const handleLoadWorldDocument = (documentId: string) => {
@@ -2242,20 +2078,22 @@ export function App() {
     handleToggleLogicViewer,
     handleTranslateSelection,
     handleUndo,
-    setActiveToolId: handleSetToolId,
-    setMeshEditMode,
-    setTransformMode
+    setActiveToolId: (toolId) => {
+      toolSessionStore.activeToolId = toolId;
+    },
+    setMeshEditMode: (mode) => {
+      toolSessionStore.meshEditMode = mode;
+    },
+    setTransformMode: (mode) => {
+      toolSessionStore.transformMode = mode;
+    }
   });
 
   return (
     <>
       <WorldEditorShell
         analysis={spatialAnalysis}
-        activeRightPanel={ui.rightPanel}
-        activeToolId={toolSession.toolId}
-        activeBrushShape={activeBrushShape}
         copilot={copilot}
-        copilotPanelOpen={ui.copilotPanelOpen}
         gameConnectionControl={
           <GameConnectionControl
             activeGame={gameConnection.activeGame}
@@ -2276,37 +2114,13 @@ export function App() {
             selectedGameId={gameConnection.selectedGameId}
           />
         }
-        logicViewerOpen={ui.logicViewerOpen}
-        onToggleCopilot={handleToggleCopilot}
-        onToggleLogicViewer={handleToggleLogicViewer}
-        aiModelPlacementActive={Boolean(aiModelDraft)}
-        aiModelPlacementArmed={aiModelPlacementArmed}
-        aiModelPrompt={aiModelDraft?.prompt ?? ""}
-        aiModelPromptBusy={false}
-        aiModelPromptError={aiModelDraft?.error}
-        brushToolMode={brushToolMode}
-        activeViewportId={ui.activeViewportId}
         effectiveHiddenSceneItemIds={effectiveHiddenSceneItemIds}
         effectiveLockedSceneItemIds={effectiveLockedSceneItemIds}
-        hiddenSceneItemIds={hiddenSceneItemIds}
         canRedo={editor.commands.canRedo()}
-        runtimeSyncDebugLabel={runtimeSyncDebugLabel}
         canUndo={editor.commands.canUndo()}
-        lockedSceneItemIds={lockedSceneItemIds}
         editor={editor}
-        gridSnapValues={gridSnapValues}
         jobs={[...workerJobs, ...exportJobs]}
-        instanceBrushDensity={instanceBrushDensity}
-        instanceBrushRandomness={instanceBrushRandomness}
-        instanceBrushSize={instanceBrushSize}
-        instanceBrushSourceNodeId={instanceBrushSourceNodeId}
-        instanceBrushSourceOptions={instanceBrushSourceOptions}
-        instanceBrushSourceTransform={instanceBrushSourceTransform}
-        meshEditToolbarAction={meshEditToolbarAction}
-        materialPaintBrushOpacity={materialPaintBrushOpacity}
-        materialPaintMode={materialPaintMode}
         modelAssets={modelAssets}
-        onActivateViewport={handleActivateViewport}
         onInvertSelectionNormals={handleInvertSelectionNormals}
         onInsertAsset={handleInsertAsset}
         onApplyMaterial={handleApplyMaterial}
@@ -2350,43 +2164,20 @@ export function App() {
         onPlacePrimitiveNode={handlePlacePrimitiveNode}
         onPlaceProp={handlePlaceProp}
         onPlayPhysics={handlePlayPhysics}
-        onMaterialPaintModeChange={setMaterialPaintMode}
         onPreviewBrushData={handlePreviewBrushData}
         onPreviewEntityTransform={handlePreviewEntityTransform}
         onPreviewMeshData={handlePreviewMeshData}
         onPreviewNodeTransform={handlePreviewNodeTransform}
-        onSculptModeChange={setSculptMode}
         onRedo={handleRedo}
         onSaveWhmap={handleSaveWhmap}
         onSelectAsset={handleSelectAsset}
-        onSelectMaterialFaces={setSelectedMaterialFaceIds}
         onSelectMaterial={handleSelectMaterial}
-        onSelectScenePath={setSelectedScenePathId}
         onStartAiModelPlacement={handleArmAiModelPlacement}
         onToggleSceneItemLock={handleToggleSceneItemLock}
         onToggleSceneItemVisibility={handleToggleSceneItemVisibility}
         onSetUvOffset={handleSetMaterialUvOffset}
         onSetUvScale={handleSetMaterialUvScale}
         onSelectNodes={handleSelectNodes}
-        onSetBrushToolMode={setBrushToolMode}
-        onSetMeshEditMode={setMeshEditMode}
-        onSetInstanceBrushDensity={setInstanceBrushDensity}
-        onSetInstanceBrushRandomness={setInstanceBrushRandomness}
-        onSetInstanceBrushSize={setInstanceBrushSize}
-        onSetInstanceBrushSourceNodeId={setInstanceBrushSourceNodeId}
-        onSetSculptBrushRadius={setSculptBrushRadius}
-        onSetSculptBrushStrength={setSculptBrushStrength}
-        onSetMaterialPaintBrushOpacity={setMaterialPaintBrushOpacity}
-        onSetRightPanel={handleSetRightPanel}
-        onSetActiveBrushShape={setActiveBrushShape}
-        onSetSnapEnabled={handleSetSnapEnabled}
-        onSetSnapSize={handleSetSnapSize}
-        onStopPhysics={handleStopPhysics}
-        onSetRenderMode={handleSetRenderMode}
-        onSetTransformMode={setTransformMode}
-        onSetToolId={handleSetToolId}
-        onToggleViewportQuality={handleToggleViewportQuality}
-        onSetViewMode={handleSetViewMode}
         onSplitBrushAtCoordinate={handleSplitBrushAtCoordinate}
         onTranslateSelection={handleTranslateSelection}
         onUndo={handleUndo}
@@ -2397,7 +2188,6 @@ export function App() {
         onUpdateNodeHooks={handleUpdateNodeHooks}
         onUpdateAiModelPrompt={handleUpdateAiModelPrompt}
         onUpdateSceneSettings={handleUpdateSceneSettings}
-        onUpdateViewport={handleUpdateViewport}
         onUpsertMaterial={handleUpsertMaterial}
         onDeleteTexture={handleDeleteTexture}
         onUpsertTexture={handleUpsertTexture}
@@ -2406,25 +2196,9 @@ export function App() {
         onUpdateMeshData={handleUpdateMeshData}
         onUpdateNodeTransform={handleUpdateNodeTransform}
         onExportSceneDocument={handleExportSceneDocument}
-        meshEditMode={meshEditMode}
-        sculptMode={sculptMode}
-        sculptBrushRadius={sculptBrushRadius}
-        sculptBrushStrength={sculptBrushStrength}
-        physicsPlayback={physicsPlayback}
-        physicsRevision={physicsRevision}
         renderScene={renderScene}
-        renderMode={ui.renderMode}
         sceneSettings={editor.scene.settings}
-        selectedScenePathId={selectedScenePathId}
-        selectedAssetId={ui.selectedAssetId}
-        selectedFaceIds={selectedMaterialFaceIds}
-        selectedMaterialId={ui.selectedMaterialId}
-        transformMode={transformMode}
         textures={Array.from(editor.scene.textures.values())}
-        tools={defaultTools}
-        viewMode={ui.viewMode}
-        viewportQuality={ui.viewportQuality}
-        viewports={ui.viewports}
         onPinDocument={handlePinWorldDocument}
         onCreateDocument={handleCreateWorldDocument}
         onLoadDocument={handleLoadWorldDocument}

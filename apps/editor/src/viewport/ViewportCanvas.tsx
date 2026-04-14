@@ -248,6 +248,7 @@ export function ViewportCanvas({
   viewport
 }: ViewportCanvasProps) {
   const cameraRef = useRef<Camera | null>(null);
+  const cameraControlsRef = useRef<any>(null);
   const aiPlacementClickOriginRef = useRef<Vector2 | null>(null);
   const brushClickOriginRef = useRef<Vector2 | null>(null);
   const marqueeOriginRef = useRef<Vector2 | null>(null);
@@ -3690,6 +3691,7 @@ export function ViewportCanvas({
         {renderModeUsesEditorLighting(renderMode) ? <hemisphereLight args={["#9ec5f8", "#0f1721", 0.7]} /> : null}
         {renderModeUsesEditorLighting(renderMode) ? <DefaultViewportSun center={renderScene.boundsCenter} /> : null}
         <EditorCameraRig
+          controlsRef={cameraControlsRef}
           controlsEnabled={
             isActiveViewport &&
             editorInteractionEnabled &&
@@ -3862,6 +3864,7 @@ export function ViewportCanvas({
         {editorInteractionEnabled && isActiveViewport ? (
           <ObjectTransformGizmo
             activeToolId={activeToolId}
+            cameraControlsRef={cameraControlsRef}
             onDragStateChange={handleTransformDragStateChange}
             onPreviewEntityTransform={onPreviewEntityTransform}
             onPreviewNodeTransform={onPreviewNodeTransform}

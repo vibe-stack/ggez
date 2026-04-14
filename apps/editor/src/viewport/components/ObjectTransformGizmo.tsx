@@ -1,6 +1,6 @@
 import { Billboard, TransformControls } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import type { Entity, GeometryNode, Transform } from "@ggez/shared";
 import { isInstancingNode, localizeTransform, resolveTransformPivot, toTuple, vec3, type Vec3 } from "@ggez/shared";
 import { objectToTransform, rebaseTransformPivot, worldPointToNodeLocal } from "@/viewport/utils/geometry";
@@ -14,6 +14,7 @@ const tempPivotCameraDirection = new Vector3();
 
 export function ObjectTransformGizmo({
   activeToolId,
+  cameraControlsRef,
   onDragStateChange,
   onPreviewEntityTransform,
   onPreviewNodeTransform,
@@ -41,6 +42,7 @@ export function ObjectTransformGizmo({
   | "transformMode"
   | "viewport"
 > & {
+  cameraControlsRef?: RefObject<any | null>;
   onDragStateChange?: (dragging: boolean) => void;
   selectedEntityWorldTransform?: Transform;
   selectedNode?: GeometryNode;
@@ -49,6 +51,8 @@ export function ObjectTransformGizmo({
 }) {
   const baselineTransformRef = useRef<Transform | undefined>(undefined);
   const previewFrameRef = useRef<number | null>(null);
+  const pivotControlsRef = useRef<any>(null);
+  const objectControlsRef = useRef<any>(null);
   const pendingPreviewRef = useRef<
     | {
         entityId: string;
@@ -84,6 +88,27 @@ export function ObjectTransformGizmo({
   const handleTransformTargetRef = useCallback((object: ThreeGroup | null) => {
     setTransformTarget(object);
   }, []);
+  const setCameraControlsEnabled = useCallback((enabled: boolean) => {
+    const controls = cameraControlsRef?.current;
+
+    if (controls && "enabled" in controls) {
+      controls.enabled = enabled;
+
+      if (!enabled && "state" in controls && typeof controls.state === "number") {
+        controls.state = -1;
+      }
+
+      controls.update?.();
+    }
+  }, [cameraControlsRef]);
+  const beginDrag = useCallback(() => {
+    setCameraControlsEnabled(false);
+    onDragStateChange?.(true);
+  }, [onDragStateChange, setCameraControlsEnabled]);
+  const endDrag = useCallback(() => {
+    setCameraControlsEnabled(true);
+    onDragStateChange?.(false);
+  }, [onDragStateChange, setCameraControlsEnabled]);
 
   const cancelScheduledPreview = useCallback(() => {
     if (previewFrameRef.current !== null) {
@@ -156,8 +181,46 @@ export function ObjectTransformGizmo({
   useEffect(() => {
     return () => {
       cancelScheduledPreview();
+      setCameraControlsEnabled(true);
     };
-  }, [cancelScheduledPreview]);
+  }, [cancelScheduledPreview, setCameraControlsEnabled]);
+
+  useEffect(() => {
+    const controlsInstances = [pivotControlsRef.current, objectControlsRef.current].filter(Boolean);
+
+    if (controlsInstances.length === 0) {
+      return;
+    }
+
+    const cleanups = controlsInstances.map((controls) => {
+      const handleDraggingChanged = (event: { value?: boolean }) => {
+        const dragging = Boolean(event.value);
+        if (dragging) {
+          beginDrag();
+          return;
+        }
+
+        endDrag();
+      };
+
+      controls.addEventListener?.("dragging-changed", handleDraggingChanged);
+
+      return () => {
+        controls.removeEventListener?.("dragging-changed", handleDraggingChanged);
+      };
+    });
+
+    return () => {
+      cleanups.forEach((cleanup) => cleanup());
+      endDrag();
+    };
+  }, [
+    activePivotNode?.id,
+    beginDrag,
+    endDrag,
+    selectedObjectId,
+    showObjectTransformGizmo
+  ]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -240,17 +303,18 @@ export function ObjectTransformGizmo({
 
       {pivotEditingEnabled && activePivotNode && activePivotWorldNode && pivotTarget ? (
         <TransformControls
+          ref={pivotControlsRef as any}
           enabled
           mode="translate"
-          object={pivotTarget}
+          object={pivotTarget as any}
           onMouseDown={() => {
-            onDragStateChange?.(true);
+            beginDrag();
             baselineTransformRef.current = structuredClone(activePivotNode.transform);
           }}
           onMouseUp={() => {
             if (!baselineTransformRef.current || !pivotTarget) {
               cancelScheduledPreview();
-              onDragStateChange?.(false);
+              endDrag();
               return;
             }
 
@@ -267,7 +331,7 @@ export function ObjectTransformGizmo({
               baselineTransformRef.current
             );
             baselineTransformRef.current = undefined;
-            onDragStateChange?.(false);
+            endDrag();
           }}
           onObjectChange={() => {
             if (!baselineTransformRef.current || !pivotTarget) {
@@ -295,17 +359,18 @@ export function ObjectTransformGizmo({
 
       {showObjectTransformGizmo && selectedObjectId && transformTarget && selectedTarget && selectedTargetWorldTransform ? (
         <TransformControls
+          ref={objectControlsRef as any}
           enabled
           mode={transformMode}
-          object={transformTarget}
+          object={transformTarget as any}
           onMouseDown={() => {
-            onDragStateChange?.(true);
+            beginDrag();
             baselineTransformRef.current = structuredClone(selectedTarget.transform);
           }}
           onMouseUp={() => {
             if (!baselineTransformRef.current) {
               cancelScheduledPreview();
-              onDragStateChange?.(false);
+              endDrag();
               return;
             }
 
@@ -324,7 +389,7 @@ export function ObjectTransformGizmo({
             }
 
             baselineTransformRef.current = undefined;
-            onDragStateChange?.(false);
+            endDrag();
           }}
           onObjectChange={() => {
             const nextWorldTransform = objectToTransform(transformTarget, pivot);
@@ -388,7 +453,7 @@ function PivotHandleMarker({
     const handleOffset = selected ? 0 : worldUnitsPerPixel * 22;
     const forwardOffset = worldUnitsPerPixel * (selected ? 10 : 14);
 
-    camera.getWorldPosition(tempCameraPosition);
+    camera.getWorldPosition(tempCameraPosition as any);
     tempPivotCameraDirection
       .subVectors(tempCameraPosition, tempPivotWorldPosition)
       .normalize()
@@ -434,7 +499,7 @@ function PivotHandleMarker({
           />
         </mesh>
 
-        <Billboard ref={billboardRef}>
+        <Billboard ref={billboardRef as any}>
           <group
             onClick={(event) => {
               event.stopPropagation();

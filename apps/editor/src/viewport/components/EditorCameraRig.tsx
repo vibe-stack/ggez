@@ -1,18 +1,23 @@
 import { MapControls, OrbitControls } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
 import { toTuple } from "@ggez/shared";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type MutableRefObject } from "react";
 import { OrthographicCamera, PerspectiveCamera } from "three";
 import type { ViewportCanvasProps } from "@/viewport/types";
 
 export function EditorCameraRig({
+  controlsRef: externalControlsRef,
   controlsEnabled,
   onViewportChange,
   viewportId,
   viewport
-}: Pick<ViewportCanvasProps, "onViewportChange" | "viewport" | "viewportId"> & { controlsEnabled: boolean }) {
+}: Pick<ViewportCanvasProps, "onViewportChange" | "viewport" | "viewportId"> & {
+  controlsEnabled: boolean;
+  controlsRef?: MutableRefObject<any | null>;
+}) {
   const camera = useThree((state) => state.camera);
-  const controlsRef = useRef<any>(null);
+  const internalControlsRef = useRef<any>(null);
+  const controlsRef = externalControlsRef ?? internalControlsRef;
 
   useEffect(() => {
     const [x, y, z] = toTuple(viewport.camera.position);

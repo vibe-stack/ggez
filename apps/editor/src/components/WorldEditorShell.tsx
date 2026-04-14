@@ -57,7 +57,7 @@ export function WorldEditorShell({
 }: WorldEditorShellProps) {
   return (
     <div className="relative h-full w-full">
-      <SceneEditor {...sceneProps} />
+      <SceneEditor {...sceneProps} workingSet={workingSet} />
 
       <div className="pointer-events-none absolute left-4 top-12 z-20 flex w-68 flex-col">
         <FloatingPanel className="flex flex-col overflow-hidden">
