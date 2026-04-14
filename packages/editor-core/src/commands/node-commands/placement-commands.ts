@@ -171,11 +171,7 @@ export function createPlaceInstancingNodeCommand(
     id: nodeId,
     kind: "instancing",
     name: instance.name,
-    transform: {
-      position: structuredClone(transform.position),
-      rotation: structuredClone(transform.rotation),
-      scale: structuredClone(transform.scale)
-    },
+    transform: structuredClone(transform),
     data: structuredClone(instance.data)
   };
 
@@ -190,5 +186,54 @@ export function createPlaceInstancingNodeCommand(
       }
     },
     nodeId
+  };
+}
+
+export function createPlaceInstancingNodesCommand(
+  scene: SceneDocument,
+  transforms: Transform[],
+  instance: Pick<InstancingNode, "data" | "name">
+): {
+  command: Command;
+  nodeIds: string[];
+} {
+  const usedIds = new Set(Array.from(scene.nodes.values(), (node) => node.id));
+  const createUniqueNodeId = (sourceId: string) => {
+    let attempt = 1;
+
+    while (true) {
+      const nodeId = `${sourceId}:copy:${attempt}`;
+
+      if (!usedIds.has(nodeId)) {
+        usedIds.add(nodeId);
+        return nodeId;
+      }
+
+      attempt += 1;
+    }
+  };
+  const nodes = transforms.map<InstancingNode>((transform) => ({
+    id: createUniqueNodeId("node:instance:placed"),
+    kind: "instancing",
+    name: instance.name,
+    transform: structuredClone(transform),
+    data: structuredClone(instance.data)
+  }));
+
+  return {
+    command: {
+      label: nodes.length <= 1 ? "place instance" : "paint instances",
+      execute(nextScene) {
+        nodes.forEach((node) => {
+          nextScene.addNode(structuredClone(node));
+        });
+      },
+      undo(nextScene) {
+        nodes.forEach((node) => {
+          nextScene.removeNode(node.id);
+        });
+      }
+    },
+    nodeIds: nodes.map((node) => node.id)
   };
 }

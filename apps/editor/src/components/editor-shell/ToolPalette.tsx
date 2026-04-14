@@ -11,15 +11,21 @@ import { RenderModeControl } from "@/components/editor-shell/RenderModeControl";
 import { SnapControl } from "@/components/editor-shell/SnapControl";
 import { ViewModeControl } from "@/components/editor-shell/ViewModeControl";
 import type { MeshEditMode } from "@/viewport/editing";
-import type { MeshEditToolbarActionRequest } from "@/viewport/types";
+import type { BrushToolMode, InstanceBrushSourceOption, MeshEditToolbarActionRequest } from "@/viewport/types";
 import type { ViewModeId, ViewportRenderMode } from "@/viewport/viewports";
 
 type ToolPaletteProps = {
   activeBrushShape: BrushShape;
+  brushToolMode: BrushToolMode;
   aiModelPlacementActive: boolean;
   activeToolId: ToolId;
   currentSnapSize: GridSnapValue;
   gridSnapValues: readonly GridSnapValue[];
+  instanceBrushDensity: number;
+  instanceBrushRandomness: number;
+  instanceBrushSize: number;
+  instanceBrushSourceNodeId: string;
+  instanceBrushSourceOptions: InstanceBrushSourceOption[];
   materialPaintBrushOpacity: number;
   materialPaintMode?: "erase" | "paint" | null;
   materials: Material[];
@@ -39,6 +45,11 @@ type ToolPaletteProps = {
   onPlayPhysics: () => void;
   onRaiseTop: () => void;
   onSelectMaterial: (materialId: string) => void;
+  onSelectInstanceBrush: () => void;
+  onSetInstanceBrushDensity: (value: number) => void;
+  onSetInstanceBrushRandomness: (value: number) => void;
+  onSetInstanceBrushSize: (value: number) => void;
+  onSetInstanceBrushSourceNodeId: (nodeId: string) => void;
   onSetMaterialPaintBrushOpacity: (value: number) => void;
   onSetSculptBrushRadius: (value: number) => void;
   onSetSculptBrushStrength: (value: number) => void;
@@ -68,10 +79,16 @@ type ToolPaletteProps = {
 
 function ToolPaletteInner({
   activeBrushShape,
+  brushToolMode,
   aiModelPlacementActive,
   activeToolId,
   currentSnapSize,
   gridSnapValues,
+  instanceBrushDensity,
+  instanceBrushRandomness,
+  instanceBrushSize,
+  instanceBrushSourceNodeId,
+  instanceBrushSourceOptions,
   materialPaintBrushOpacity,
   materialPaintMode,
   materials,
@@ -91,6 +108,11 @@ function ToolPaletteInner({
   onPlayPhysics,
   onRaiseTop,
   onSelectMaterial,
+  onSelectInstanceBrush,
+  onSetInstanceBrushDensity,
+  onSetInstanceBrushRandomness,
+  onSetInstanceBrushSize,
+  onSetInstanceBrushSourceNodeId,
   onSetMaterialPaintBrushOpacity,
   onSetSculptBrushRadius,
   onSetSculptBrushStrength,
@@ -136,9 +158,15 @@ function ToolPaletteInner({
           >
             <CreationToolBar
               activeBrushShape={activeBrushShape}
+              brushToolMode={brushToolMode}
               aiModelPlacementActive={aiModelPlacementActive}
               activeToolId={activeToolId}
               disabled={physicsPlayback !== "stopped"}
+              instanceBrushDensity={instanceBrushDensity}
+              instanceBrushRandomness={instanceBrushRandomness}
+              instanceBrushSize={instanceBrushSize}
+              instanceBrushSourceNodeId={instanceBrushSourceNodeId}
+              instanceBrushSourceOptions={instanceBrushSourceOptions}
               onImportGlb={onImportGlb}
               onPlaceEntity={onPlaceEntity}
               onPlaceLight={onPlaceLight}
@@ -147,8 +175,13 @@ function ToolPaletteInner({
               onPlaceBlockoutRoom={onPlaceBlockoutRoom}
               onPlaceBlockoutStairs={onPlaceBlockoutStairs}
               onPlaceProp={onPlaceProp}
+              onSelectInstanceBrush={onSelectInstanceBrush}
               onStartAiModelPlacement={onStartAiModelPlacement}
               onSelectBrushShape={onSelectBrushShape}
+              onSetInstanceBrushDensity={onSetInstanceBrushDensity}
+              onSetInstanceBrushRandomness={onSetInstanceBrushRandomness}
+              onSetInstanceBrushSize={onSetInstanceBrushSize}
+              onSetInstanceBrushSourceNodeId={onSetInstanceBrushSourceNodeId}
             />
           </motion.div>
         ) : null}
@@ -207,10 +240,16 @@ export const ToolPalette = memo(ToolPaletteInner, areToolPalettePropsEqual);
 function areToolPalettePropsEqual(previous: ToolPaletteProps, next: ToolPaletteProps) {
   return (
     previous.activeBrushShape === next.activeBrushShape &&
+    previous.brushToolMode === next.brushToolMode &&
     previous.aiModelPlacementActive === next.aiModelPlacementActive &&
     previous.activeToolId === next.activeToolId &&
     previous.currentSnapSize === next.currentSnapSize &&
     previous.gridSnapValues === next.gridSnapValues &&
+    previous.instanceBrushDensity === next.instanceBrushDensity &&
+    previous.instanceBrushRandomness === next.instanceBrushRandomness &&
+    previous.instanceBrushSize === next.instanceBrushSize &&
+    previous.instanceBrushSourceNodeId === next.instanceBrushSourceNodeId &&
+    previous.instanceBrushSourceOptions === next.instanceBrushSourceOptions &&
     previous.materialPaintBrushOpacity === next.materialPaintBrushOpacity &&
     previous.materialPaintMode === next.materialPaintMode &&
     previous.materials === next.materials &&

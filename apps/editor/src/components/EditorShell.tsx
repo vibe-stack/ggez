@@ -35,7 +35,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import type { ModelAssetLibraryItem } from "@/lib/model-assets";
 import { ViewportCanvas } from "@/viewport/ViewportCanvas";
 import type { MeshEditMode } from "@/viewport/editing";
-import type { MeshEditToolbarActionRequest } from "@/viewport/types";
+import type { BrushToolMode, InstanceBrushSourceOption, MeshEditToolbarActionRequest } from "@/viewport/types";
 import type { RightPanelId, ViewportQuality } from "@/state/ui-store";
 import {
   getViewModePreset,
@@ -48,6 +48,7 @@ import { cn } from "@/lib/utils";
 
 type EditorShellProps = {
   activeBrushShape: BrushShape;
+  brushToolMode: BrushToolMode;
   aiModelPlacementActive: boolean;
   copilot: {
     session: CopilotSession;
@@ -77,6 +78,12 @@ type EditorShellProps = {
   hiddenSceneItemIds: string[];
   jobs: WorkerJob[];
   lockedSceneItemIds: string[];
+  instanceBrushDensity: number;
+  instanceBrushRandomness: number;
+  instanceBrushSize: number;
+  instanceBrushSourceNodeId: string;
+  instanceBrushSourceOptions: InstanceBrushSourceOption[];
+  instanceBrushSourceTransform?: Transform;
   materialPaintBrushOpacity: number;
   materialPaintMode?: "erase" | "paint" | null;
   meshEditMode: MeshEditMode;
@@ -127,6 +134,7 @@ type EditorShellProps = {
   onPlaceAsset: (position: { x: number; y: number; z: number }) => void;
   onPlaceAiModelPlaceholder: (position: { x: number; y: number; z: number }) => void;
   onPlaceBrush: (brush: Brush, transform: Transform) => void;
+  onPlaceInstancingNodes: (sourceNodeId: string, transforms: Transform[]) => void;
   onPlaceMeshNode: (mesh: EditableMesh, transform: Transform, name: string) => void;
   onPlacePrimitiveNode: (data: PrimitiveNodeData, transform: Transform, name: string) => void;
   onPlaceProp: (shape: PrimitiveShape) => void;
@@ -149,7 +157,12 @@ type EditorShellProps = {
   onSetUvOffset: (scope: "faces" | "object", faceIds: string[], uvOffset: Vec2) => void;
   onSetUvScale: (scope: "faces" | "object", faceIds: string[], uvScale: Vec2) => void;
   onSelectNodes: (nodeIds: string[]) => void;
+  onSetBrushToolMode: (mode: BrushToolMode) => void;
   onSetActiveBrushShape: (shape: BrushShape) => void;
+  onSetInstanceBrushDensity: (value: number) => void;
+  onSetInstanceBrushRandomness: (value: number) => void;
+  onSetInstanceBrushSize: (value: number) => void;
+  onSetInstanceBrushSourceNodeId: (nodeId: string) => void;
   onSetMeshEditMode: (mode: MeshEditMode) => void;
   onSetSculptBrushRadius: (value: number) => void;
   onSetSculptBrushStrength: (value: number) => void;
@@ -201,6 +214,7 @@ type EditorShellProps = {
 
 export function EditorShell({
   activeBrushShape,
+  brushToolMode,
   aiModelPlacementActive,
   aiModelPlacementArmed,
   copilot,
@@ -223,6 +237,12 @@ export function EditorShell({
   hiddenSceneItemIds,
   jobs,
   lockedSceneItemIds,
+  instanceBrushDensity,
+  instanceBrushRandomness,
+  instanceBrushSize,
+  instanceBrushSourceNodeId,
+  instanceBrushSourceOptions,
+  instanceBrushSourceTransform,
   materialPaintBrushOpacity,
   materialPaintMode,
   meshEditMode,
@@ -273,6 +293,7 @@ export function EditorShell({
   onPlaceAsset,
   onPlaceAiModelPlaceholder,
   onPlaceBrush,
+  onPlaceInstancingNodes,
   onPlaceMeshNode,
   onPlacePrimitiveNode,
   onPlaceProp,
@@ -295,7 +316,12 @@ export function EditorShell({
   onSetUvOffset,
   onSetUvScale,
   onSelectNodes,
+  onSetBrushToolMode,
   onSetActiveBrushShape,
+  onSetInstanceBrushDensity,
+  onSetInstanceBrushRandomness,
+  onSetInstanceBrushSize,
+  onSetInstanceBrushSourceNodeId,
   onSetMeshEditMode,
   onSetSculptBrushRadius,
   onSetSculptBrushStrength,
@@ -373,10 +399,16 @@ export function EditorShell({
       >
         <ViewportCanvas
           activeBrushShape={activeBrushShape}
+          brushToolMode={brushToolMode}
           aiModelPlacementArmed={aiModelPlacementArmed}
           activeToolId={activeToolId}
           dprScale={resolveViewportDprScale(viewportQuality)}
           hiddenSceneItemIds={effectiveHiddenSceneItemIds}
+          instanceBrushDensity={instanceBrushDensity}
+          instanceBrushRandomness={instanceBrushRandomness}
+          instanceBrushSize={instanceBrushSize}
+          instanceBrushSourceNodeId={instanceBrushSourceNodeId}
+          instanceBrushSourceTransform={instanceBrushSourceTransform}
           isActiveViewport={activeViewportId === viewportId}
           materialPaintBrushOpacity={materialPaintBrushOpacity}
           meshEditMode={meshEditMode}
@@ -392,6 +424,7 @@ export function EditorShell({
           onPlaceAsset={onPlaceAsset}
           onPlaceAiModelPlaceholder={onPlaceAiModelPlaceholder}
           onPlaceBrush={onPlaceBrush}
+          onPlaceInstancingNodes={onPlaceInstancingNodes}
           onPlaceMeshNode={onPlaceMeshNode}
           onPlacePrimitiveNode={onPlacePrimitiveNode}
           onPreviewBrushData={onPreviewBrushData}
@@ -473,10 +506,16 @@ export function EditorShell({
 
         <ToolPalette
           activeBrushShape={activeBrushShape}
+          brushToolMode={brushToolMode}
           aiModelPlacementActive={aiModelPlacementActive || aiModelPlacementArmed}
           activeToolId={activeToolId}
           currentSnapSize={activeViewport.grid.snapSize}
           gridSnapValues={gridSnapValues}
+          instanceBrushDensity={instanceBrushDensity}
+          instanceBrushRandomness={instanceBrushRandomness}
+          instanceBrushSize={instanceBrushSize}
+          instanceBrushSourceNodeId={instanceBrushSourceNodeId}
+          instanceBrushSourceOptions={instanceBrushSourceOptions}
           materialPaintBrushOpacity={materialPaintBrushOpacity}
           materialPaintMode={materialPaintMode}
           materials={materials}
@@ -496,11 +535,20 @@ export function EditorShell({
           onPlayPhysics={onPlayPhysics}
           onRaiseTop={() => onExtrudeSelection("y", 1)}
           onSelectMaterial={onSelectMaterial}
+          onSelectInstanceBrush={() => {
+            onSetBrushToolMode("instance");
+            onSetToolId("brush");
+          }}
           onSetMaterialPaintBrushOpacity={onSetMaterialPaintBrushOpacity}
+          onSetInstanceBrushDensity={onSetInstanceBrushDensity}
+          onSetInstanceBrushRandomness={onSetInstanceBrushRandomness}
+          onSetInstanceBrushSize={onSetInstanceBrushSize}
+          onSetInstanceBrushSourceNodeId={onSetInstanceBrushSourceNodeId}
           onSetSculptBrushRadius={onSetSculptBrushRadius}
           onSetSculptBrushStrength={onSetSculptBrushStrength}
           onStartAiModelPlacement={onStartAiModelPlacement}
           onSelectBrushShape={(shape) => {
+            onSetBrushToolMode("create");
             onSetActiveBrushShape(shape);
             onSetToolId("brush");
           }}

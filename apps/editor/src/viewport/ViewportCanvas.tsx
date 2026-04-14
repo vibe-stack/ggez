@@ -40,6 +40,7 @@ import {
   vec3,
   type ScenePathDefinition,
   type EditableMesh,
+  type Transform,
   type Vec3
 } from "@ggez/shared";
 import {
@@ -102,7 +103,7 @@ import {
   renderModeUsesShadows
 } from "@/viewport/viewports";
 import { useEffect, useMemo, useRef, useState, type PointerEventHandler } from "react";
-import { BufferGeometry, Camera, Color, Float32BufferAttribute, Matrix4, Object3D, Plane, Raycaster, Vector2, Vector3 } from "three";
+import { BufferGeometry, Camera, Color, Euler, Float32BufferAttribute, Matrix4, Object3D, Plane, Quaternion, Raycaster, Vector2, Vector3 } from "three";
 import type {
   ArcState,
   BevelState,
@@ -152,6 +153,13 @@ type MaterialPaintState = {
   strength: number;
 };
 
+type InstanceBrushState = {
+  dragging: boolean;
+  hovered?: SculptBrushHit;
+  lastStampedHit?: SculptBrushHit;
+  pendingTransforms: Transform[];
+};
+
 function ViewportWorldSettings({ renderMode, sceneSettings }: Pick<ViewportCanvasProps, "renderMode" | "sceneSettings">) {
   const { scene } = useThree();
 
@@ -179,10 +187,16 @@ function ViewportWorldSettings({ renderMode, sceneSettings }: Pick<ViewportCanva
 
 export function ViewportCanvas({
   activeBrushShape,
+  brushToolMode,
   aiModelPlacementArmed,
   activeToolId,
   dprScale,
   hiddenSceneItemIds = [],
+  instanceBrushDensity,
+  instanceBrushRandomness,
+  instanceBrushSize,
+  instanceBrushSourceNodeId,
+  instanceBrushSourceTransform,
   isActiveViewport,
   materialPaintBrushOpacity,
   meshEditMode,
@@ -198,6 +212,7 @@ export function ViewportCanvas({
   onPlaceAsset,
   onPlaceAiModelPlaceholder,
   onPlaceBrush,
+  onPlaceInstancingNodes,
   onPlaceMeshNode,
   onPlacePrimitiveNode,
   onPreviewBrushData,
@@ -260,6 +275,7 @@ export function ViewportCanvas({
   const [pathPreviewPaths, setPathPreviewPaths] = useState<ScenePathDefinition[] | null>(null);
   const [selectedPathPointIndex, setSelectedPathPointIndex] = useState<number | null>(null);
   const [materialPaintState, setMaterialPaintState] = useState<MaterialPaintState | null>(null);
+  const [instanceBrushState, setInstanceBrushState] = useState<InstanceBrushState | null>(null);
   const [sculptState, setSculptState] = useState<SculptBrushState | null>(null);
   const snapSize = resolveViewportSnapSize(viewport);
   const editorInteractionEnabled = physicsPlayback === "stopped";
@@ -269,6 +285,7 @@ export function ViewportCanvas({
   const extrudeStateRef = useRef<ExtrudeGestureState | null>(null);
   const pathPreviewPathsRef = useRef<ScenePathDefinition[] | null>(null);
   const materialPaintStateRef = useRef<MaterialPaintState | null>(null);
+  const instanceBrushStateRef = useRef<InstanceBrushState | null>(null);
   const sculptStateRef = useRef<SculptBrushState | null>(null);
   const previewFrameRef = useRef<number | null>(null);
   const materialPaintStrokeFrameRef = useRef<number | null>(null);
@@ -286,6 +303,7 @@ export function ViewportCanvas({
   extrudeStateRef.current = extrudeState;
   pathPreviewPathsRef.current = pathPreviewPaths;
   materialPaintStateRef.current = materialPaintState;
+  instanceBrushStateRef.current = instanceBrushState;
   sculptStateRef.current = sculptState;
   previewBrushDataRef.current = onPreviewBrushData;
 
@@ -392,6 +410,7 @@ export function ViewportCanvas({
 
     extrudeStateRef.current = null;
     materialPaintStateRef.current = null;
+    instanceBrushStateRef.current = null;
     sculptStateRef.current = null;
     setMeshEditSelectionIds([]);
     setBrushEditHandleIds([]);
@@ -406,15 +425,24 @@ export function ViewportCanvas({
     setPathPreviewPaths(null);
     setSelectedPathPointIndex(null);
     setMaterialPaintState(null);
+    setInstanceBrushState(null);
     setSculptState(null);
     setTransformDragging(false);
   }, [activeToolId, meshEditMode, selectedNode?.id, selectedNode?.kind]);
 
   useEffect(() => {
-    if (activeToolId !== "brush") {
+    if (activeToolId !== "brush" || brushToolMode !== "create") {
       setBrushCreateState(null);
     }
-  }, [activeToolId]);
+  }, [activeToolId, brushToolMode]);
+
+  useEffect(() => {
+    if (activeToolId !== "brush" || brushToolMode !== "instance" || !instanceBrushSourceNodeId || !instanceBrushSourceTransform) {
+      instanceBrushStateRef.current = null;
+      setInstanceBrushState(null);
+      setTransformDragging(false);
+    }
+  }, [activeToolId, brushToolMode, instanceBrushSourceNodeId, instanceBrushSourceTransform]);
 
   useEffect(() => {
     if (editorInteractionEnabled) {
@@ -1365,6 +1393,271 @@ export function ViewportCanvas({
     }
   };
 
+  const resolveSceneBrushHit = (bounds: DOMRect, clientX: number, clientY: number) => {
+    if (!cameraRef.current) {
+      return undefined;
+    }
+
+    const constructionPlane = resolveViewportConstructionPlane(viewportPlane, viewport);
+    const hit = resolveBrushCreateSurfaceHit(
+      clientX,
+      clientY,
+      bounds,
+      cameraRef.current,
+      raycasterRef.current,
+      meshObjectsRef.current,
+      constructionPlane.point,
+      constructionPlane.normal
+    );
+
+    if (!hit) {
+      return undefined;
+    }
+
+    return {
+      normal: hit.normal,
+      point:
+        hit.kind === "plane" && viewport.grid.enabled
+          ? snapPointToViewportPlane(hit.point, viewportPlane, viewport, snapSize)
+          : hit.point
+    } satisfies SculptBrushHit;
+  };
+
+  const createInstanceBrushStampTransforms = (centerHit: SculptBrushHit, bounds: DOMRect) => {
+    if (!cameraRef.current || !instanceBrushSourceTransform || !instanceBrushSourceNodeId) {
+      return [];
+    }
+
+    const constructionPlane = resolveViewportConstructionPlane(viewportPlane, viewport);
+    const basis = createBrushRingBasis(centerHit.normal);
+    const offsets = buildInstanceBrushSampleOffsets(Math.max(1, Math.round(instanceBrushDensity)), instanceBrushRandomness);
+    const surfaceOffset = Math.max(0.01, instanceBrushSize * 0.01);
+
+    return offsets.flatMap((offset) => {
+      const samplePoint = addVec3(
+        centerHit.point,
+        addVec3(scaleVec3(basis.u, offset.x * instanceBrushSize), scaleVec3(basis.v, offset.y * instanceBrushSize))
+      );
+      const clientPoint = projectWorldPointToClient(samplePoint, cameraRef.current!, bounds);
+
+      if (!clientPoint) {
+        return [];
+      }
+
+      const sampleHit = resolveBrushCreateSurfaceHit(
+        clientPoint.clientX,
+        clientPoint.clientY,
+        bounds,
+        cameraRef.current!,
+        raycasterRef.current,
+        meshObjectsRef.current,
+        constructionPlane.point,
+        constructionPlane.normal
+      );
+
+      if (!sampleHit) {
+        return [];
+      }
+
+      const position = addVec3(sampleHit.point, scaleVec3(sampleHit.normal, surfaceOffset));
+
+      return [
+        {
+          position,
+          rotation: composeInstanceBrushRotation(sampleHit.normal, instanceBrushSourceTransform.rotation),
+          scale: {
+            x: instanceBrushSourceTransform.scale.x,
+            y: instanceBrushSourceTransform.scale.y,
+            z: instanceBrushSourceTransform.scale.z
+          }
+        } satisfies Transform
+      ];
+    });
+  };
+
+  const applyInstanceBrushHit = (state: InstanceBrushState, hit: SculptBrushHit, bounds: DOMRect) => {
+    if (!state.dragging || !instanceBrushSourceNodeId || !instanceBrushSourceTransform) {
+      return {
+        ...state,
+        hovered: hit
+      };
+    }
+
+    const spacing = Math.max(0.2, instanceBrushSize * Math.max(0.18, 0.85 / Math.sqrt(Math.max(1, instanceBrushDensity))));
+    const dedupeSize = Math.max(0.08, instanceBrushSize * 0.12);
+    const existingKeys = new Set(state.pendingTransforms.map((transform) => createInstanceBrushTransformKey(transform.position, dedupeSize)));
+    let nextPendingTransforms = state.pendingTransforms;
+    let nextLastStampedHit = state.lastStampedHit;
+
+    if (!nextLastStampedHit) {
+      const stampedTransforms = createInstanceBrushStampTransforms(hit, bounds).filter((transform) => {
+        const key = createInstanceBrushTransformKey(transform.position, dedupeSize);
+
+        if (existingKeys.has(key)) {
+          return false;
+        }
+
+        existingKeys.add(key);
+        return true;
+      });
+
+      nextPendingTransforms = [...nextPendingTransforms, ...stampedTransforms];
+      nextLastStampedHit = hit;
+    } else {
+      const delta = subVec3(hit.point, nextLastStampedHit.point);
+      const distance = lengthVec3(delta);
+
+      if (distance >= spacing) {
+        const startHit = nextLastStampedHit;
+        let latestStampedHit = nextLastStampedHit;
+
+        for (let travelled = spacing; travelled <= distance + 0.0001; travelled += spacing) {
+          const t = distance <= 0.000001 ? 1 : travelled / distance;
+          const stampedHit = {
+            normal: normalizeVec3(
+              vec3(
+                startHit.normal.x + (hit.normal.x - startHit.normal.x) * t,
+                startHit.normal.y + (hit.normal.y - startHit.normal.y) * t,
+                startHit.normal.z + (hit.normal.z - startHit.normal.z) * t
+              )
+            ),
+            point: vec3(
+              startHit.point.x + delta.x * t,
+              startHit.point.y + delta.y * t,
+              startHit.point.z + delta.z * t
+            )
+          } satisfies SculptBrushHit;
+          const stampedTransforms = createInstanceBrushStampTransforms(stampedHit, bounds).filter((transform) => {
+            const key = createInstanceBrushTransformKey(transform.position, dedupeSize);
+
+            if (existingKeys.has(key)) {
+              return false;
+            }
+
+            existingKeys.add(key);
+            return true;
+          });
+
+          if (stampedTransforms.length > 0) {
+            nextPendingTransforms = [...nextPendingTransforms, ...stampedTransforms];
+          }
+
+          latestStampedHit = stampedHit;
+        }
+
+        nextLastStampedHit = latestStampedHit;
+      }
+    }
+
+    return {
+      dragging: true,
+      hovered: hit,
+      lastStampedHit: nextLastStampedHit,
+      pendingTransforms: nextPendingTransforms
+    } satisfies InstanceBrushState;
+  };
+
+  const beginInstanceBrushStroke = (bounds: DOMRect, clientX: number, clientY: number) => {
+    if (!instanceBrushSourceNodeId || !instanceBrushSourceTransform) {
+      return false;
+    }
+
+    const hit = resolveSceneBrushHit(bounds, clientX, clientY);
+
+    if (!hit) {
+      return false;
+    }
+
+    const nextState = applyInstanceBrushHit(
+      {
+        dragging: true,
+        hovered: hit,
+        pendingTransforms: []
+      },
+      hit,
+      bounds
+    );
+
+    instanceBrushStateRef.current = nextState;
+    setInstanceBrushState(nextState);
+    setTransformDragging(true);
+    return true;
+  };
+
+  const updateInstanceBrushStroke = (bounds: DOMRect, clientX: number, clientY: number) => {
+    if (!instanceBrushSourceNodeId || !instanceBrushSourceTransform) {
+      if (!instanceBrushStateRef.current?.dragging) {
+        instanceBrushStateRef.current = null;
+        setInstanceBrushState(null);
+      }
+      return;
+    }
+
+    const currentState = instanceBrushStateRef.current;
+    const hit = resolveSceneBrushHit(bounds, clientX, clientY);
+
+    if (!hit) {
+      if (!currentState?.dragging) {
+        instanceBrushStateRef.current = null;
+        setInstanceBrushState(null);
+      }
+      return;
+    }
+
+    const nextState = currentState
+      ? applyInstanceBrushHit(currentState, hit, bounds)
+      : {
+          dragging: false,
+          hovered: hit,
+          pendingTransforms: []
+        } satisfies InstanceBrushState;
+
+    instanceBrushStateRef.current = nextState;
+    setInstanceBrushState(nextState);
+  };
+
+  const cancelInstanceBrushStroke = (exitMode = false) => {
+    const currentState = instanceBrushStateRef.current;
+
+    if (!currentState) {
+      return;
+    }
+
+    const nextState = exitMode
+      ? null
+      : {
+          dragging: false,
+          hovered: currentState.hovered,
+          pendingTransforms: []
+        } satisfies InstanceBrushState;
+
+    instanceBrushStateRef.current = nextState;
+    setInstanceBrushState(nextState);
+    setTransformDragging(false);
+  };
+
+  const commitInstanceBrushStroke = () => {
+    const currentState = instanceBrushStateRef.current;
+
+    if (!currentState) {
+      return;
+    }
+
+    if (instanceBrushSourceNodeId && currentState.pendingTransforms.length > 0) {
+      onPlaceInstancingNodes(instanceBrushSourceNodeId, currentState.pendingTransforms);
+    }
+
+    const nextState = {
+      dragging: false,
+      hovered: currentState.hovered,
+      pendingTransforms: []
+    } satisfies InstanceBrushState;
+
+    instanceBrushStateRef.current = nextState;
+    setInstanceBrushState(nextState);
+    setTransformDragging(false);
+  };
+
   const selectNodesAlongRay = (bounds: DOMRect, clientX: number, clientY: number) => {
     if (!cameraRef.current) {
       return;
@@ -2118,6 +2411,25 @@ export function ViewportCanvas({
         : current
     );
   }, [sculptBrushRadius, sculptBrushStrength]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!instanceBrushState) {
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cancelInstanceBrushStroke(true);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [instanceBrushState]);
 
   useEffect(() => {
     onMaterialPaintModeChange(materialPaintState?.mode ?? null);
@@ -2885,7 +3197,7 @@ export function ViewportCanvas({
         ? new Vector2(event.clientX - bounds.left, event.clientY - bounds.top)
         : null;
 
-    if (extrudeState || arcState || bevelState || faceCutState || faceSubdivisionState || sculptState?.dragging) {
+    if (extrudeState || arcState || bevelState || faceCutState || faceSubdivisionState || sculptState?.dragging || instanceBrushState?.dragging) {
       return;
     }
 
@@ -2894,7 +3206,12 @@ export function ViewportCanvas({
       return;
     }
 
-    if (activeToolId === "brush" && event.button === 0 && !event.shiftKey) {
+    if (activeToolId === "brush" && brushToolMode === "instance" && event.button === 0 && !event.shiftKey) {
+      beginInstanceBrushStroke(bounds, event.clientX, event.clientY);
+      return;
+    }
+
+    if (activeToolId === "brush" && brushToolMode === "create" && event.button === 0 && !event.shiftKey) {
       brushClickOriginRef.current = new Vector2(event.clientX - bounds.left, event.clientY - bounds.top);
       return;
     }
@@ -2981,6 +3298,11 @@ export function ViewportCanvas({
 
     if (bevelState) {
       queuePreviewUpdate("bevel", event.clientX, event.clientY, bounds);
+      return;
+    }
+
+    if (activeToolId === "brush" && brushToolMode === "instance") {
+      updateInstanceBrushStroke(bounds, event.clientX, event.clientY);
       return;
     }
 
@@ -3100,6 +3422,13 @@ export function ViewportCanvas({
       return;
     }
 
+    if (instanceBrushState?.dragging) {
+      if (event.button === 0) {
+        commitInstanceBrushStroke();
+      }
+      return;
+    }
+
     if (arcState) {
       if (event.button === 0) {
         commitArcPreview();
@@ -3145,6 +3474,10 @@ export function ViewportCanvas({
       }
 
       handleAiModelPlacementClick(event.clientX, event.clientY, bounds);
+      return;
+    }
+
+    if (activeToolId === "brush" && brushToolMode === "instance") {
       return;
     }
 
@@ -3365,6 +3698,7 @@ export function ViewportCanvas({
             !brushCreateState &&
             !bevelState &&
             !extrudeState &&
+            !instanceBrushState?.dragging &&
             !sculptState?.dragging &&
             !faceCutState &&
             !faceSubdivisionState
@@ -3429,6 +3763,9 @@ export function ViewportCanvas({
         ) : null}
         {editorInteractionEnabled && isActiveViewport && sculptState && selectedDisplayNode ? (
           <SculptBrushOverlay hovered={sculptState.hovered} node={selectedDisplayNode} radius={sculptState.radius} />
+        ) : null}
+        {editorInteractionEnabled && isActiveViewport && activeToolId === "brush" && brushToolMode === "instance" && instanceBrushState?.hovered ? (
+          <SculptBrushOverlay hovered={instanceBrushState.hovered} radius={instanceBrushSize} />
         ) : null}
         {editorInteractionEnabled && isActiveViewport && activeToolId === "brush" && brushCreateState ? (
           <BrushCreatePreview snapSize={snapSize} state={brushCreateState} />
@@ -3543,7 +3880,7 @@ export function ViewportCanvas({
         ) : null}
       </Canvas>
 
-      {editorInteractionEnabled && (arcState || bevelState || extrudeState || sculptState || faceCutState || faceSubdivisionState) ? (
+      {editorInteractionEnabled && (arcState || bevelState || extrudeState || sculptState || instanceBrushState?.dragging || faceCutState || faceSubdivisionState) ? (
         <div className="pointer-events-none absolute inset-0 z-20 cursor-crosshair" />
       ) : null}
 
@@ -3964,7 +4301,7 @@ function SculptBrushOverlay({
   radius
 }: {
   hovered?: SculptBrushHit;
-  node: ViewportCanvasProps["selectedNode"];
+  node?: ViewportCanvasProps["selectedNode"];
   radius: number;
 }) {
   const geometryRef = useRef<BufferGeometry>(new BufferGeometry());
@@ -4012,17 +4349,21 @@ function SculptBrushOverlay({
     []
   );
 
-  if (!hovered || !node) {
+  if (!hovered) {
     return null;
   }
 
-  return (
-    <NodeTransformGroup transform={node.transform}>
-      <lineLoop geometry={geometryRef.current} renderOrder={14}>
-        <lineBasicMaterial color="#f8fafc" depthWrite={false} opacity={0.95} toneMapped={false} transparent />
-      </lineLoop>
-    </NodeTransformGroup>
+  const ring = (
+    <lineLoop geometry={geometryRef.current as never} renderOrder={14}>
+      <lineBasicMaterial color="#f8fafc" depthWrite={false} opacity={0.95} toneMapped={false} transparent />
+    </lineLoop>
   );
+
+  if (!node) {
+    return ring;
+  }
+
+  return <NodeTransformGroup transform={node.transform}>{ring}</NodeTransformGroup>;
 }
 
 function createBrushRingBasis(normal: Vec3) {
@@ -4032,6 +4373,65 @@ function createBrushRingBasis(normal: Vec3) {
   const v = normalizeVec3(crossVec3(axis, u));
 
   return { u, v };
+}
+
+function buildInstanceBrushSampleOffsets(count: number, randomness: number) {
+  const normalizedRandomness = Math.max(0, Math.min(1, randomness));
+  const safeCount = Math.max(1, count);
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+
+  return Array.from({ length: safeCount }, (_, index) => {
+    const uniformRadius = Math.sqrt((index + 0.5) / safeCount);
+    const uniformAngle = index * goldenAngle;
+    const randomRadius = Math.sqrt(Math.random());
+    const randomAngle = Math.random() * Math.PI * 2;
+    const x = Math.cos(uniformAngle) * uniformRadius * (1 - normalizedRandomness) + Math.cos(randomAngle) * randomRadius * normalizedRandomness;
+    const y = Math.sin(uniformAngle) * uniformRadius * (1 - normalizedRandomness) + Math.sin(randomAngle) * randomRadius * normalizedRandomness;
+    const length = Math.hypot(x, y);
+
+    if (length <= 1) {
+      return { x, y };
+    }
+
+    return {
+      x: x / length,
+      y: y / length
+    };
+  });
+}
+
+function projectWorldPointToClient(point: Vec3, camera: Camera, bounds: DOMRect) {
+  const projected = new Vector3(point.x, point.y, point.z).project(camera);
+
+  if (!Number.isFinite(projected.x) || !Number.isFinite(projected.y) || projected.z < -1 || projected.z > 1) {
+    return undefined;
+  }
+
+  return {
+    clientX: bounds.left + ((projected.x + 1) * 0.5) * bounds.width,
+    clientY: bounds.top + ((1 - projected.y) * 0.5) * bounds.height
+  };
+}
+
+function composeInstanceBrushRotation(normal: Vec3, baseRotation: Vec3) {
+  const alignedNormal = lengthVec3(normal) > 0.000001 ? normalizeVec3(normal) : vec3(0, 1, 0);
+  const alignment = new Quaternion().setFromUnitVectors(
+    new Vector3(0, 1, 0),
+    new Vector3(alignedNormal.x, alignedNormal.y, alignedNormal.z)
+  );
+  const base = new Quaternion().setFromEuler(new Euler(baseRotation.x, baseRotation.y, baseRotation.z, "XYZ"));
+  const rotation = alignment.multiply(base);
+  const euler = new Euler().setFromQuaternion(rotation, "XYZ");
+
+  return vec3(euler.x, euler.y, euler.z);
+}
+
+function createInstanceBrushTransformKey(position: Vec3, cellSize: number) {
+  return [
+    snapValue(position.x, cellSize),
+    snapValue(position.y, cellSize),
+    snapValue(position.z, cellSize)
+  ].join(":");
 }
 
 function resolveNodeIdFromIntersection(intersection: { instanceId?: number; object: Object3D }) {

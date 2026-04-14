@@ -37,12 +37,26 @@ export type MeshEditToolbarActionRequest = {
   kind: MeshEditToolbarAction;
 };
 
+export type BrushToolMode = "create" | "instance";
+
+export type InstanceBrushSourceOption = {
+  id: string;
+  kind: Exclude<GeometryNode["kind"], "group" | "instancing" | "light">;
+  label: string;
+};
+
 export type ViewportCanvasProps = {
   activeBrushShape: BrushShape;
+  brushToolMode: BrushToolMode;
   aiModelPlacementArmed: boolean;
   activeToolId: ToolId;
   dprScale: number;
   hiddenSceneItemIds?: string[];
+  instanceBrushDensity: number;
+  instanceBrushRandomness: number;
+  instanceBrushSize: number;
+  instanceBrushSourceNodeId?: string;
+  instanceBrushSourceTransform?: Transform;
   isActiveViewport: boolean;
   meshEditMode: MeshEditMode;
   meshEditToolbarAction?: MeshEditToolbarActionRequest;
@@ -58,6 +72,7 @@ export type ViewportCanvasProps = {
   onPlaceAsset: (position: { x: number; y: number; z: number }) => void;
   onPlaceAiModelPlaceholder: (position: Vec3) => void;
   onPlaceBrush: (brush: Brush, transform: Transform) => void;
+  onPlaceInstancingNodes: (sourceNodeId: string, transforms: Transform[]) => void;
   onPlaceMeshNode: (mesh: EditableMesh, transform: Transform, name: string) => void;
   onPlacePrimitiveNode: (data: PrimitiveNodeData, transform: Transform, name: string) => void;
   onPreviewBrushData: (nodeId: string, brush: Brush) => void;

@@ -15,6 +15,7 @@ import {
   createExtrudeBrushNodesCommand,
   createDuplicateNodesCommand,
   createInstanceNodesCommand,
+  createPlaceInstancingNodesCommand,
   createGroupSelectionCommand,
   createPlaceLightNodeCommand,
   createPlaceBlockoutPlatformCommand,
@@ -62,6 +63,7 @@ import {
   type BrushShape,
   type GeometryNode,
   isBrushNode,
+  isInstancingSourceNode,
   isInstancingNode,
   isLightNode,
   isMeshNode,
@@ -114,7 +116,7 @@ import { GameConnectionControl } from "@/components/editor-shell/GameConnectionC
 import { useEditorSubscriptions } from "@/app/hooks/useEditorSubscriptions";
 import { useExportWorker } from "@/app/hooks/useExportWorker";
 import { clampSnapSize, resolveViewportSnapSize } from "@/viewport/utils/snap";
-import type { MeshEditToolbarActionRequest } from "@/viewport/types";
+import type { BrushToolMode, InstanceBrushSourceOption, MeshEditToolbarActionRequest } from "@/viewport/types";
 import {
   createDefaultEntity,
   createDefaultLightData,
@@ -157,6 +159,7 @@ export function App() {
   const [editor] = useState(() => createSceneEditorAdapter(worldEditor));
   const [activeToolId, setActiveToolId] = useState<ToolId>(defaultToolId);
   const [activeBrushShape, setActiveBrushShape] = useState<BrushShape>("cube");
+  const [brushToolMode, setBrushToolMode] = useState<BrushToolMode>("create");
   const [aiModelPlacementArmed, setAiModelPlacementArmed] = useState(false);
   const [aiModelDraft, setAiModelDraft] = useState<{
     error?: string;
@@ -180,6 +183,10 @@ export function App() {
   const [sculptMode, setSculptMode] = useState<"deflate" | "inflate" | null>(null);
   const [sculptBrushRadius, setSculptBrushRadius] = useState(3);
   const [sculptBrushStrength, setSculptBrushStrength] = useState(0.2);
+  const [instanceBrushSize, setInstanceBrushSize] = useState(2.5);
+  const [instanceBrushDensity, setInstanceBrushDensity] = useState(8);
+  const [instanceBrushRandomness, setInstanceBrushRandomness] = useState(0.35);
+  const [instanceBrushSourceNodeId, setInstanceBrushSourceNodeId] = useState("");
   const [selectedScenePathId, setSelectedScenePathId] = useState<string>();
   const [projectName, setProjectName] = useState("Untitled Scene");
   const [projectSlug, setProjectSlug] = useState("untitled-scene");
@@ -243,10 +250,42 @@ export function App() {
   );
   const sceneNodes = useMemo(() => Array.from(editor.scene.nodes.values()), [editor, committedSceneRevision]);
   const sceneEntities = useMemo(() => Array.from(editor.scene.entities.values()), [editor, committedSceneRevision]);
+  const primarySelectedNode = useMemo(() => {
+    const selectedId = editor.selection.ids[0];
+    return selectedId ? editor.scene.getNode(selectedId) : undefined;
+  }, [editor, selectionRevision]);
   const modelAssets = useMemo(
     () => buildModelAssetLibrary(editor.scene.assets.values(), editor.scene.nodes.values()),
     [editor, committedSceneRevision]
   );
+  const instanceBrushSourceOptions = useMemo<InstanceBrushSourceOption[]>(
+    () =>
+      sceneNodes
+        .filter((node) => isInstancingSourceNode(node))
+        .map((node) => ({
+          id: node.id,
+          kind: node.kind,
+          label: `${node.name} · ${node.kind}`
+        })),
+    [sceneNodes]
+  );
+  const instanceBrushSourceNode = useMemo(
+    () => sceneNodes.find((node) => node.id === instanceBrushSourceNodeId && isInstancingSourceNode(node)),
+    [instanceBrushSourceNodeId, sceneNodes]
+  );
+  const instanceBrushSourceTransform = useMemo(() => {
+    if (!instanceBrushSourceNode) {
+      return undefined;
+    }
+
+    return (
+      renderScene.nodeTransforms.get(instanceBrushSourceNode.id) ??
+      (workingSet.mode === "world" && activeWorldDocumentId
+        ? renderScene.nodeTransforms.get(`${activeWorldDocumentId}::${instanceBrushSourceNode.id}`)
+        : undefined) ??
+      instanceBrushSourceNode.transform
+    );
+  }, [activeWorldDocumentId, instanceBrushSourceNode, renderScene.nodeTransforms, workingSet.mode]);
   const sceneItemIdSet = useMemo(
     () => new Set<string>([...sceneNodes.map((node) => node.id), ...sceneEntities.map((entity) => entity.id)]),
     [sceneEntities, sceneNodes]
@@ -316,6 +355,17 @@ export function App() {
       uiStore.selectedAssetId = "";
     }
   }, [committedSceneRevision, editor]);
+
+  useEffect(() => {
+    const currentIsValid = instanceBrushSourceOptions.some((option) => option.id === instanceBrushSourceNodeId);
+
+    if (currentIsValid) {
+      return;
+    }
+
+    const selectedSourceId = primarySelectedNode && isInstancingSourceNode(primarySelectedNode) ? primarySelectedNode.id : undefined;
+    setInstanceBrushSourceNodeId(selectedSourceId ?? instanceBrushSourceOptions[0]?.id ?? "");
+  }, [instanceBrushSourceNodeId, instanceBrushSourceOptions, primarySelectedNode]);
 
   useEffect(() => {
     const scenePaths = editor.scene.settings.paths ?? [];
@@ -934,6 +984,28 @@ export function App() {
     }
 
     placeAssetAtPosition(uiStore.selectedAssetId, position);
+  };
+
+  const handlePlaceInstancingNodes = (sourceNodeId: string, transforms: Transform[]) => {
+    if (transforms.length === 0) {
+      return;
+    }
+
+    const sourceNode = editor.scene.getNode(sourceNodeId);
+
+    if (!sourceNode || !isInstancingSourceNode(sourceNode)) {
+      return;
+    }
+
+    const { command } = createPlaceInstancingNodesCommand(editor.scene, transforms, {
+      data: {
+        sourceNodeId
+      },
+      name: `${sourceNode.name} Instance`
+    });
+
+    editor.execute(command);
+    enqueueWorkerJob("Instance brush placement", { task: "triangulation", worker: "geometryWorker" }, 650);
   };
 
   const handleInsertAsset = (assetId: string) => {
@@ -2212,6 +2284,7 @@ export function App() {
         aiModelPrompt={aiModelDraft?.prompt ?? ""}
         aiModelPromptBusy={false}
         aiModelPromptError={aiModelDraft?.error}
+        brushToolMode={brushToolMode}
         activeViewportId={ui.activeViewportId}
         effectiveHiddenSceneItemIds={effectiveHiddenSceneItemIds}
         effectiveLockedSceneItemIds={effectiveLockedSceneItemIds}
@@ -2223,6 +2296,12 @@ export function App() {
         editor={editor}
         gridSnapValues={gridSnapValues}
         jobs={[...workerJobs, ...exportJobs]}
+        instanceBrushDensity={instanceBrushDensity}
+        instanceBrushRandomness={instanceBrushRandomness}
+        instanceBrushSize={instanceBrushSize}
+        instanceBrushSourceNodeId={instanceBrushSourceNodeId}
+        instanceBrushSourceOptions={instanceBrushSourceOptions}
+        instanceBrushSourceTransform={instanceBrushSourceTransform}
         meshEditToolbarAction={meshEditToolbarAction}
         materialPaintBrushOpacity={materialPaintBrushOpacity}
         materialPaintMode={materialPaintMode}
@@ -2260,6 +2339,7 @@ export function App() {
         onPlaceAsset={handlePlaceAsset}
         onPlaceAiModelPlaceholder={handlePlaceAiModelPlaceholder}
         onPlaceBrush={handlePlaceBrush}
+        onPlaceInstancingNodes={handlePlaceInstancingNodes}
         onPlaceMeshNode={handlePlaceMeshNode}
         onPlaceBlockoutOpenRoom={() => handlePlaceBlockoutRoom(["south"])}
         onPlaceBlockoutPlatform={handlePlaceBlockoutPlatform}
@@ -2288,7 +2368,12 @@ export function App() {
         onSetUvOffset={handleSetMaterialUvOffset}
         onSetUvScale={handleSetMaterialUvScale}
         onSelectNodes={handleSelectNodes}
+        onSetBrushToolMode={setBrushToolMode}
         onSetMeshEditMode={setMeshEditMode}
+        onSetInstanceBrushDensity={setInstanceBrushDensity}
+        onSetInstanceBrushRandomness={setInstanceBrushRandomness}
+        onSetInstanceBrushSize={setInstanceBrushSize}
+        onSetInstanceBrushSourceNodeId={setInstanceBrushSourceNodeId}
         onSetSculptBrushRadius={setSculptBrushRadius}
         onSetSculptBrushStrength={setSculptBrushStrength}
         onSetMaterialPaintBrushOpacity={setMaterialPaintBrushOpacity}
