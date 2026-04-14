@@ -1,6 +1,6 @@
 import { convertBrushToEditableMesh } from "@ggez/geometry-kernel";
 import { TransformControls } from "@react-three/drei";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { type Brush, type EditableMesh, type GeometryNode, type Transform, type Vec3, vec3 } from "@ggez/shared";
 import {
   applyBrushEditTransform,
@@ -22,6 +22,7 @@ import { NodeTransformGroup } from "@/viewport/components/NodeTransformGroup";
 import { objectToTransform, worldPointToNodeLocal } from "@/viewport/utils/geometry";
 import { findMatchingBrushEdgeHandleId, findMatchingMeshEdgePair, resolveSubobjectSelection } from "@/viewport/utils/interaction";
 import { resolveViewportSnapSize } from "@/viewport/utils/snap";
+import { useTransformControlsCameraLock } from "@/viewport/hooks/useTransformControlsCameraLock";
 import {
   BatchedHandleLineSegments,
   BatchedHandleMarkers,
@@ -44,9 +45,11 @@ type EdgeLabel = {
 };
 
 export function MeshEditOverlay({
+  cameraControlsRef,
   handles,
   meshEditMode,
   node,
+  onDragStateChange,
   onCommitTransformAction,
   onPreviewMeshData,
   onUpdateMeshData,
@@ -55,9 +58,11 @@ export function MeshEditOverlay({
   transformMode,
   viewport
 }: {
+  cameraControlsRef?: RefObject<any | null>;
   handles: MeshEditHandle[];
   meshEditMode: MeshEditMode;
   node: Extract<GeometryNode, { kind: "mesh" }>;
+  onDragStateChange?: (dragging: boolean) => void;
   onCommitTransformAction?: (action: LastMeshEditAction) => void;
   onPreviewMeshData: ViewportCanvasProps["onPreviewMeshData"];
   onUpdateMeshData: ViewportCanvasProps["onUpdateMeshData"];
@@ -68,8 +73,14 @@ export function MeshEditOverlay({
 }) {
   const [controlObject, setControlObject] = useState<Object3D | null>(null);
   const controlRef = useRef<Object3D | null>(null);
+  const transformControlsRef = useRef<any>(null);
   const baselineMeshRef = useRef<EditableMesh | undefined>(undefined);
   const baselineTransformRef = useRef<Transform | undefined>(undefined);
+  useTransformControlsCameraLock({
+    cameraControlsRef,
+    onDragStateChange,
+    transformControlsRefs: [transformControlsRef]
+  });
   const shouldResolveEdgeLabels = selectedHandleIds.length > 0 && (meshEditMode === "edge" || meshEditMode === "face");
   const edgeHandles = useMemo(
     () => (shouldResolveEdgeLabels || meshEditMode === "vertex" ? createMeshEditHandles(node.data, "edge") : []),
@@ -267,6 +278,7 @@ export function MeshEditOverlay({
 
       {selectedHandleIds.length > 0 && controlObject ? (
         <TransformControls
+          ref={transformControlsRef as any}
           key={`mesh-edit:${transformMode}:${selectedHandleIds.join(":")}`}
           enabled
           mode={transformMode}
@@ -331,9 +343,11 @@ export function MeshEditOverlay({
 }
 
 export function BrushEditOverlay({
+  cameraControlsRef,
   handles,
   meshEditMode,
   node,
+  onDragStateChange,
   onCommitTransformAction,
   onPreviewBrushData,
   onUpdateBrushData,
@@ -342,9 +356,11 @@ export function BrushEditOverlay({
   transformMode,
   viewport
 }: {
+  cameraControlsRef?: RefObject<any | null>;
   handles: BrushEditHandle[];
   meshEditMode: MeshEditMode;
   node: Extract<GeometryNode, { kind: "brush" }>;
+  onDragStateChange?: (dragging: boolean) => void;
   onCommitTransformAction?: (action: LastMeshEditAction) => void;
   onPreviewBrushData: ViewportCanvasProps["onPreviewBrushData"];
   onUpdateBrushData: ViewportCanvasProps["onUpdateBrushData"];
@@ -355,9 +371,15 @@ export function BrushEditOverlay({
 }) {
   const [controlObject, setControlObject] = useState<Object3D | null>(null);
   const controlRef = useRef<Object3D | null>(null);
+  const transformControlsRef = useRef<any>(null);
   const baselineBrushRef = useRef<Brush | undefined>(undefined);
   const baselineHandlesRef = useRef<BrushEditHandle[] | undefined>(undefined);
   const baselineTransformRef = useRef<Transform | undefined>(undefined);
+  useTransformControlsCameraLock({
+    cameraControlsRef,
+    onDragStateChange,
+    transformControlsRefs: [transformControlsRef]
+  });
   const shouldResolveEdgeLabels = selectedHandleIds.length > 0 && (meshEditMode === "edge" || meshEditMode === "face");
   const edgeHandles = useMemo(
     () => (shouldResolveEdgeLabels || meshEditMode === "vertex" ? createBrushEditHandles(node.data, "edge") : []),
@@ -578,6 +600,7 @@ export function BrushEditOverlay({
 
       {selectedHandleIds.length > 0 && controlObject ? (
         <TransformControls
+          ref={transformControlsRef as any}
           key={`brush-edit:${transformMode}:${selectedHandleIds.join(":")}`}
           enabled
           mode={transformMode}

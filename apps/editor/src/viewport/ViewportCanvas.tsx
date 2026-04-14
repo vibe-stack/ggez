@@ -3831,9 +3831,11 @@ export function ViewportCanvas({
         ) : null}
         {editorInteractionEnabled && isActiveViewport && activeToolId === "mesh-edit" && selectedBrushDisplayNode && !arcState && !bevelState && !extrudeState && !faceCutState && !faceSubdivisionState ? (
           <BrushEditOverlay
+            cameraControlsRef={cameraControlsRef}
             handles={brushEditHandles}
             meshEditMode={meshEditMode}
             node={selectedBrushDisplayNode}
+            onDragStateChange={handleTransformDragStateChange}
             onCommitTransformAction={(action) => {
               lastMeshEditActionRef.current = action;
             }}
@@ -3847,9 +3849,11 @@ export function ViewportCanvas({
         ) : null}
         {editorInteractionEnabled && isActiveViewport && activeToolId === "mesh-edit" && selectedMeshDisplayNode && !arcState && !bevelState && !extrudeState && !faceCutState && !faceSubdivisionState ? (
           <MeshEditOverlay
+            cameraControlsRef={cameraControlsRef}
             handles={meshEditHandles}
             meshEditMode={meshEditMode}
             node={selectedMeshDisplayNode}
+            onDragStateChange={handleTransformDragStateChange}
             onCommitTransformAction={(action) => {
               lastMeshEditActionRef.current = action;
             }}

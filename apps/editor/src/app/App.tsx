@@ -154,6 +154,7 @@ export function App() {
   const [workerManager] = useState(() => createWorkerTaskManager());
   const [workerJobs, setWorkerJobs] = useState<WorkerJob[]>([]);
   const [committedSceneRevision, setCommittedSceneRevision] = useState(0);
+  const [draftHydrated, setDraftHydrated] = useState(false);
   const [sceneRevision, setSceneRevision] = useState(0);
   const [selectionRevision, setSelectionRevision] = useState(0);
   const [worldRevision, setWorldRevision] = useState(0);
@@ -176,7 +177,6 @@ export function App() {
   const projectName = projectSessionSnapshot.projectName;
   const projectSlug = projectSessionSnapshot.projectSlug;
   const projectSlugDirty = projectSessionSnapshot.projectSlugDirty;
-  const draftHydrated = projectSessionSnapshot.draftHydrated;
   const hiddenSceneItemIds = sceneSessionSnapshot.hiddenSceneItemIds;
   const lockedSceneItemIds = sceneSessionSnapshot.lockedSceneItemIds;
   const selectedScenePathId = sceneSessionSnapshot.selectedScenePathId;
@@ -1611,7 +1611,7 @@ export function App() {
         console.warn("Failed to restore the Trident draft.", error);
       } finally {
         if (!cancelled) {
-          projectSessionStore.draftHydrated = true;
+          setDraftHydrated(true);
         }
       }
     })();

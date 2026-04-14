@@ -6,6 +6,7 @@ import { isInstancingNode, localizeTransform, resolveTransformPivot, toTuple, ve
 import { objectToTransform, rebaseTransformPivot, worldPointToNodeLocal } from "@/viewport/utils/geometry";
 import { resolveViewportSnapSize } from "@/viewport/utils/snap";
 import type { ViewportCanvasProps } from "@/viewport/types";
+import { useTransformControlsCameraLock } from "@/viewport/hooks/useTransformControlsCameraLock";
 import { Group as ThreeGroup, Vector3 } from "three";
 
 const tempCameraPosition = new Vector3();
@@ -88,27 +89,11 @@ export function ObjectTransformGizmo({
   const handleTransformTargetRef = useCallback((object: ThreeGroup | null) => {
     setTransformTarget(object);
   }, []);
-  const setCameraControlsEnabled = useCallback((enabled: boolean) => {
-    const controls = cameraControlsRef?.current;
-
-    if (controls && "enabled" in controls) {
-      controls.enabled = enabled;
-
-      if (!enabled && "state" in controls && typeof controls.state === "number") {
-        controls.state = -1;
-      }
-
-      controls.update?.();
-    }
-  }, [cameraControlsRef]);
-  const beginDrag = useCallback(() => {
-    setCameraControlsEnabled(false);
-    onDragStateChange?.(true);
-  }, [onDragStateChange, setCameraControlsEnabled]);
-  const endDrag = useCallback(() => {
-    setCameraControlsEnabled(true);
-    onDragStateChange?.(false);
-  }, [onDragStateChange, setCameraControlsEnabled]);
+  const { endDrag } = useTransformControlsCameraLock({
+    cameraControlsRef,
+    onDragStateChange,
+    transformControlsRefs: [pivotControlsRef, objectControlsRef]
+  });
 
   const cancelScheduledPreview = useCallback(() => {
     if (previewFrameRef.current !== null) {
@@ -181,46 +166,8 @@ export function ObjectTransformGizmo({
   useEffect(() => {
     return () => {
       cancelScheduledPreview();
-      setCameraControlsEnabled(true);
     };
-  }, [cancelScheduledPreview, setCameraControlsEnabled]);
-
-  useEffect(() => {
-    const controlsInstances = [pivotControlsRef.current, objectControlsRef.current].filter(Boolean);
-
-    if (controlsInstances.length === 0) {
-      return;
-    }
-
-    const cleanups = controlsInstances.map((controls) => {
-      const handleDraggingChanged = (event: { value?: boolean }) => {
-        const dragging = Boolean(event.value);
-        if (dragging) {
-          beginDrag();
-          return;
-        }
-
-        endDrag();
-      };
-
-      controls.addEventListener?.("dragging-changed", handleDraggingChanged);
-
-      return () => {
-        controls.removeEventListener?.("dragging-changed", handleDraggingChanged);
-      };
-    });
-
-    return () => {
-      cleanups.forEach((cleanup) => cleanup());
-      endDrag();
-    };
-  }, [
-    activePivotNode?.id,
-    beginDrag,
-    endDrag,
-    selectedObjectId,
-    showObjectTransformGizmo
-  ]);
+  }, [cancelScheduledPreview]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -308,7 +255,6 @@ export function ObjectTransformGizmo({
           mode="translate"
           object={pivotTarget as any}
           onMouseDown={() => {
-            beginDrag();
             baselineTransformRef.current = structuredClone(activePivotNode.transform);
           }}
           onMouseUp={() => {
@@ -364,7 +310,6 @@ export function ObjectTransformGizmo({
           mode={transformMode}
           object={transformTarget as any}
           onMouseDown={() => {
-            beginDrag();
             baselineTransformRef.current = structuredClone(selectedTarget.transform);
           }}
           onMouseUp={() => {
