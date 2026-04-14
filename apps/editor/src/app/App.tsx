@@ -105,6 +105,9 @@ import { isWebHammerEngineBundle } from "@ggez/three-runtime";
 import { slugifyProjectName, type EditorFileMetadata } from "@ggez/dev-sync";
 import { WorldEditorShell } from "@/components/WorldEditorShell";
 import { useGameConnection } from "@/app/hooks/useGameConnection";
+import { useSceneDraftPersistence } from "@/app/hooks/useSceneDraftPersistence";
+import { useWorldDocumentManagement } from "@/app/hooks/useWorldDocumentManagement";
+import { createUniqueWorldDocumentId, createUniqueWorldPartitionId } from "@/app/world-document-ids";
 import { uiStore } from "@/state/ui-store";
 import type { Transform } from "@ggez/shared";
 import { useAppHotkeys } from "@/app/hooks/useAppHotkeys";
@@ -143,7 +146,6 @@ import {
   viewportPaneIds,
   type ViewportPaneId,
 } from "@/viewport/viewports";
-import { loadStoredSceneEditorDraft, saveSceneEditorDraft } from "@/lib/draft-storage";
 import { projectSessionStore, RUNTIME_SYNC_DEBUG_FINGERPRINT } from "@/state/project-session-store";
 import { resetSceneSessionStore, sceneSessionStore } from "@/state/scene-session-store";
 import { queueMeshEditToolbarAction, resetToolSessionStore, toolSessionStore } from "@/state/tool-session-store";
@@ -154,11 +156,9 @@ export function App() {
   const [workerManager] = useState(() => createWorkerTaskManager());
   const [workerJobs, setWorkerJobs] = useState<WorkerJob[]>([]);
   const [committedSceneRevision, setCommittedSceneRevision] = useState(0);
-  const [draftHydrated, setDraftHydrated] = useState(false);
   const [sceneRevision, setSceneRevision] = useState(0);
   const [selectionRevision, setSelectionRevision] = useState(0);
   const [worldRevision, setWorldRevision] = useState(0);
-  const latestDraftRef = useRef<ReturnType<typeof buildSceneDraftPayload> | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const sceneDocumentInputRef = useRef<HTMLInputElement | null>(null);
   const glbImportInputRef = useRef<HTMLInputElement | null>(null);
@@ -1591,67 +1591,17 @@ export function App() {
     projectSessionStore.projectSlugDirty = Boolean(metadata.projectSlug);
   };
 
-  useEffect(() => {
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        const draft = await loadStoredSceneEditorDraft();
-
-        if (!draft || cancelled) {
-          return;
-        }
-
-        worldEditor.importBundle(draft.snapshot, "world:restore-draft");
-        syncEditorFromWorld("world:restore-draft");
-        projectSessionStore.projectName = draft.projectName || "Untitled Scene";
-        projectSessionStore.projectSlug = slugifyProjectName(draft.projectSlug || draft.projectName || "Untitled Scene");
-        projectSessionStore.projectSlugDirty = draft.projectSlugDirty;
-      } catch (error) {
-        console.warn("Failed to restore the Trident draft.", error);
-      } finally {
-        if (!cancelled) {
-          setDraftHydrated(true);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [editor, worldEditor]);
-
-  useEffect(() => {
-    if (!draftHydrated) {
-      return;
-    }
-
-    latestDraftRef.current = buildSceneDraftPayload();
-
-    const timeoutId = window.setTimeout(() => {
-      void saveSceneEditorDraft(buildSceneDraftPayload()).catch((error) => {
-        console.warn("Failed to save the Trident draft.", error);
-      });
-    }, 500);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [committedSceneRevision, draftHydrated, projectSlugDirty, resolvedProjectName, resolvedProjectSlug]);
-
-  useEffect(() => {
-    return () => {
-      const draft = latestDraftRef.current;
-
-      if (!draft) {
-        return;
-      }
-
-      void saveSceneEditorDraft(draft).catch((error) => {
-        console.warn("Failed to flush the Trident draft on unload.", error);
-      });
-    };
-  }, []);
+  const draftHydrated = useSceneDraftPersistence({
+    buildDraft: buildSceneDraftPayload,
+    onRestoreDraft: (draft) => {
+      worldEditor.importBundle(draft.snapshot, "world:restore-draft");
+      syncEditorFromWorld("world:restore-draft");
+      projectSessionStore.projectName = draft.projectName || "Untitled Scene";
+      projectSessionStore.projectSlug = slugifyProjectName(draft.projectSlug || draft.projectName || "Untitled Scene");
+      projectSessionStore.projectSlugDirty = draft.projectSlugDirty;
+    },
+    saveKey: `${committedSceneRevision}:${projectSlugDirty ? 1 : 0}:${resolvedProjectName}:${resolvedProjectSlug}`
+  }).draftHydrated;
 
   const handleProjectNameChange = (value: string) => {
     const previousAutoSlug = slugifyProjectName(projectName);
@@ -1936,133 +1886,23 @@ export function App() {
     uiStore.logicViewerOpen = !uiStore.logicViewerOpen;
   };
 
-  const handleSetWorldMode = (mode: "scene" | "world") => {
-    worldEditor.setWorldMode(mode);
-  };
-
-  const handleSetActiveWorldDocument = (documentId: string) => {
-    worldEditor.setActiveDocument(documentId);
-    syncEditorFromWorld("world:set-active-document");
-  };
-
-  const handleCreateWorldDocument = () => {
-    const requestedName = window.prompt("New document name", `Document ${worldDocuments.length + 1}`)?.trim();
-
-    if (!requestedName) {
-      return;
-    }
-
-    const nextBundle = buildWorldBundle();
-    const slugBase = slugifyProjectName(requestedName) || `document-${worldDocuments.length + 1}`;
-    const documentId = createUniqueWorldDocumentId(nextBundle, `document:${slugBase}`);
-    const partitionId = createUniqueWorldPartitionId(nextBundle, `partition:${slugBase}`);
-    const seedSnapshot = createSceneDocumentSnapshot(createSeedSceneDocument());
-
-    nextBundle.documents[documentId] = {
-      ...seedSnapshot,
-      crossDocumentRefs: [],
-      documentId,
-      metadata: {
-        documentId,
-        mount: {
-          transform: makeTransform()
-        },
-        name: requestedName,
-        partitionIds: [partitionId],
-        path: `/documents/${documentId}.json`,
-        slug: slugBase,
-        tags: []
-      },
-      version: 1
-    } satisfies AuthoringDocumentSnapshot;
-
-    nextBundle.partitions[partitionId] = {
-      id: partitionId,
-      loadDistance: 256,
-      members: [
-        {
-          documentId,
-          kind: "document"
-        }
-      ],
-      name: `${requestedName} Partition`,
-      path: `/partitions/${partitionId}.json`,
-      tags: [],
-      unloadDistance: 320,
-      version: 1
-    };
-    nextBundle.manifest.partitions = [
-      ...nextBundle.manifest.partitions,
-      {
-        documentIds: [documentId],
-        id: partitionId,
-        name: `${requestedName} Partition`,
-        path: `/partitions/${partitionId}.json`,
-        tags: []
-      }
-    ];
-    nextBundle.manifest.activeDocumentId = documentId;
-    worldEditor.importBundle(nextBundle, "world:create-document");
-    syncEditorFromWorld("world:create-document");
-  };
-
-  const handleLoadWorldDocument = (documentId: string) => {
-    worldEditor.loadDocument(documentId);
-  };
-
-  const handleUnloadWorldDocument = (documentId: string) => {
-    worldEditor.unloadDocument(documentId);
-  };
-
-  const handlePinWorldDocument = (documentId: string) => {
-    worldEditor.pinDocument(documentId);
-  };
-
-  const handleUnpinWorldDocument = (documentId: string) => {
-    worldEditor.unpinDocument(documentId);
-  };
-
-  const handleSetWorldDocumentPosition = (documentId: string, position: { x: number; y: number; z: number }) => {
-    const document = worldEditor.getDocumentSnapshot(documentId);
-
-    if (!document) {
-      return;
-    }
-
-    worldEditor.updateDocumentMountTransform(documentId, {
-      ...document.metadata.mount.transform,
-      position
-    });
-  };
-
-  const worldDocuments = useMemo(
-    () =>
-      worldEditor.getDocumentSummaries().map((document) => ({
-        id: document.documentId,
-        loaded: workingSet.loadedDocumentIds.includes(document.documentId),
-        name: document.name,
-        pinned: workingSet.pinnedDocumentIds.includes(document.documentId),
-        position: structuredClone(document.mount.transform.position)
-      })),
-    [workingSet, worldEditor, worldRevision]
-  );
-  const worldPartitions = useMemo(
-    () => worldEditor.getPartitionSummaries(),
-    [worldEditor, worldRevision]
-  );
-  const selectionHandles = useMemo(
-    () =>
-      worldEditor.getSelectionSnapshot().handles.map((handle) =>
-        "documentId" in handle
-          ? handle.kind === "node"
-            ? `${handle.documentId}/${handle.nodeId}`
-            : handle.kind === "entity"
-              ? `${handle.documentId}/${handle.entityId}`
-              : `${handle.documentId}/${handle.kind}`
-          : `${handle.kind}:${handle.partitionId}`
-      ),
-    [selectionRevision, worldEditor, worldRevision]
-  );
+  const {
+    handleCreateWorldDocument,
+    handleLoadWorldDocument,
+    handlePinWorldDocument,
+    handleSetActiveWorldDocument,
+    handleSetWorldDocumentPosition,
+    handleSetWorldMode,
+    handleUnloadWorldDocument,
+    handleUnpinWorldDocument,
+    worldDocuments
+  } = useWorldDocumentManagement({
+    buildWorldBundle,
+    syncEditorFromWorld,
+    workingSet,
+    worldEditor,
+    worldRevision
+  });
 
   useAppHotkeys({
     activeToolId,
@@ -2484,30 +2324,6 @@ function extractProjectMetadata(
   }
 
   return payload.metadata;
-}
-
-function createUniqueWorldDocumentId(bundle: WorldPersistenceBundle, preferredId: string) {
-  let nextId = preferredId;
-  let attempt = 2;
-
-  while (bundle.documents[nextId]) {
-    nextId = `${preferredId}-${attempt}`;
-    attempt += 1;
-  }
-
-  return nextId;
-}
-
-function createUniqueWorldPartitionId(bundle: WorldPersistenceBundle, preferredId: string) {
-  let nextId = preferredId;
-  let attempt = 2;
-
-  while (bundle.partitions[nextId]) {
-    nextId = `${preferredId}-${attempt}`;
-    attempt += 1;
-  }
-
-  return nextId;
 }
 
 function resolveFileStem(filename?: string) {
