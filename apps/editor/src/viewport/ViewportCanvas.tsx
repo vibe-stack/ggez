@@ -11,13 +11,16 @@ import {
   extrudeEditableMeshFaces,
   fillEditableMeshFaceFromEdges,
   fillEditableMeshFaceFromVertices,
+  getFaceVertexIds,
   invertEditableMeshNormals,
   mergeEditableMeshEdges,
   mergeEditableMeshFaces,
   mergeEditableMeshVertices,
   paintEditableMeshMaterialLayers,
   sculptEditableMeshSamples,
-  subdivideEditableMeshFace
+  smoothEditableMeshSamples,
+  subdivideEditableMeshFace,
+  triangulateMeshFace
 } from "@ggez/geometry-kernel";
 import {
   applyWebHammerWorldSettings,
@@ -104,7 +107,7 @@ import {
   renderModeUsesShadows
 } from "@/viewport/viewports";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEventHandler } from "react";
-import { BufferGeometry, Camera, Color, Euler, Float32BufferAttribute, Matrix4, Object3D, Plane, Quaternion, Raycaster, Vector2, Vector3 } from "three";
+import { BufferGeometry, Camera, Color, Euler, Float32BufferAttribute, Matrix4, Mesh, Object3D, Plane, Quaternion, Raycaster, Vector2, Vector3 } from "three";
 import type {
   ArcState,
   BevelState,
@@ -117,7 +120,7 @@ import type {
   ViewportCanvasProps
 } from "@/viewport/types";
 
-type SculptBrushMode = "deflate" | "inflate";
+type SculptBrushMode = "deflate" | "inflate" | "smooth";
 type MaterialPaintBrushMode = "erase" | "paint";
 
 type SculptBrushHit = {
@@ -295,6 +298,10 @@ export function ViewportCanvas({
   const materialPaintStateRef = useRef<MaterialPaintState | null>(null);
   const instanceBrushStateRef = useRef<InstanceBrushState | null>(null);
   const sculptStateRef = useRef<SculptBrushState | null>(null);
+  /** Cached vertex-id → render-vertex-index[] map built once per sculpt stroke. */
+  const sculptVertexMapRef = useRef<Map<string, number[]> | null>(null);
+  /** The before-mesh saved at stroke start, kept here for position reset on cancel. */
+  const sculptBeforeMeshRef = useRef<EditableMesh | null>(null);
   const previewFrameRef = useRef<number | null>(null);
   const materialPaintStrokeFrameRef = useRef<number | null>(null);
   const sculptStrokeFrameRef = useRef<number | null>(null);
@@ -1337,14 +1344,27 @@ export function ViewportCanvas({
         point
       };
     });
-    const nextMesh = sculptEditableMeshSamples(
-      sourceMesh,
-      samples,
-      state.radius,
-      signedStrength,
-      0.0001,
-      state.strokeVertexNormals
-    );
+
+    let nextMesh: EditableMesh;
+
+    if (state.mode === "smooth") {
+      nextMesh = smoothEditableMeshSamples(
+        sourceMesh,
+        samples,
+        state.radius,
+        state.strength,
+        0.0001
+      );
+    } else {
+      nextMesh = sculptEditableMeshSamples(
+        sourceMesh,
+        samples,
+        state.radius,
+        signedStrength,
+        0.0001,
+        state.strokeVertexNormals
+      );
+    }
 
     return {
       ...state,
@@ -2376,7 +2396,7 @@ export function ViewportCanvas({
       setMaterialPaintState(null);
     }
 
-    if (sculptState && action !== "inflate" && action !== "deflate") {
+    if (sculptState && action !== "inflate" && action !== "deflate" && action !== "smooth") {
       sculptStateRef.current = null;
       setSculptState(null);
     }
@@ -2501,6 +2521,10 @@ export function ViewportCanvas({
         startSculptMode("deflate");
         return;
       }
+      case "smooth": {
+        startSculptMode("smooth");
+        return;
+      }
       case "subdivide": {
         if (meshEditMode === "face") {
           startFaceSubdivisionOperation();
@@ -2575,6 +2599,37 @@ export function ViewportCanvas({
   useEffect(() => {
     onSculptModeChange(sculptState?.mode ?? null);
   }, [onSculptModeChange, sculptState?.mode]);
+
+  // Live sculpt preview: patch positions directly on the scene geometry so the actual
+  // material and lighting are visible throughout the stroke (no blue overlay mesh).
+  useEffect(() => {
+    if (!sculptState?.dragging || !sculptState.previewMesh || !sculptState.beforeMesh) {
+      // Stroke ended (commit or cancel) — reset positions to pre-stroke state and clear cache.
+      if (sculptBeforeMeshRef.current && sculptVertexMapRef.current) {
+        const nodeId = sculptStateRef.current?.nodeId;
+        patchSculptScenePositions(
+          sculptBeforeMeshRef.current,
+          sculptVertexMapRef.current,
+          nodeId ? meshObjectsRef.current.get(nodeId) : undefined
+        );
+      }
+      sculptVertexMapRef.current = null;
+      sculptBeforeMeshRef.current = null;
+      return;
+    }
+
+    // Build vertex → render-index mapping once per stroke from the committed before-mesh.
+    if (!sculptVertexMapRef.current) {
+      sculptVertexMapRef.current = buildSculptVertexRenderMap(sculptState.beforeMesh);
+      sculptBeforeMeshRef.current = sculptState.beforeMesh;
+    }
+
+    patchSculptScenePositions(
+      sculptState.previewMesh,
+      sculptVertexMapRef.current,
+      meshObjectsRef.current.get(sculptState.nodeId)
+    );
+  }, [sculptState?.previewMesh, sculptState?.dragging]);
 
   useEffect(() => {
     if (materialPaintState?.dragging) {
@@ -3956,7 +4011,7 @@ export function ViewportCanvas({
           <EditableMeshPreviewOverlay mesh={extrudeState.previewMesh} node={selectedDisplayNode} />
         ) : null}
         {editorInteractionEnabled && isActiveViewport && sculptState?.dragging && sculptState.previewMesh && selectedDisplayNode ? (
-          <EditableMeshPreviewOverlay mesh={sculptState.previewMesh} node={selectedDisplayNode} presentation="solid" />
+          null /* positions are patched directly onto the scene geometry — no overlay needed */
         ) : null}
         {editorInteractionEnabled && isActiveViewport && extrudeState && selectedDisplayNode ? (
           <ExtrudeAxisGuide node={selectedDisplayNode} state={extrudeState} viewport={viewport} />
@@ -4798,6 +4853,84 @@ function resolveExtrudeAnchor(
     position.y + normal.y * distance,
     position.z + normal.z * distance
   );
+}
+
+/**
+ * Builds a mapping from logical vertex ID to the list of render-vertex indices in the
+ * scene's flat face-expanded position buffer. The face expansion order mirrors exactly
+ * what `createEditableMeshSurface` / `buildDerivedSurface` produce, so the indices are
+ * valid for the live scene `BufferGeometry`.
+ */
+function buildSculptVertexRenderMap(mesh: EditableMesh): Map<string, number[]> {
+  const map = new Map<string, number[]>();
+  let renderOffset = 0;
+
+  mesh.faces.forEach((face) => {
+    const triangulated = triangulateMeshFace(mesh, face.id);
+    const vertexIds = getFaceVertexIds(mesh, face.id);
+
+    if (!triangulated || vertexIds.length === 0) {
+      return; // degenerate — same skip condition as createEditableMeshSurface
+    }
+
+    vertexIds.forEach((vid, i) => {
+      const existing = map.get(vid);
+      const idx = renderOffset + i;
+      if (existing) {
+        existing.push(idx);
+      } else {
+        map.set(vid, [idx]);
+      }
+    });
+
+    renderOffset += vertexIds.length;
+  });
+
+  return map;
+}
+
+/**
+ * Patches the `position` attribute of the scene `BufferGeometry` for a sculpted node
+ * in-place using the pre-built render-vertex map. Also calls `computeVertexNormals()` so
+ * lighting updates correctly during the stroke.
+ */
+function patchSculptScenePositions(
+  mesh: EditableMesh,
+  vertexMap: Map<string, number[]>,
+  sceneObject: Object3D | undefined
+) {
+  if (!sceneObject) return;
+
+  let geometry: BufferGeometry | null = null;
+  sceneObject.traverse((child) => {
+    if (!geometry && child instanceof Mesh) {
+      const attr = child.geometry.getAttribute("position");
+      if (attr) geometry = child.geometry as BufferGeometry;
+    }
+  });
+
+  if (!geometry) return;
+
+  const posAttr = (geometry as BufferGeometry).getAttribute("position") as Float32BufferAttribute | null;
+  if (!posAttr) return;
+
+  const arr = posAttr.array as Float32Array;
+
+  for (const vertex of mesh.vertices) {
+    const indices = vertexMap.get(vertex.id);
+    if (!indices) continue;
+    for (const idx of indices) {
+      const base = idx * 3;
+      if (base + 2 < arr.length) {
+        arr[base]     = vertex.position.x;
+        arr[base + 1] = vertex.position.y;
+        arr[base + 2] = vertex.position.z;
+      }
+    }
+  }
+
+  posAttr.needsUpdate = true;
+  (geometry as BufferGeometry).computeVertexNormals();
 }
 
 function resolveExtrudeInteractionNormal(

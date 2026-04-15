@@ -66,7 +66,7 @@ type ToolPaletteProps = {
   physicsPlayback: "paused" | "running" | "stopped";
   renderMode: ViewportRenderMode;
   selectedMaterialId: string;
-  sculptMode?: "deflate" | "inflate" | null;
+  sculptMode?: "deflate" | "inflate" | "smooth" | null;
   sculptBrushRadius: number;
   sculptBrushStrength: number;
   selectedGeometry: boolean;
@@ -205,6 +205,7 @@ function ToolPaletteInner({
               onFillFace={() => onMeshEditToolbarAction("fill-face")}
               onDeflate={() => onMeshEditToolbarAction("deflate")}
               onInflate={() => onMeshEditToolbarAction("inflate")}
+              onSmooth={() => onMeshEditToolbarAction("smooth")}
               onInvertNormals={() => onMeshEditToolbarAction("invert-normals")}
               onLowerTop={onLowerTop}
               onMerge={() => onMeshEditToolbarAction("merge")}

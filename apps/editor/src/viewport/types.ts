@@ -30,6 +30,7 @@ export type MeshEditToolbarAction =
   | "merge"
   | "deflate"
   | "paint-material"
+  | "smooth"
   | "subdivide";
 
 export type MeshEditToolbarActionRequest = {
@@ -79,7 +80,7 @@ export type ViewportCanvasProps = {
   onPreviewEntityTransform: (entityId: string, transform: Transform) => void;
   onPreviewMeshData: (nodeId: string, mesh: EditableMesh) => void;
   onPreviewNodeTransform: (nodeId: string, transform: Transform) => void;
-  onSculptModeChange: (mode: "deflate" | "inflate" | null) => void;
+  onSculptModeChange: (mode: "deflate" | "inflate" | "smooth" | null) => void;
   onSelectScenePath: (pathId: string | undefined) => void;
   onSelectMaterialFaces: (faceIds: string[]) => void;
   onSelectNodes: (nodeIds: string[]) => void;

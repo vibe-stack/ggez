@@ -122,6 +122,16 @@ export function DeflateIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function SmoothBrushIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg fill="none" viewBox="0 0 24 24" {...props}>
+      <path d="M5 9c1.5-2 3.5-3 7-3s5.5 1 7 3" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
+      <path d="M5 15c1.5 2 3.5 3 7 3s5.5-1 7-3" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
+      <path d="M12 6v12" stroke="currentColor" strokeLinecap="round" strokeWidth="1.4" strokeDasharray="2 2" />
+    </svg>
+  );
+}
+
 export function RaiseTopIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg fill="none" viewBox="0 0 24 24" {...props}>

@@ -30,7 +30,7 @@ type ToolSessionState = {
   physicsRevision: number;
   sculptBrushRadius: number;
   sculptBrushStrength: number;
-  sculptMode: "deflate" | "inflate" | null;
+  sculptMode: "deflate" | "inflate" | "smooth" | null;
   transformMode: TransformMode;
 };
 

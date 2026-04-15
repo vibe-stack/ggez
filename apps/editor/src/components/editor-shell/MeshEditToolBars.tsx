@@ -19,6 +19,7 @@ import {
   RaiseTopIcon,
   RotateModeIcon,
   ScaleModeIcon,
+  SmoothBrushIcon,
   SubdivideIcon,
   TranslateModeIcon,
   VertexModeIcon
@@ -49,6 +50,7 @@ export function MeshEditToolBars({
   onSetMaterialPaintBrushOpacity,
   onSetSculptBrushRadius,
   onSetSculptBrushStrength,
+  onSmooth,
   onSubdivide,
   onCut,
   onSetTransformMode,
@@ -82,13 +84,14 @@ export function MeshEditToolBars({
   onSetMaterialPaintBrushOpacity: (value: number) => void;
   onSetSculptBrushRadius: (value: number) => void;
   onSetSculptBrushStrength: (value: number) => void;
+  onSmooth: () => void;
   onSubdivide: () => void;
   onCut: () => void;
   onSetTransformMode: (mode: "rotate" | "scale" | "translate") => void;
   materialPaintBrushOpacity: number;
   materialPaintMode?: "erase" | "paint" | null;
   materials: Material[];
-  sculptMode?: "deflate" | "inflate" | null;
+  sculptMode?: "deflate" | "inflate" | "smooth" | null;
   sculptBrushRadius: number;
   sculptBrushStrength: number;
   selectedMaterialId: string;
@@ -115,6 +118,7 @@ export function MeshEditToolBars({
           <div className="mx-0.5 h-5 w-px bg-white/8" />
           <MeshBarButton disabled={!selectedMesh} icon={InflateIcon} onClick={onInflate} tooltip="Inflate" />
           <MeshBarButton disabled={!selectedMesh} icon={DeflateIcon} onClick={onDeflate} tooltip="Deflate" />
+          <MeshBarButton active={sculptMode === "smooth"} disabled={!selectedMesh} icon={SmoothBrushIcon} onClick={onSmooth} tooltip="Smooth" />
           <MeshBarButton active={materialPaintMode === "paint"} disabled={!selectedMesh} icon={Paintbrush} onClick={onPaintMaterial} tooltip="Paint material" />
           <MeshBarButton active={materialPaintMode === "erase"} disabled={!selectedMesh} icon={Eraser} onClick={onEraseMaterial} tooltip="Erase material paint" />
           <MeshBarButton disabled={!selectedMesh} icon={RaiseTopIcon} onClick={onRaiseTop} tooltip="Raise top" />
