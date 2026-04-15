@@ -1,6 +1,6 @@
 import { convertBrushToEditableMesh } from "@ggez/geometry-kernel";
 import { TransformControls } from "@react-three/drei";
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { type Brush, type EditableMesh, type GeometryNode, type Transform, type Vec3, vec3 } from "@ggez/shared";
 import {
   applyBrushEditTransform,
@@ -44,7 +44,7 @@ type EdgeLabel = {
   text: string;
 };
 
-export function MeshEditOverlay({
+export const MeshEditOverlay = memo(function MeshEditOverlay({
   cameraControlsRef,
   handles,
   meshEditMode,
@@ -52,6 +52,7 @@ export function MeshEditOverlay({
   onDragStateChange,
   onCommitTransformAction,
   onPreviewMeshData,
+  shouldTreatAsClick,
   onUpdateMeshData,
   selectedHandleIds,
   setSelectedHandleIds,
@@ -65,6 +66,7 @@ export function MeshEditOverlay({
   onDragStateChange?: (dragging: boolean) => void;
   onCommitTransformAction?: (action: LastMeshEditAction) => void;
   onPreviewMeshData: ViewportCanvasProps["onPreviewMeshData"];
+  shouldTreatAsClick?: () => boolean;
   onUpdateMeshData: ViewportCanvasProps["onUpdateMeshData"];
   selectedHandleIds: string[];
   setSelectedHandleIds: (ids: string[]) => void;
@@ -187,6 +189,10 @@ export function MeshEditOverlay({
           <EditableFaceSelectionHitAreas
             handles={handles}
             onSelectHandle={(handleId, event) => {
+              if (shouldTreatAsClick && !shouldTreatAsClick()) {
+                return;
+              }
+
               event.stopPropagation();
               const handle = handlesById.get(handleId);
 
@@ -201,6 +207,10 @@ export function MeshEditOverlay({
           <EditableEdgeSelectionHitAreas
             handles={handles}
             onSelectHandle={(handleId, event) => {
+              if (shouldTreatAsClick && !shouldTreatAsClick()) {
+                return;
+              }
+
               event.stopPropagation();
               const handle = handlesById.get(handleId);
 
@@ -250,18 +260,7 @@ export function MeshEditOverlay({
         handles={handles}
         mode={meshEditMode}
         nodeTransform={node.transform}
-        onSelectHandle={
-          meshEditMode === "vertex"
-            ? (handleId, event) => {
-                event.stopPropagation();
-                const handle = handlesById.get(handleId);
-
-                if (handle) {
-                  resolveHandleSelection(handle, event);
-                }
-              }
-            : undefined
-        }
+        onSelectHandle={undefined}
         selectedFillColor="#dbeafe"
         selectedHandleIds={selectedHandleIds}
         unselectedFillColor={meshEditMode === "face" ? "#67e8f9" : "#cbd5e1"}
@@ -340,9 +339,9 @@ export function MeshEditOverlay({
       ) : null}
     </>
   );
-}
+}, areMeshEditOverlayPropsEqual);
 
-export function BrushEditOverlay({
+export const BrushEditOverlay = memo(function BrushEditOverlay({
   cameraControlsRef,
   handles,
   meshEditMode,
@@ -350,6 +349,7 @@ export function BrushEditOverlay({
   onDragStateChange,
   onCommitTransformAction,
   onPreviewBrushData,
+  shouldTreatAsClick,
   onUpdateBrushData,
   selectedHandleIds,
   setSelectedHandleIds,
@@ -363,6 +363,7 @@ export function BrushEditOverlay({
   onDragStateChange?: (dragging: boolean) => void;
   onCommitTransformAction?: (action: LastMeshEditAction) => void;
   onPreviewBrushData: ViewportCanvasProps["onPreviewBrushData"];
+  shouldTreatAsClick?: () => boolean;
   onUpdateBrushData: ViewportCanvasProps["onUpdateBrushData"];
   selectedHandleIds: string[];
   setSelectedHandleIds: (ids: string[]) => void;
@@ -509,6 +510,10 @@ export function BrushEditOverlay({
           <EditableFaceSelectionHitAreas
             handles={handles}
             onSelectHandle={(handleId, event) => {
+              if (shouldTreatAsClick && !shouldTreatAsClick()) {
+                return;
+              }
+
               event.stopPropagation();
               const handle = handlesById.get(handleId);
 
@@ -523,6 +528,10 @@ export function BrushEditOverlay({
           <EditableEdgeSelectionHitAreas
             handles={handles}
             onSelectHandle={(handleId, event) => {
+              if (shouldTreatAsClick && !shouldTreatAsClick()) {
+                return;
+              }
+
               event.stopPropagation();
               const handle = handlesById.get(handleId);
 
@@ -572,18 +581,7 @@ export function BrushEditOverlay({
         handles={handles}
         mode={meshEditMode}
         nodeTransform={node.transform}
-        onSelectHandle={
-          meshEditMode === "vertex"
-            ? (handleId, event) => {
-                event.stopPropagation();
-                const handle = handlesById.get(handleId);
-
-                if (handle) {
-                  resolveHandleSelection(handle, event);
-                }
-              }
-            : undefined
-        }
+        onSelectHandle={undefined}
         selectedFillColor="#dbeafe"
         selectedHandleIds={selectedHandleIds}
         unselectedFillColor="#e2e8f0"
@@ -675,6 +673,118 @@ export function BrushEditOverlay({
       ) : null}
     </>
   );
+}, areBrushEditOverlayPropsEqual);
+
+function areMeshEditOverlayPropsEqual(
+  previous: Parameters<MeshEditOverlayInnerShim>[0],
+  next: Parameters<MeshEditOverlayInnerShim>[0]
+) {
+  return (
+    previous.cameraControlsRef === next.cameraControlsRef &&
+    previous.handles === next.handles &&
+    previous.meshEditMode === next.meshEditMode &&
+    previous.node.id === next.node.id &&
+    areTransformsEqual(previous.node.transform, next.node.transform) &&
+    previous.onDragStateChange === next.onDragStateChange &&
+    previous.onCommitTransformAction === next.onCommitTransformAction &&
+    previous.onPreviewMeshData === next.onPreviewMeshData &&
+    previous.shouldTreatAsClick === next.shouldTreatAsClick &&
+    previous.onUpdateMeshData === next.onUpdateMeshData &&
+    previous.selectedHandleIds === next.selectedHandleIds &&
+    previous.setSelectedHandleIds === next.setSelectedHandleIds &&
+    previous.transformMode === next.transformMode &&
+    areViewportSnapInputsEqual(previous.viewport, next.viewport)
+  );
+}
+
+function areBrushEditOverlayPropsEqual(
+  previous: Parameters<BrushEditOverlayInnerShim>[0],
+  next: Parameters<BrushEditOverlayInnerShim>[0]
+) {
+  return (
+    previous.cameraControlsRef === next.cameraControlsRef &&
+    previous.handles === next.handles &&
+    previous.meshEditMode === next.meshEditMode &&
+    previous.node.id === next.node.id &&
+    previous.node.data === next.node.data &&
+    areTransformsEqual(previous.node.transform, next.node.transform) &&
+    previous.onDragStateChange === next.onDragStateChange &&
+    previous.onCommitTransformAction === next.onCommitTransformAction &&
+    previous.onPreviewBrushData === next.onPreviewBrushData &&
+    previous.shouldTreatAsClick === next.shouldTreatAsClick &&
+    previous.onUpdateBrushData === next.onUpdateBrushData &&
+    previous.selectedHandleIds === next.selectedHandleIds &&
+    previous.setSelectedHandleIds === next.setSelectedHandleIds &&
+    previous.transformMode === next.transformMode &&
+    areViewportSnapInputsEqual(previous.viewport, next.viewport)
+  );
+}
+
+type MeshEditOverlayInnerShim = typeof meshEditOverlayComparatorShim;
+type BrushEditOverlayInnerShim = typeof brushEditOverlayComparatorShim;
+
+function meshEditOverlayComparatorShim(_props: {
+  cameraControlsRef?: RefObject<any | null>;
+  handles: MeshEditHandle[];
+  meshEditMode: MeshEditMode;
+  node: Extract<GeometryNode, { kind: "mesh" }>;
+  onDragStateChange?: (dragging: boolean) => void;
+  onCommitTransformAction?: (action: LastMeshEditAction) => void;
+  onPreviewMeshData: ViewportCanvasProps["onPreviewMeshData"];
+  shouldTreatAsClick?: () => boolean;
+  onUpdateMeshData: ViewportCanvasProps["onUpdateMeshData"];
+  selectedHandleIds: string[];
+  setSelectedHandleIds: (ids: string[]) => void;
+  transformMode: ViewportCanvasProps["transformMode"];
+  viewport: ViewportState;
+}) {
+  return null;
+}
+
+function brushEditOverlayComparatorShim(_props: {
+  cameraControlsRef?: RefObject<any | null>;
+  handles: BrushEditHandle[];
+  meshEditMode: MeshEditMode;
+  node: Extract<GeometryNode, { kind: "brush" }>;
+  onDragStateChange?: (dragging: boolean) => void;
+  onCommitTransformAction?: (action: LastMeshEditAction) => void;
+  onPreviewBrushData: ViewportCanvasProps["onPreviewBrushData"];
+  shouldTreatAsClick?: () => boolean;
+  onUpdateBrushData: ViewportCanvasProps["onUpdateBrushData"];
+  selectedHandleIds: string[];
+  setSelectedHandleIds: (ids: string[]) => void;
+  transformMode: ViewportCanvasProps["transformMode"];
+  viewport: ViewportState;
+}) {
+  return null;
+}
+
+function areTransformsEqual(previous: Transform, next: Transform) {
+  return (
+    areVec3Equal(previous.position, next.position) &&
+    areVec3Equal(previous.rotation, next.rotation) &&
+    areVec3Equal(previous.scale, next.scale) &&
+    areOptionalVec3Equal(previous.pivot, next.pivot)
+  );
+}
+
+function areViewportSnapInputsEqual(previous: ViewportState, next: ViewportState) {
+  return (
+    previous.grid.enabled === next.grid.enabled &&
+    previous.grid.snapSize === next.grid.snapSize
+  );
+}
+
+function areOptionalVec3Equal(previous?: Vec3, next?: Vec3) {
+  if (!previous || !next) {
+    return previous === next;
+  }
+
+  return areVec3Equal(previous, next);
+}
+
+function areVec3Equal(previous: Vec3, next: Vec3) {
+  return previous.x === next.x && previous.y === next.y && previous.z === next.z;
 }
 
 function resolveMeshEdgeLabels(

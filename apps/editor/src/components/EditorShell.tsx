@@ -2,7 +2,6 @@ import type { EditorCore, SceneSpatialAnalysis } from "@ggez/editor-core";
 import { gridSnapValues, type DerivedRenderScene, type ViewportState } from "@ggez/render-pipeline";
 import { isInstancingSourceNode } from "@ggez/shared";
 import type {
-  Entity,
   SceneSettings,
   TextureRecord,
 } from "@ggez/shared";
@@ -17,21 +16,17 @@ import { CopilotPanel } from "@/components/editor-shell/CopilotPanel";
 import { EditorMenuBar } from "@/components/editor-shell/EditorMenuBar";
 import { InspectorSidebar } from "@/components/editor-shell/InspectorSidebar";
 import { StatusBar } from "@/components/editor-shell/StatusBar";
-import { ToolPalette } from "@/components/editor-shell/ToolPalette";
+import { ToolPaletteContainer } from "@/components/editor-shell/ToolPaletteContainer";
 import { LogicViewerSheet } from "@/components/editor-shell/logic-viewer/LogicViewerSheet";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import type { ModelAssetLibraryItem } from "@/lib/model-assets";
 import { ViewportCanvas } from "@/viewport/ViewportCanvas";
 import { projectSessionStore } from "@/state/project-session-store";
 import { sceneSessionStore } from "@/state/scene-session-store";
-import { toolSessionStore, stopPhysicsPlayback } from "@/state/tool-session-store";
+import { toolSessionStore } from "@/state/tool-session-store";
 import { uiStore, type ViewportQuality } from "@/state/ui-store";
-import { clampSnapSize } from "@/viewport/utils/snap";
-import type { InstanceBrushSourceOption } from "@/viewport/types";
 import {
-  focusViewportOnPoint,
   getViewModePreset,
-  resolveVisibleViewportPaneIds,
   viewportPaneDefinitions,
   type ViewModeId,
   type ViewportPaneId,
@@ -85,7 +80,6 @@ export function EditorShell({
     assetActions,
     fileActions,
     history,
-    physicsActions,
     placementActions,
     sceneActions,
     selectionActions
@@ -94,7 +88,6 @@ export function EditorShell({
   const {
     cancelPlacement: onCancelAiModelPlacement,
     generateModel: onGenerateAiModel,
-    startPlacement: onStartAiModelPlacement,
     updatePrompt: onUpdateAiModelPrompt
   } = aiActions;
   const {
@@ -119,27 +112,18 @@ export function EditorShell({
     exportEngine: onExportEngine,
     exportGltf: onExportGltf,
     exportSceneDocument: onExportSceneDocument,
-    importGlb: onImportGlb,
     importSceneDocument: onImportSceneDocument,
     loadWhmap: onLoadWhmap,
     newFile: onNewFile,
     saveWhmap: onSaveWhmap
   } = fileActions;
-  const { pause: onPausePhysics, play: onPlayPhysics } = physicsActions;
   const {
     placeAiModelPlaceholder: onPlaceAiModelPlaceholder,
     placeAsset: onPlaceAsset,
-    placeBlockoutOpenRoom: onPlaceBlockoutOpenRoom,
-    placeBlockoutPlatform: onPlaceBlockoutPlatform,
-    placeBlockoutRoom: onPlaceBlockoutRoom,
-    placeBlockoutStairs: onPlaceBlockoutStairs,
     placeBrush: onPlaceBrush,
-    placeEntity: onPlaceEntity,
     placeInstancingNodes: onPlaceInstancingNodes,
-    placeLight: onPlaceLight,
     placeMeshNode: onPlaceMeshNode,
     placePrimitiveNode: onPlacePrimitiveNode,
-    placeProp: onPlaceProp
   } = placementActions;
   const {
     commitMeshMaterialLayers: onCommitMeshMaterialLayers,
@@ -168,7 +152,6 @@ export function EditorShell({
     extrudeSelection: onExtrudeSelection,
     focusNode: onFocusNode,
     groupSelection: onGroupSelection,
-    invertSelectionNormals: onInvertSelectionNormals,
     mirrorSelection: onMirrorSelection,
     selectNodes: onSelectNodes,
     toggleSceneItemLock: onToggleSceneItemLock,
@@ -225,24 +208,10 @@ export function EditorShell({
     .map((nodeId) => editor.scene.getNode(nodeId))
     .filter((node): node is NonNullable<typeof node> => Boolean(node));
   const activeToolLabel = defaultTools.find((tool) => tool.id === activeToolId)?.label ?? activeToolId;
-  const selectedIsGeometry =
-    selectedNode?.kind === "brush" || selectedNode?.kind === "mesh" || selectedNode?.kind === "primitive";
-  const selectedIsMesh = selectedNode?.kind === "mesh";
   const activeViewport = viewports[activeViewportId];
   const aiModelPlacementActive = Boolean(aiModelDraft);
   const aiModelPrompt = aiModelDraft?.prompt ?? "";
   const aiModelPromptError = aiModelDraft?.error;
-  const instanceBrushSourceOptions = useMemo<InstanceBrushSourceOption[]>(
-    () =>
-      nodes
-        .filter((node) => isInstancingSourceNode(node))
-        .map((node) => ({
-          id: node.id,
-          kind: node.kind,
-          label: `${node.name} · ${node.kind}`
-        })),
-    [nodes]
-  );
   const instanceBrushSourceNode = useMemo(
     () => nodes.find((node) => node.id === instanceBrushSourceNodeId && isInstancingSourceNode(node)),
     [instanceBrushSourceNodeId, nodes]
@@ -260,52 +229,8 @@ export function EditorShell({
       instanceBrushSourceNode.transform
     );
   }, [instanceBrushSourceNode, renderScene.nodeTransforms, workingSet.activeDocumentId, workingSet.mode]);
-
-  useEffect(() => {
-    const currentIsValid = instanceBrushSourceOptions.some((option) => option.id === instanceBrushSourceNodeId);
-
-    if (currentIsValid) {
-      return;
-    }
-
-    const selectedSourceId = selectedNode && isInstancingSourceNode(selectedNode) ? selectedNode.id : undefined;
-    toolSessionStore.instanceBrushSourceNodeId = selectedSourceId ?? instanceBrushSourceOptions[0]?.id ?? "";
-  }, [instanceBrushSourceNodeId, instanceBrushSourceOptions, selectedNode]);
-
   const handleActivateViewport = (viewportId: ViewportPaneId) => {
     uiStore.activeViewportId = viewportId;
-  };
-
-  const resolveViewportFocusPoint = () => {
-    if (selectedNode) {
-      return renderScene.nodeTransforms.get(selectedNode.id)?.position ?? selectedNode.transform.position;
-    }
-
-    if (selectedEntity) {
-      return renderScene.entityTransforms.get(selectedEntity.id)?.position ?? selectedEntity.transform.position;
-    }
-
-    return { x: 0, y: 0, z: 0 };
-  };
-
-  const handleSetViewMode = (nextViewMode: typeof viewMode) => {
-    uiStore.viewMode = nextViewMode;
-
-    const visiblePaneIds = resolveVisibleViewportPaneIds(nextViewMode);
-
-    if (!visiblePaneIds.includes(uiStore.activeViewportId)) {
-      uiStore.activeViewportId = "perspective";
-    }
-
-    if (nextViewMode === "3d-only") {
-      return;
-    }
-
-    const focusPoint = resolveViewportFocusPoint();
-
-    (["top", "front", "side"] as const).forEach((viewportId) => {
-      focusViewportOnPoint(uiStore.viewports[viewportId], focusPoint);
-    });
   };
 
   const handleUpdateViewport = (viewportId: ViewportPaneId, viewport: ViewportState) => {
@@ -322,24 +247,6 @@ export function EditorShell({
           : uiStore.viewportQuality === 1
             ? 1.5
             : 0.5;
-  };
-
-  const handleSetRenderMode = (nextRenderMode: typeof renderMode) => {
-    uiStore.renderMode = nextRenderMode;
-  };
-
-  const handleSetSnapEnabled = (enabled: boolean) => {
-    (Object.keys(uiStore.viewports) as ViewportPaneId[]).forEach((viewportId) => {
-      uiStore.viewports[viewportId].grid.enabled = enabled;
-    });
-  };
-
-  const handleSetSnapSize = (snapSize: number) => {
-    const nextSnapSize = clampSnapSize(snapSize);
-
-    (Object.keys(uiStore.viewports) as ViewportPaneId[]).forEach((viewportId) => {
-      uiStore.viewports[viewportId].grid.snapSize = nextSnapSize;
-    });
   };
 
   const handleToggleCopilot = () => {
@@ -393,29 +300,6 @@ export function EditorShell({
     onUpdateNodeTransform,
     onUpdateSceneSettings,
     onViewportChange: handleUpdateViewport
-  };
-  const toolPaletteActions = {
-    onImportGlb,
-    onInvertSelectionNormals,
-    onLowerTop: () => onExtrudeSelection("y", -1),
-    onMeshEditToolbarAction,
-    onPausePhysics,
-    onPlaceBlockoutOpenRoom,
-    onPlaceBlockoutPlatform,
-    onPlaceBlockoutRoom,
-    onPlaceBlockoutStairs,
-    onPlaceEntity,
-    onPlaceLight,
-    onPlaceProp,
-    onPlayPhysics,
-    onRaiseTop: () => onExtrudeSelection("y", 1),
-    onSelectMaterial,
-    onSetRenderMode: handleSetRenderMode,
-    onSetSnapEnabled: handleSetSnapEnabled,
-    onSetSnapSize: handleSetSnapSize,
-    onSetViewMode: handleSetViewMode,
-    onStartAiModelPlacement,
-    onStopPhysics: stopPhysicsPlayback
   };
   const inspectorActions = {
     onApplyMaterial,
@@ -548,76 +432,7 @@ export function EditorShell({
             <ViewportLayout renderViewportPane={renderViewportPane} viewMode={viewMode} />
           </div>
 
-        <ToolPalette
-          {...toolPaletteActions}
-          activeBrushShape={activeBrushShape}
-          brushToolMode={brushToolMode}
-          aiModelPlacementActive={aiModelPlacementActive || aiModelPlacementArmed}
-          activeToolId={activeToolId}
-          currentSnapSize={activeViewport.grid.snapSize}
-          gridSnapValues={gridSnapValues}
-          instanceBrushDensity={instanceBrushDensity}
-          instanceBrushRandomness={instanceBrushRandomness}
-          instanceBrushSize={instanceBrushSize}
-          instanceBrushSourceNodeId={instanceBrushSourceNodeId}
-          instanceBrushSourceOptions={instanceBrushSourceOptions}
-          materialPaintBrushOpacity={materialPaintBrushOpacity}
-          materialPaintMode={materialPaintMode}
-          materials={materials}
-          meshEditMode={meshEditMode}
-          onSelectInstanceBrush={() => {
-            toolSessionStore.brushToolMode = "instance";
-            toolSessionStore.activeToolId = "brush";
-          }}
-          onSetMaterialPaintBrushOpacity={(value) => {
-            toolSessionStore.materialPaintBrushOpacity = value;
-          }}
-          onSetInstanceBrushDensity={(value) => {
-            toolSessionStore.instanceBrushDensity = value;
-          }}
-          onSetInstanceBrushRandomness={(value) => {
-            toolSessionStore.instanceBrushRandomness = value;
-          }}
-          onSetInstanceBrushSize={(value) => {
-            toolSessionStore.instanceBrushSize = value;
-          }}
-          onSetInstanceBrushSourceNodeId={(nodeId) => {
-            toolSessionStore.instanceBrushSourceNodeId = nodeId;
-          }}
-          onSetSculptBrushRadius={(value) => {
-            toolSessionStore.sculptBrushRadius = value;
-          }}
-          onSetSculptBrushStrength={(value) => {
-            toolSessionStore.sculptBrushStrength = value;
-          }}
-          onStartAiModelPlacement={onStartAiModelPlacement}
-          onSelectBrushShape={(shape) => {
-            toolSessionStore.brushToolMode = "create";
-            toolSessionStore.activeBrushShape = shape;
-            toolSessionStore.activeToolId = "brush";
-          }}
-          onSetMeshEditMode={(mode) => {
-            toolSessionStore.meshEditMode = mode;
-          }}
-          onSetTransformMode={(mode) => {
-            toolSessionStore.transformMode = mode;
-          }}
-          onSetToolId={(toolId) => {
-            toolSessionStore.activeToolId = toolId;
-          }}
-          physicsPlayback={physicsPlayback}
-          renderMode={renderMode}
-          selectedMaterialId={selectedMaterialId}
-          sculptMode={sculptMode}
-          sculptBrushRadius={sculptBrushRadius}
-          sculptBrushStrength={sculptBrushStrength}
-          selectedGeometry={selectedIsGeometry}
-          selectedMesh={selectedIsMesh}
-          snapEnabled={activeViewport.grid.enabled}
-          tools={defaultTools}
-          transformMode={transformMode}
-          viewMode={viewMode}
-        />
+        <ToolPaletteContainer editor={editor} />
 
         <AiModelPromptBar
           active={aiModelPlacementActive}

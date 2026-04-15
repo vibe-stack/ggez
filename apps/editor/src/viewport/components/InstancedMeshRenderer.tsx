@@ -133,20 +133,6 @@ export function RenderInstancedMeshBatch({
       args={[geometry, previewMaterials.length === 1 ? previewMaterials[0] : previewMaterials, batch.instances.length]}
       castShadow={renderModeUsesShadows(renderMode)}
       name={`node:${batch.batchId}`}
-      onPointerDown={(event) => {
-        if (!interactive || event.button !== 0) {
-          return;
-        }
-
-        const nodeId = typeof event.instanceId === "number" ? batch.instances[event.instanceId]?.nodeId : undefined;
-
-        if (!nodeId) {
-          return;
-        }
-
-        event.stopPropagation();
-        onSelectNodes([nodeId]);
-      }}
       onClick={(event) => {
         if (!interactive) {
           return;
@@ -427,20 +413,6 @@ export function RenderInstancedModelPart({
       args={[sourceGeometry, material, batch.instances.length]}
       castShadow={renderModeUsesShadows(renderMode)}
       name={`node:${batch.batchId}:${partKey}`}
-      onPointerDown={(event) => {
-        if (!interactive || event.button !== 0) {
-          return;
-        }
-
-        const nodeId = typeof event.instanceId === "number" ? batch.instances[event.instanceId]?.nodeId : undefined;
-
-        if (!nodeId) {
-          return;
-        }
-
-        event.stopPropagation();
-        onSelectNodes([nodeId]);
-      }}
       onClick={(event) => {
         if (!interactive) {
           return;
@@ -592,20 +564,6 @@ export function RenderInstancedModelBoundsBatch({
       args={[geometry, material, batch.instances.length]}
       castShadow={renderModeUsesShadows(renderMode)}
       name={`node:${batch.batchId}`}
-      onPointerDown={(event) => {
-        if (!interactive || event.button !== 0) {
-          return;
-        }
-
-        const nodeId = typeof event.instanceId === "number" ? batch.instances[event.instanceId]?.nodeId : undefined;
-
-        if (!nodeId) {
-          return;
-        }
-
-        event.stopPropagation();
-        onSelectNodes([nodeId]);
-      }}
       onClick={(event) => {
         if (!interactive) {
           return;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EditorCore } from "@ggez/editor-core";
 import type { CopilotSession } from "@/lib/copilot/types";
 import { runAgenticLoop } from "@/lib/copilot/agentic-loop";
@@ -112,12 +112,19 @@ export function useCopilot(editor: EditorCore, toolContext: CopilotToolExecution
     setSession(EMPTY_SESSION);
   }, []);
 
-  return {
-    session,
-    sendMessage,
-    abort,
-    clearHistory,
-    isConfigured: configured,
-    refreshConfigured: () => setConfigured(isCopilotConfigured())
-  };
+  const refreshConfigured = useCallback(() => {
+    setConfigured(isCopilotConfigured());
+  }, []);
+
+  return useMemo(
+    () => ({
+      session,
+      sendMessage,
+      abort,
+      clearHistory,
+      isConfigured: configured,
+      refreshConfigured
+    }),
+    [abort, clearHistory, configured, refreshConfigured, sendMessage, session]
+  );
 }

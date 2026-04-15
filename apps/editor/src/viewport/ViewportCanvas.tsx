@@ -102,7 +102,7 @@ import {
   renderModeUsesFullLighting,
   renderModeUsesShadows
 } from "@/viewport/viewports";
-import { useEffect, useMemo, useRef, useState, type PointerEventHandler } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEventHandler } from "react";
 import { BufferGeometry, Camera, Color, Euler, Float32BufferAttribute, Matrix4, Object3D, Plane, Quaternion, Raycaster, Vector2, Vector3 } from "three";
 import type {
   ArcState,
@@ -159,6 +159,9 @@ type InstanceBrushState = {
   lastStampedHit?: SculptBrushHit;
   pendingTransforms: Transform[];
 };
+
+const CLICK_SELECTION_THRESHOLD_PX = 4;
+const VERTEX_HANDLE_HIT_THRESHOLD_PX = 14;
 
 function ViewportWorldSettings({ renderMode, sceneSettings }: Pick<ViewportCanvasProps, "renderMode" | "sceneSettings">) {
   const { scene } = useThree();
@@ -255,6 +258,7 @@ export function ViewportCanvas({
   const pathToolClickOriginRef = useRef<Vector2 | null>(null);
   const pointerPositionRef = useRef<Vector2 | null>(null);
   const selectionClickOriginRef = useRef<Vector2 | null>(null);
+  const allowPointerClickSelectionRef = useRef(false);
   const viewportRootRef = useRef<HTMLDivElement | null>(null);
   const meshObjectsRef = useRef(new Map<string, Object3D>());
   const raycasterRef = useRef(new Raycaster());
@@ -307,6 +311,10 @@ export function ViewportCanvas({
   instanceBrushStateRef.current = instanceBrushState;
   sculptStateRef.current = sculptState;
   previewBrushDataRef.current = onPreviewBrushData;
+  const handlePreviewBrushData = useEventCallback(onPreviewBrushData);
+  const handleUpdateBrushData = useEventCallback(onUpdateBrushData);
+  const handlePreviewMeshData = useEventCallback(onPreviewMeshData);
+  const handleUpdateMeshData = useEventCallback(onUpdateMeshData);
 
   const setCameraControlsEnabled = (enabled: boolean) => {
     const controls = cameraControlsRef.current;
@@ -324,7 +332,7 @@ export function ViewportCanvas({
     controls.update?.();
   };
 
-  const handleTransformDragStateChange = (dragging: boolean) => {
+  const handleTransformDragStateChange = useCallback((dragging: boolean) => {
     setCameraControlsEnabled(!dragging);
     transformDraggingRef.current = dragging;
     suppressSelectionAfterTransformRef.current = true;
@@ -337,9 +345,13 @@ export function ViewportCanvas({
         suppressSelectionAfterTransformRef.current = false;
       });
     }
-  };
+  }, []);
 
   const handleSceneSelectNodes = (nodeIds: string[]) => {
+    if (!allowPointerClickSelectionRef.current) {
+      return;
+    }
+
     if (transformDraggingRef.current || suppressSelectionAfterTransformRef.current) {
       return;
     }
@@ -691,20 +703,22 @@ export function ViewportCanvas({
 
     onSelectMaterialFaces([]);
   }, [activeToolId, brushEditHandleIds, isActiveViewport, meshEditMode, meshEditSelectionIds, onSelectMaterialFaces, selectedBrushNode, selectedMeshNode]);
-  const brushEditHandles = useMemo(
+  const nextBrushEditHandles = useMemo(
     () =>
       activeToolId === "mesh-edit" && selectedBrushNode
         ? createBrushEditHandles(selectedBrushNode.data, meshEditMode)
         : [],
     [activeToolId, meshEditMode, selectedBrushNode?.data]
   );
-  const meshEditHandles = useMemo(
+  const brushEditHandles = useStableOverlayHandles(nextBrushEditHandles);
+  const nextMeshEditHandles = useMemo(
     () =>
       activeToolId === "mesh-edit" && selectedMeshNode
         ? createMeshEditHandles(selectedMeshNode.data, meshEditMode)
         : [],
     [activeToolId, meshEditMode, selectedMeshNode?.data]
   );
+  const meshEditHandles = useStableOverlayHandles(nextMeshEditHandles);
   const editableMeshSource = useMemo(
     () =>
       activeToolId === "mesh-edit" && selectedBrushNode
@@ -714,7 +728,7 @@ export function ViewportCanvas({
           : undefined,
     [activeToolId, selectedBrushNode?.data, selectedMeshNode?.data]
   );
-  const editableMeshHandles = useMemo(
+  const nextEditableMeshHandles = useMemo(
     () =>
       activeToolId === "mesh-edit" && editableMeshSource
         ? selectedMeshNode
@@ -723,6 +737,11 @@ export function ViewportCanvas({
         : [],
     [activeToolId, editableMeshSource, meshEditMode, meshEditHandles, selectedMeshNode]
   );
+  const editableMeshHandles = useStableOverlayHandles(nextEditableMeshHandles);
+  const handleCommitMeshEditAction = useCallback((action: LastMeshEditAction) => {
+    lastMeshEditActionRef.current = action;
+  }, []);
+  const shouldTreatAsSelectionClick = useCallback(() => allowPointerClickSelectionRef.current, []);
   const resolveMeshEditEdgeHandleHit = (bounds: DOMRect, clientX: number, clientY: number) => {
     if (activeToolId !== "mesh-edit" || meshEditMode !== "edge" || !cameraRef.current || !selectedDisplayNode) {
       return undefined;
@@ -737,6 +756,54 @@ export function ViewportCanvas({
       cameraRef.current,
       selectedDisplayNode
     );
+  };
+  const resolveMeshEditVertexHandleHit = (bounds: DOMRect, clientX: number, clientY: number) => {
+    if (activeToolId !== "mesh-edit" || meshEditMode !== "vertex" || !cameraRef.current || !selectedDisplayNode) {
+      return undefined;
+    }
+
+    const handles = selectedBrushNode ? brushEditHandles : meshEditHandles;
+    const selectedIds = new Set(selectedBrushNode ? brushEditHandleIds : meshEditSelectionIds);
+    const pointer = {
+      x: clientX - bounds.left,
+      y: clientY - bounds.top
+    };
+    let bestHit:
+      | {
+          distance: number;
+          id: string;
+          selected: boolean;
+        }
+      | undefined;
+
+    handles.forEach((handle) => {
+      if (handle.vertexIds.length !== 1) {
+        return;
+      }
+
+      const projected = projectLocalPointToScreen(handle.position, selectedDisplayNode, cameraRef.current!, bounds);
+      const distance = Math.hypot(projected.x - pointer.x, projected.y - pointer.y);
+
+      if (!Number.isFinite(distance) || distance > VERTEX_HANDLE_HIT_THRESHOLD_PX) {
+        return;
+      }
+
+      const selected = selectedIds.has(handle.id);
+
+      if (
+        !bestHit ||
+        distance < bestHit.distance - 0.5 ||
+        (Math.abs(distance - bestHit.distance) <= 0.5 && selected && !bestHit.selected)
+      ) {
+        bestHit = {
+          distance,
+          id: handle.id,
+          selected
+        };
+      }
+    });
+
+    return bestHit;
   };
 
   const resolveSelectedEditableMeshEdgePairs = () => {
@@ -2606,6 +2673,18 @@ export function ViewportCanvas({
   }, [faceSubdivisionState]);
 
   useEffect(() => {
+    if (!faceSubdivisionState) {
+      return;
+    }
+
+    setCameraControlsEnabled(false);
+
+    return () => {
+      setCameraControlsEnabled(true);
+    };
+  }, [faceSubdivisionState]);
+
+  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (activeToolId !== "mesh-edit" || !selectedNode) {
         return;
@@ -3248,8 +3327,9 @@ export function ViewportCanvas({
 
     const bounds = event.currentTarget.getBoundingClientRect();
     pointerPositionRef.current = new Vector2(event.clientX - bounds.left, event.clientY - bounds.top);
+    allowPointerClickSelectionRef.current = event.button === 0;
     selectionClickOriginRef.current =
-      event.button === 0 && !event.shiftKey
+      event.button === 0
         ? new Vector2(event.clientX - bounds.left, event.clientY - bounds.top)
         : null;
 
@@ -3324,6 +3404,14 @@ export function ViewportCanvas({
 
     const bounds = event.currentTarget.getBoundingClientRect();
     pointerPositionRef.current = new Vector2(event.clientX - bounds.left, event.clientY - bounds.top);
+
+    if (
+      allowPointerClickSelectionRef.current &&
+      selectionClickOriginRef.current &&
+      pointerPositionRef.current.distanceTo(selectionClickOriginRef.current) > CLICK_SELECTION_THRESHOLD_PX
+    ) {
+      allowPointerClickSelectionRef.current = false;
+    }
 
     if (extrudeState) {
       queuePreviewUpdate("extrude", event.clientX, event.clientY, bounds);
@@ -3454,6 +3542,12 @@ export function ViewportCanvas({
   const handlePointerUp: PointerEventHandler<HTMLDivElement> = (event) => {
     if (!editorInteractionEnabled) {
       return;
+    }
+
+    if (typeof window !== "undefined") {
+      window.requestAnimationFrame(() => {
+        allowPointerClickSelectionRef.current = false;
+      });
     }
 
     if (transformDraggingRef.current || suppressSelectionAfterTransformRef.current) {
@@ -3592,11 +3686,34 @@ export function ViewportCanvas({
 
     if (
       activeToolId === "mesh-edit" &&
+      meshEditMode === "vertex" &&
+      event.button === 0 &&
+      clickOrigin &&
+      point.distanceTo(clickOrigin) <= CLICK_SELECTION_THRESHOLD_PX
+    ) {
+      const vertexHandleHit = resolveMeshEditVertexHandleHit(bounds, event.clientX, event.clientY);
+
+      if (vertexHandleHit) {
+        marqueeOriginRef.current = null;
+        setMarquee(null);
+
+        if (selectedBrushNode) {
+          setBrushEditHandleIds(resolveSubobjectSelection(brushEditHandleIds, vertexHandleHit.id, event.shiftKey));
+        } else {
+          setMeshEditSelectionIds(resolveSubobjectSelection(meshEditSelectionIds, vertexHandleHit.id, event.shiftKey));
+        }
+
+        return;
+      }
+    }
+
+    if (
+      activeToolId === "mesh-edit" &&
       meshEditMode === "edge" &&
       event.button === 0 &&
       !event.altKey &&
       clickOrigin &&
-      point.distanceTo(clickOrigin) <= 4
+      point.distanceTo(clickOrigin) <= CLICK_SELECTION_THRESHOLD_PX
     ) {
       const edgeHandleHit = resolveMeshEditEdgeHandleHit(bounds, event.clientX, event.clientY);
 
@@ -3620,7 +3737,7 @@ export function ViewportCanvas({
       event.button === 0 &&
       !event.shiftKey &&
       selectionOrigin &&
-      point.distanceTo(selectionOrigin) <= 4
+      point.distanceTo(selectionOrigin) <= CLICK_SELECTION_THRESHOLD_PX
     ) {
       selectNodesAlongRay(bounds, event.clientX, event.clientY);
       return;
@@ -3721,6 +3838,10 @@ export function ViewportCanvas({
         }}
         onPointerMissed={() => {
           if (!editorInteractionEnabled) {
+            return;
+          }
+
+          if (!allowPointerClickSelectionRef.current) {
             return;
           }
 
@@ -3902,11 +4023,10 @@ export function ViewportCanvas({
             meshEditMode={meshEditMode}
             node={selectedBrushDisplayNode}
             onDragStateChange={handleTransformDragStateChange}
-            onCommitTransformAction={(action) => {
-              lastMeshEditActionRef.current = action;
-            }}
-            onPreviewBrushData={onPreviewBrushData}
-            onUpdateBrushData={onUpdateBrushData}
+            onCommitTransformAction={handleCommitMeshEditAction}
+            onPreviewBrushData={handlePreviewBrushData}
+            shouldTreatAsClick={shouldTreatAsSelectionClick}
+            onUpdateBrushData={handleUpdateBrushData}
             selectedHandleIds={brushEditHandleIds}
             setSelectedHandleIds={setBrushEditHandleIds}
             transformMode={transformMode}
@@ -3920,11 +4040,10 @@ export function ViewportCanvas({
             meshEditMode={meshEditMode}
             node={selectedMeshDisplayNode}
             onDragStateChange={handleTransformDragStateChange}
-            onCommitTransformAction={(action) => {
-              lastMeshEditActionRef.current = action;
-            }}
-            onPreviewMeshData={onPreviewMeshData}
-            onUpdateMeshData={onUpdateMeshData}
+            onCommitTransformAction={handleCommitMeshEditAction}
+            onPreviewMeshData={handlePreviewMeshData}
+            shouldTreatAsClick={shouldTreatAsSelectionClick}
+            onUpdateMeshData={handleUpdateMeshData}
             selectedHandleIds={meshEditSelectionIds}
             setSelectedHandleIds={setMeshEditSelectionIds}
             transformMode={transformMode}
@@ -3974,6 +4093,31 @@ export function ViewportCanvas({
 
 function emptyEditableMesh(): EditableMesh {
   return { faces: [], halfEdges: [], vertices: [] };
+}
+
+function useEventCallback<T extends (...args: any[]) => unknown>(callback: T): T {
+  const callbackRef = useRef(callback);
+
+  useEffect(() => {
+    callbackRef.current = callback;
+  }, [callback]);
+
+  return useCallback(((...args: Parameters<T>) => callbackRef.current(...args)) as T, []);
+}
+
+function useStableOverlayHandles<T extends ComparableOverlayHandle>(handles: T[]) {
+  const handlesRef = useRef(handles);
+
+  return useMemo(() => {
+    const previousHandles = handlesRef.current;
+
+    if (areOverlayHandlesEqual(previousHandles, handles)) {
+      return previousHandles;
+    }
+
+    handlesRef.current = handles;
+    return handles;
+  }, [handles]);
 }
 
 function DefaultViewportSun({ center }: { center: Vec3 }) {
@@ -4323,6 +4467,83 @@ function buildPathSegments(pathDefinition: ScenePathDefinition) {
   }
 
   return segments;
+}
+
+type ComparableOverlayHandle = {
+  faceIds?: string[];
+  id: string;
+  normal?: Vec3;
+  points?: Vec3[];
+  position: Vec3;
+  vertexIds: string[];
+};
+
+function areOverlayHandlesEqual<T extends ComparableOverlayHandle>(previous: T[], next: T[]) {
+  if (previous === next) {
+    return true;
+  }
+
+  if (previous.length !== next.length) {
+    return false;
+  }
+
+  return previous.every((handle, index) => areOverlayHandleEqual(handle, next[index]));
+}
+
+function areOverlayHandleEqual(previous: ComparableOverlayHandle, next: ComparableOverlayHandle) {
+  return (
+    previous === next ||
+    (previous.id === next.id &&
+      areVec3Equal(previous.position, next.position) &&
+      areOptionalVec3Equal(previous.normal, next.normal) &&
+      areVec3ArraysEqual(previous.points, next.points) &&
+      areStringArraysEqual(previous.vertexIds, next.vertexIds) &&
+      areStringArraysEqual(previous.faceIds, next.faceIds))
+  );
+}
+
+function areVec3ArraysEqual(previous?: Vec3[], next?: Vec3[]) {
+  if (previous === next) {
+    return true;
+  }
+
+  if (!previous || !next) {
+    return previous === next;
+  }
+
+  if (previous.length !== next.length) {
+    return false;
+  }
+
+  return previous.every((point, index) => areVec3Equal(point, next[index]));
+}
+
+function areStringArraysEqual(previous?: string[], next?: string[]) {
+  if (previous === next) {
+    return true;
+  }
+
+  if (!previous || !next) {
+    return previous === next;
+  }
+
+  if (previous.length !== next.length) {
+    return false;
+  }
+
+  return previous.every((value, index) => value === next[index]);
+}
+
+function areOptionalVec3Equal(previous?: Vec3, next?: Vec3) {
+  if (!previous || !next) {
+    return previous === next;
+  }
+
+  return areVec3Equal(previous, next);
+}
+
+function areVec3Equal(previous: Vec3, next: Vec3) {
+  return previous.x === next.x && previous.y === next.y && previous.z === next.z;
 }
 
 function projectWorldPointToScreen(point: Vec3, camera: Camera, bounds: DOMRect) {

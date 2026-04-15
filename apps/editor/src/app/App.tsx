@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSnapshot } from "valtio";
 import {
   analyzeSceneSpatialLayout,
@@ -13,6 +13,7 @@ import { createDerivedRenderSceneCache, deriveRenderSceneCached } from "@ggez/re
 import {
   isModelNode,
   isPrimitiveNode,
+  type TextureRecord,
 } from "@ggez/shared";
 import { createWorkerTaskManager, type WorkerJob } from "@ggez/workers";
 import { slugifyProjectName } from "@ggez/dev-sync";
@@ -128,6 +129,7 @@ export function App() {
   );
   const resolvedProjectName = projectName.trim() || "Untitled Scene";
   const resolvedProjectSlug = slugifyProjectName(projectSlug.trim() || resolvedProjectName);
+  const texturesRef = useRef<TextureRecord[]>([]);
 
   useEditorSubscriptions(editor, setSceneRevision, setCommittedSceneRevision, setSelectionRevision);
 
@@ -338,11 +340,23 @@ export function App() {
     editor.redo();
   };
 
-  const copilot = useCopilot(editor, {
-    requestScenePush: (options) => {
-      void gameSyncActions.handlePushSceneToGame(options).catch(() => {});
-    }
+  const requestScenePush = useEventCallback((options?: Parameters<typeof gameSyncActions.handlePushSceneToGame>[0]) => {
+    void gameSyncActions.handlePushSceneToGame(options).catch(() => {});
   });
+  const handleProjectNameChange = useEventCallback(gameSyncActions.handleProjectNameChange);
+  const handleProjectSlugChange = useEventCallback(gameSyncActions.handleProjectSlugChange);
+  const handleRefreshGames = useEventCallback(gameConnection.refresh);
+  const handleSelectGame = useEventCallback(gameConnection.setSelectedGameId);
+  const handlePushScene = useCallback((forceSwitch?: boolean) => {
+    requestScenePush({ forceSwitch });
+  }, [requestScenePush]);
+  const copilotToolContext = useMemo(
+    () => ({
+      requestScenePush
+    }),
+    [requestScenePush]
+  );
+  const copilot = useCopilot(editor, copilotToolContext);
 
   const handleToggleCopilot = () => {
     uiStore.copilotPanelOpen = !uiStore.copilotPanelOpen;
@@ -422,6 +436,54 @@ export function App() {
     }),
     [aiActions, assetActions, fileActions, history, physicsActions, placementActions, sceneActions, selectionActions]
   );
+  const jobs = useMemo(() => [...workerJobs, ...exportJobs], [exportJobs, workerJobs]);
+  const textures = useMemo(() => {
+    const nextTextures = Array.from(editor.scene.textures.values());
+    const previousTextures = texturesRef.current;
+
+    if (areTextureArraysEqual(previousTextures, nextTextures)) {
+      return previousTextures;
+    }
+
+    texturesRef.current = nextTextures;
+    return nextTextures;
+  }, [committedSceneRevision, editor]);
+  const gameConnectionControl = useMemo(
+    () => (
+      <GameConnectionControl
+        activeGame={gameConnection.activeGame}
+        error={gameConnection.error}
+        games={gameConnection.games}
+        isLoading={gameConnection.isLoading}
+        isPushing={gameConnection.isPushing}
+        lastPush={gameConnection.lastPush}
+        onProjectNameChange={handleProjectNameChange}
+        onProjectSlugChange={handleProjectSlugChange}
+        onPushScene={handlePushScene}
+        onRefresh={handleRefreshGames}
+        onSelectGame={handleSelectGame}
+        projectName={projectName}
+        projectSlug={resolvedProjectSlug}
+        selectedGameId={gameConnection.selectedGameId}
+      />
+    ),
+    [
+      gameConnection.activeGame,
+      gameConnection.error,
+      gameConnection.games,
+      gameConnection.isLoading,
+      gameConnection.isPushing,
+      gameConnection.lastPush,
+      gameConnection.selectedGameId,
+      handleProjectNameChange,
+      handleProjectSlugChange,
+      handlePushScene,
+      handleRefreshGames,
+      handleSelectGame,
+      projectName,
+      resolvedProjectSlug
+    ]
+  );
   const world = {
     actions: {
       createDocument: handleCreateWorldDocument,
@@ -443,34 +505,15 @@ export function App() {
         <WorldEditorShell
           analysis={spatialAnalysis}
           copilot={copilot}
-          gameConnectionControl={
-            <GameConnectionControl
-              activeGame={gameConnection.activeGame}
-              error={gameConnection.error}
-              games={gameConnection.games}
-              isLoading={gameConnection.isLoading}
-              isPushing={gameConnection.isPushing}
-              lastPush={gameConnection.lastPush}
-              onProjectNameChange={gameSyncActions.handleProjectNameChange}
-              onProjectSlugChange={gameSyncActions.handleProjectSlugChange}
-              onPushScene={(forceSwitch) => {
-                void gameSyncActions.handlePushSceneToGame({ forceSwitch });
-              }}
-              onRefresh={gameConnection.refresh}
-              onSelectGame={gameConnection.setSelectedGameId}
-              projectName={projectName}
-              projectSlug={resolvedProjectSlug}
-              selectedGameId={gameConnection.selectedGameId}
-            />
-          }
+          gameConnectionControl={gameConnectionControl}
           effectiveHiddenSceneItemIds={effectiveHiddenSceneItemIds}
           effectiveLockedSceneItemIds={effectiveLockedSceneItemIds}
           editor={editor}
-          jobs={[...workerJobs, ...exportJobs]}
+          jobs={jobs}
           modelAssets={modelAssets}
           renderScene={renderScene}
           sceneSettings={editor.scene.settings}
-          textures={Array.from(editor.scene.textures.values())}
+          textures={textures}
           workingSet={workingSet}
           world={world}
         />
@@ -507,4 +550,42 @@ export function App() {
       />
     </>
   );
+}
+
+function useEventCallback<T extends (...args: any[]) => unknown>(callback: T): T {
+  const callbackRef = useRef(callback);
+
+  useEffect(() => {
+    callbackRef.current = callback;
+  }, [callback]);
+
+  return useCallback(((...args: Parameters<T>) => callbackRef.current(...args)) as T, []);
+}
+
+function areTextureArraysEqual(previous: TextureRecord[], next: TextureRecord[]) {
+  if (previous === next) {
+    return true;
+  }
+
+  if (previous.length !== next.length) {
+    return false;
+  }
+
+  return previous.every((texture, index) => {
+    const nextTexture = next[index];
+
+    return (
+      texture === nextTexture ||
+      (texture.id === nextTexture.id &&
+        texture.name === nextTexture.name &&
+        texture.kind === nextTexture.kind &&
+        texture.dataUrl === nextTexture.dataUrl &&
+        texture.mimeType === nextTexture.mimeType &&
+        texture.source === nextTexture.source &&
+        texture.prompt === nextTexture.prompt &&
+        texture.model === nextTexture.model &&
+        texture.createdAt === nextTexture.createdAt &&
+        texture.size === nextTexture.size)
+    );
+  });
 }
