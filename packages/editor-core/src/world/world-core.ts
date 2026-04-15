@@ -183,21 +183,35 @@ export function createWorldEditorCore(
     partitions: []
   });
 
+  const loadLoadedDocument = (documentId: DocumentID, existingDocument?: AuthoringDocument) => {
+    const snapshot = storageBundle.documents[documentId];
+
+    if (!snapshot) {
+      world.documents.delete(documentId);
+      documentSpatialIndexes.delete(documentId);
+      return undefined;
+    }
+
+    const mountTransform = resolveDocumentMountTransform(storageBundle, documentId);
+    const document = existingDocument ?? createAuthoringDocument(snapshot);
+
+    if (existingDocument) {
+      loadAuthoringDocumentSnapshot(document, snapshot);
+    }
+
+    document.spatialIndex = document.refreshSpatialIndex(mountTransform);
+    world.documents.set(documentId, document);
+    documentSpatialIndexes.set(documentId, document.spatialIndex);
+    return document;
+  };
+
   const rebuildLoadedDocuments = () => {
+    const previousDocuments = new Map(world.documents);
     world.documents.clear();
+    documentSpatialIndexes.clear();
 
     world.workingSet.loadedDocumentIds.forEach((documentId) => {
-      const snapshot = storageBundle.documents[documentId];
-
-      if (!snapshot) {
-        return;
-      }
-
-      const mountTransform = resolveDocumentMountTransform(storageBundle, documentId);
-      const document = createAuthoringDocument(snapshot);
-      document.spatialIndex = document.refreshSpatialIndex(mountTransform);
-      world.documents.set(documentId, document);
-      documentSpatialIndexes.set(documentId, document.spatialIndex);
+      loadLoadedDocument(documentId, previousDocuments.get(documentId));
     });
 
     world.partitions = new Map(
@@ -225,24 +239,13 @@ export function createWorldEditorCore(
   };
 
   const refreshLoadedDocument = (documentId: DocumentID) => {
-    documentSpatialIndexes.delete(documentId);
-    world.documents.delete(documentId);
-
     if (!world.workingSet.loadedDocumentIds.includes(documentId)) {
+      documentSpatialIndexes.delete(documentId);
+      world.documents.delete(documentId);
       return;
     }
 
-    const snapshot = storageBundle.documents[documentId];
-
-    if (!snapshot) {
-      return;
-    }
-
-    const mountTransform = resolveDocumentMountTransform(storageBundle, documentId);
-    const document = createAuthoringDocument(snapshot);
-    document.spatialIndex = document.refreshSpatialIndex(mountTransform);
-    world.documents.set(documentId, document);
-    documentSpatialIndexes.set(documentId, document.spatialIndex);
+    loadLoadedDocument(documentId, world.documents.get(documentId));
   };
 
   const rebuildWorldSpatialIndex = () => {
@@ -789,15 +792,7 @@ export function createWorldSelectionState(mode: SelectionMode = "object"): World
 
 export function createAuthoringDocument(snapshot: AuthoringDocumentSnapshot): AuthoringDocument {
   const scene = createSceneDocument();
-  loadSceneDocumentSnapshot(scene, snapshot);
   const document = scene as AuthoringDocument;
-  document.documentId = snapshot.documentId;
-  document.crossDocumentRefs = structuredClone(snapshot.crossDocumentRefs ?? []);
-  document.metadata = structuredClone(snapshot.metadata);
-  document.ownership = [
-    ...snapshot.nodes.map(() => ({ documentId: snapshot.documentId, kind: "document" as const, target: "node" as const })),
-    ...snapshot.entities.map(() => ({ documentId: snapshot.documentId, kind: "document" as const, target: "entity" as const }))
-  ];
   document.spatialIndex = createDocumentSpatialIndex(snapshot.documentId, document.nodes.values(), document.entities.values());
   document.refreshSpatialIndex = (mountTransform?: Transform) => {
     document.spatialIndex = createDocumentSpatialIndex(
@@ -808,7 +803,20 @@ export function createAuthoringDocument(snapshot: AuthoringDocumentSnapshot): Au
     );
     return document.spatialIndex;
   };
+  loadAuthoringDocumentSnapshot(document, snapshot);
+  document.spatialIndex = document.refreshSpatialIndex();
   return document;
+}
+
+function loadAuthoringDocumentSnapshot(document: AuthoringDocument, snapshot: AuthoringDocumentSnapshot) {
+  loadSceneDocumentSnapshot(document, snapshot);
+  document.documentId = snapshot.documentId;
+  document.crossDocumentRefs = structuredClone(snapshot.crossDocumentRefs ?? []);
+  document.metadata = structuredClone(snapshot.metadata);
+  document.ownership = [
+    ...snapshot.nodes.map(() => ({ documentId: snapshot.documentId, kind: "document" as const, target: "node" as const })),
+    ...snapshot.entities.map(() => ({ documentId: snapshot.documentId, kind: "document" as const, target: "entity" as const }))
+  ];
 }
 
 export function createAuthoringDocumentSnapshot(document: AuthoringDocument): AuthoringDocumentSnapshot {

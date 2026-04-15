@@ -35,6 +35,7 @@ import {
   MeshEditHandleVisual,
   PreviewLine
 } from "@/viewport/components/SelectionVisuals";
+import { EditableMeshPreviewOverlay } from "@/viewport/components/EditableMeshPreviewOverlay";
 import { Euler, Object3D, Quaternion, Vector3 } from "three";
 import type { LastMeshEditAction } from "@/viewport/types";
 
@@ -51,7 +52,7 @@ export const MeshEditOverlay = memo(function MeshEditOverlay({
   node,
   onDragStateChange,
   onCommitTransformAction,
-  onPreviewMeshData,
+  onPreviewMeshData: _onPreviewMeshData,
   shouldTreatAsClick,
   onUpdateMeshData,
   selectedHandleIds,
@@ -78,6 +79,7 @@ export const MeshEditOverlay = memo(function MeshEditOverlay({
   const transformControlsRef = useRef<any>(null);
   const baselineMeshRef = useRef<EditableMesh | undefined>(undefined);
   const baselineTransformRef = useRef<Transform | undefined>(undefined);
+  const [previewMesh, setPreviewMesh] = useState<EditableMesh | null>(null);
   useTransformControlsCameraLock({
     cameraControlsRef,
     onDragStateChange,
@@ -255,6 +257,7 @@ export const MeshEditOverlay = memo(function MeshEditOverlay({
           </group>
         ) : null}
       </NodeTransformGroup>
+      {previewMesh ? <EditableMeshPreviewOverlay mesh={previewMesh} node={node} showWireframe={false} /> : null}
 
       <BatchedHandleMarkers
         handles={handles}
@@ -285,6 +288,7 @@ export const MeshEditOverlay = memo(function MeshEditOverlay({
           onMouseDown={() => {
             baselineMeshRef.current = structuredClone(node.data);
             baselineTransformRef.current = objectToTransform(controlObject);
+            setPreviewMesh(null);
           }}
           onMouseUp={() => {
             if (!baselineMeshRef.current || !baselineTransformRef.current) {
@@ -313,6 +317,7 @@ export const MeshEditOverlay = memo(function MeshEditOverlay({
             });
             baselineMeshRef.current = undefined;
             baselineTransformRef.current = undefined;
+            setPreviewMesh(null);
           }}
           onObjectChange={() => {
             if (!baselineMeshRef.current || !baselineTransformRef.current) {
@@ -326,7 +331,7 @@ export const MeshEditOverlay = memo(function MeshEditOverlay({
               baselineTransformRef.current,
               objectToTransform(controlObject)
             );
-            onPreviewMeshData(node.id, nextMesh);
+            setPreviewMesh(nextMesh);
           }}
           rotationSnap={Math.PI / 12}
           scaleSnap={Math.max(snapSize / 16, 0.125)}
@@ -348,7 +353,7 @@ export const BrushEditOverlay = memo(function BrushEditOverlay({
   node,
   onDragStateChange,
   onCommitTransformAction,
-  onPreviewBrushData,
+  onPreviewBrushData: _onPreviewBrushData,
   shouldTreatAsClick,
   onUpdateBrushData,
   selectedHandleIds,
@@ -376,6 +381,7 @@ export const BrushEditOverlay = memo(function BrushEditOverlay({
   const baselineBrushRef = useRef<Brush | undefined>(undefined);
   const baselineHandlesRef = useRef<BrushEditHandle[] | undefined>(undefined);
   const baselineTransformRef = useRef<Transform | undefined>(undefined);
+  const [previewBrush, setPreviewBrush] = useState<Brush | null>(null);
   useTransformControlsCameraLock({
     cameraControlsRef,
     onDragStateChange,
@@ -576,6 +582,7 @@ export const BrushEditOverlay = memo(function BrushEditOverlay({
           </group>
         ) : null}
       </NodeTransformGroup>
+      {previewBrush ? <EditableMeshPreviewOverlay mesh={convertBrushToEditableMesh(previewBrush)} node={node} showWireframe={false} /> : null}
 
       <BatchedHandleMarkers
         handles={handles}
@@ -607,6 +614,7 @@ export const BrushEditOverlay = memo(function BrushEditOverlay({
             baselineBrushRef.current = structuredClone(node.data);
             baselineHandlesRef.current = structuredClone(handles);
             baselineTransformRef.current = objectToTransform(controlObject);
+            setPreviewBrush(null);
           }}
           onMouseUp={() => {
             if (!baselineBrushRef.current || !baselineTransformRef.current) {
@@ -637,12 +645,13 @@ export const BrushEditOverlay = memo(function BrushEditOverlay({
                 }
               });
             } else {
-              onPreviewBrushData(node.id, baselineBrushRef.current);
+              setPreviewBrush(null);
             }
 
             baselineBrushRef.current = undefined;
             baselineHandlesRef.current = undefined;
             baselineTransformRef.current = undefined;
+            setPreviewBrush(null);
           }}
           onObjectChange={() => {
             if (!baselineBrushRef.current || !baselineTransformRef.current) {
@@ -659,7 +668,7 @@ export const BrushEditOverlay = memo(function BrushEditOverlay({
             );
 
             if (nextBrush) {
-              onPreviewBrushData(node.id, nextBrush);
+              setPreviewBrush(nextBrush);
             }
           }}
           showX
