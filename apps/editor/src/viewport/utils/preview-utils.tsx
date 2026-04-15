@@ -228,9 +228,9 @@ export function createPreviewMaterial(
   const opacity = transparent ? spec.opacity ?? 1 : 1;
 
   const material = new MeshStandardMaterial({
-    color: colorTexture ? "#ffffff" : selected ? "#ffb35a" : hovered ? "#d8f4f0" : spec.color,
+    color: colorTexture ? "#ffffff" : hovered && !selected ? "#d8f4f0" : spec.color,
     emissive: selected ? "#f69036" : hovered ? "#2a7f74" : spec.emissiveColor ?? "#000000",
-    emissiveIntensity: selected ? 0.38 : hovered ? 0.14 : spec.emissiveIntensity ?? 0,
+    emissiveIntensity: selected ? 0.08 : hovered ? 0.1 : spec.emissiveIntensity ?? 0,
     flatShading: spec.flatShaded,
     metalness: spec.wireframe ? 0.05 : spec.metalness,
     opacity,
@@ -279,9 +279,9 @@ export function createSolidSurfaceMaterial(
   useInstanceColors = false
 ) {
   return new MeshStandardMaterial({
-    color: useInstanceColors ? "#ffffff" : selected ? "#ffb35a" : hovered ? "#d8f4f0" : "#d9e1e8",
+    color: useInstanceColors ? "#ffffff" : hovered && !selected ? "#d8f4f0" : "#d9e1e8",
     emissive: selected ? "#f69036" : hovered ? "#2a7f74" : "#000000",
-    emissiveIntensity: selected ? 0.24 : hovered ? 0.08 : 0,
+    emissiveIntensity: selected ? 0.08 : hovered ? 0.08 : 0,
     flatShading: spec.flatShaded,
     metalness: 0.04,
     roughness: 0.88,
@@ -299,9 +299,9 @@ export function createSolidModelMaterial(material: Mesh["material"], selected: b
 
 export function createSolidSingleModelMaterial(material: Mesh["material"], selected: boolean, hovered: boolean) {
   return new MeshStandardMaterial({
-    color: selected ? "#ffb35a" : hovered ? "#d8f4f0" : "#d9e1e8",
+    color: hovered && !selected ? "#d8f4f0" : "#d9e1e8",
     emissive: selected ? "#f69036" : hovered ? "#2a7f74" : "#000000",
-    emissiveIntensity: selected ? 0.24 : hovered ? 0.08 : 0,
+    emissiveIntensity: selected ? 0.08 : hovered ? 0.08 : 0,
     metalness: 0.04,
     roughness: 0.88,
     side: material instanceof MeshBasicMaterial || material instanceof MeshStandardMaterial ? material.side : DoubleSide

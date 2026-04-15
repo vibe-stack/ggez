@@ -20,6 +20,7 @@ export function EditableMeshPreviewOverlay({
   const [hasSurfaceGeometry, setHasSurfaceGeometry] = useState(false);
   const [hasWireframeGeometry, setHasWireframeGeometry] = useState(showWireframe);
   const topologyCacheRef = useRef<EditableMeshPreviewTopology | null>(null);
+  const computeNormals = presentation === "solid";
 
   useEffect(() => {
     let topology = topologyCacheRef.current;
@@ -33,7 +34,7 @@ export function EditableMeshPreviewOverlay({
       clearGeometry(geometryRef.current);
       setHasSurfaceGeometry(false);
     } else {
-      syncIndexedGeometryFromTopology(geometryRef.current, topology, mesh);
+      syncIndexedGeometryFromTopology(geometryRef.current, topology, mesh, computeNormals);
       setHasSurfaceGeometry(true);
     }
 
@@ -69,13 +70,13 @@ export function EditableMeshPreviewOverlay({
     <NodeTransformGroup transform={node.transform}>
       <mesh frustumCulled={false} geometry={geometryRef.current} renderOrder={11}>
         {presentation === "solid" ? (
-          <meshBasicMaterial
+          <meshStandardMaterial
             color="#78c4b7"
             depthWrite
-            opacity={0.88}
+            metalness={0}
+            roughness={1}
             side={DoubleSide}
             toneMapped={false}
-            transparent
           />
         ) : (
           <meshBasicMaterial
@@ -102,6 +103,11 @@ export function EditableMeshPreviewOverlay({
 
 type EditableMeshPreviewTopology = {
   faceVertexIds: string[][];
+  /** Per-face-vertex index into the unique-vertex accumulation buffer (keyed by vertex ID). */
+  surfaceVertexAccumIndices: number[];
+  surfaceVertexUniqueCount: number;
+  /** Pre-allocated accumulation buffer for smooth-normal computation. Cleared before each use. */
+  normalAccumBuffer: Float32Array;
   surfaceIndices: number[];
   surfaceVertexIds: string[];
   wireframeEdges: Array<[string, string]>;
@@ -160,8 +166,27 @@ function buildEditableMeshPreviewTopology(mesh: EditableMesh): EditableMeshPrevi
     wireframeEdges.push([halfEdge.vertex, nextHalfEdge.vertex]);
   });
 
+  const vertexIdToAccumIndex = new Map<string, number>();
+  let uniqueCount = 0;
+  const surfaceVertexAccumIndices: number[] = new Array(surfaceVertexIds.length);
+
+  for (let i = 0; i < surfaceVertexIds.length; i++) {
+    const id = surfaceVertexIds[i];
+    let idx = vertexIdToAccumIndex.get(id);
+
+    if (idx === undefined) {
+      idx = uniqueCount++;
+      vertexIdToAccumIndex.set(id, idx);
+    }
+
+    surfaceVertexAccumIndices[i] = idx;
+  }
+
   return {
     faceVertexIds,
+    surfaceVertexAccumIndices,
+    surfaceVertexUniqueCount: uniqueCount,
+    normalAccumBuffer: new Float32Array(uniqueCount * 3),
     surfaceIndices,
     surfaceVertexIds,
     wireframeEdges
@@ -188,7 +213,8 @@ function isPreviewTopologyCompatible(topology: EditableMeshPreviewTopology, mesh
 function syncIndexedGeometryFromTopology(
   geometry: BufferGeometry,
   topology: EditableMeshPreviewTopology,
-  mesh: EditableMesh
+  mesh: EditableMesh,
+  computeNormals: boolean
 ) {
   const verticesById = new Map(mesh.vertices.map((vertex) => [vertex.id, vertex.position] as const));
   const positions = new Float32Array(topology.surfaceVertexIds.length * 3);
@@ -208,6 +234,88 @@ function syncIndexedGeometryFromTopology(
 
   syncFloatAttribute(geometry, "position", positions, 3);
   syncIndexAttribute(geometry, topology.surfaceIndices);
+
+  if (computeNormals) {
+    syncSmoothNormals(geometry, topology, positions);
+  }
+}
+
+/**
+ * Computes smooth per-vertex normals by accumulating area-weighted face normals per vertex ID,
+ * then writes them into the geometry's normal attribute. Reuses pre-allocated buffers stored on
+ * the topology to avoid heap allocations during repeated sculpt updates.
+ */
+function syncSmoothNormals(
+  geometry: BufferGeometry,
+  topology: EditableMeshPreviewTopology,
+  positions: Float32Array
+) {
+  const { surfaceIndices, surfaceVertexAccumIndices, surfaceVertexUniqueCount, normalAccumBuffer } = topology;
+  const count = topology.surfaceVertexIds.length;
+
+  // Clear the pre-allocated accumulation buffer.
+  normalAccumBuffer.fill(0);
+
+  // Accumulate area-weighted face normals into per-vertex-ID buckets.
+  for (let i = 0; i < surfaceIndices.length; i += 3) {
+    const ia = surfaceIndices[i];
+    const ib = surfaceIndices[i + 1];
+    const ic = surfaceIndices[i + 2];
+
+    const ax = positions[ia * 3],     ay = positions[ia * 3 + 1], az = positions[ia * 3 + 2];
+    const bx = positions[ib * 3],     by = positions[ib * 3 + 1], bz = positions[ib * 3 + 2];
+    const cx = positions[ic * 3],     cy = positions[ic * 3 + 1], cz = positions[ic * 3 + 2];
+
+    const abx = bx - ax, aby = by - ay, abz = bz - az;
+    const acx = cx - ax, acy = cy - ay, acz = cz - az;
+
+    // Cross product gives an area-weighted face normal.
+    const nx = aby * acz - abz * acy;
+    const ny = abz * acx - abx * acz;
+    const nz = abx * acy - aby * acx;
+
+    const accumA = surfaceVertexAccumIndices[ia] * 3;
+    const accumB = surfaceVertexAccumIndices[ib] * 3;
+    const accumC = surfaceVertexAccumIndices[ic] * 3;
+
+    normalAccumBuffer[accumA]     += nx; normalAccumBuffer[accumA + 1] += ny; normalAccumBuffer[accumA + 2] += nz;
+    normalAccumBuffer[accumB]     += nx; normalAccumBuffer[accumB + 1] += ny; normalAccumBuffer[accumB + 2] += nz;
+    normalAccumBuffer[accumC]     += nx; normalAccumBuffer[accumC + 1] += ny; normalAccumBuffer[accumC + 2] += nz;
+  }
+
+  // Reuse the existing normal attribute buffer when the size matches to avoid allocation.
+  const existingAttr = geometry.getAttribute("normal");
+  const normals =
+    existingAttr instanceof Float32BufferAttribute && existingAttr.array.length === count * 3
+      ? (existingAttr.array as Float32Array)
+      : new Float32Array(count * 3);
+
+  for (let i = 0; i < count; i++) {
+    const accumIdx = surfaceVertexAccumIndices[i] * 3;
+    let nx = normalAccumBuffer[accumIdx];
+    let ny = normalAccumBuffer[accumIdx + 1];
+    let nz = normalAccumBuffer[accumIdx + 2];
+    const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+
+    if (len > 0.000001) {
+      nx /= len;
+      ny /= len;
+      nz /= len;
+    }
+
+    normals[i * 3]     = nx;
+    normals[i * 3 + 1] = ny;
+    normals[i * 3 + 2] = nz;
+  }
+
+  if (normals === existingAttr?.array) {
+    (existingAttr as Float32BufferAttribute).needsUpdate = true;
+  } else {
+    geometry.setAttribute("normal", new Float32BufferAttribute(normals, 3));
+  }
+
+  // Suppress unused variable warning – uniqueCount is used only for buffer sizing.
+  void surfaceVertexUniqueCount;
 }
 
 function syncWireframeGeometryFromTopology(
