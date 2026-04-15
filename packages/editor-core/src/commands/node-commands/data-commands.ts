@@ -120,7 +120,7 @@ export function createSetMeshMaterialLayersCommand(
       }
 
       nextNode.data = {
-        ...structuredClone(nextNode.data),
+        ...nextNode.data,
         materialBlend: undefined,
         materialLayers: structuredClone(next),
       };
@@ -134,7 +134,7 @@ export function createSetMeshMaterialLayersCommand(
       }
 
       nextNode.data = {
-        ...structuredClone(nextNode.data),
+        ...nextNode.data,
         materialBlend: undefined,
         materialLayers: structuredClone(before),
       };

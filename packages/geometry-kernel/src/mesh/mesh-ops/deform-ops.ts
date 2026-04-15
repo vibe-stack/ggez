@@ -183,6 +183,100 @@ export function sculptEditableMesh(
   return sculptEditableMeshSamples(mesh, [{ normal: brushNormal, point: center }], radius, amount, epsilon);
 }
 
+/**
+ * Smooths surface deformations under the brush using Laplacian relaxation weighted by a
+ * smooth cubic falloff. For each vertex within `radius` of any sample point, its position
+ * is pulled toward the average position of its immediate neighbours, blended by
+ * `strength * falloff`. The effect is applied independently per sample then accumulated,
+ * so stroke interpolation produces continuous results identical to `sculptEditableMeshSamples`.
+ *
+ * Unlike inflate/deflate, smoothing does NOT use or modify vertex normals — it purely
+ * relaxes position variance, producing the zBrush-style smooth behaviour.
+ */
+export function smoothEditableMeshSamples(
+  mesh: EditableMesh,
+  samples: SculptSample[],
+  radius: number,
+  strength: number,
+  epsilon = 0.0001
+): EditableMesh {
+  if (radius <= epsilon || Math.abs(strength) <= epsilon || mesh.vertices.length === 0) {
+    return mesh;
+  }
+
+  // Build vertex adjacency: for each vertex id, collect the ids of immediately connected vertices
+  // (one edge away) so we can compute the Laplacian average quickly.
+  const neighbourIds = new Map<VertexID, VertexID[]>();
+
+  mesh.vertices.forEach((vertex) => {
+    if (!neighbourIds.has(vertex.id)) {
+      neighbourIds.set(vertex.id, []);
+    }
+  });
+
+  // Walk half-edges to extract the 1-ring neighbourhood for every vertex.
+  const halfEdgesById = new Map(mesh.halfEdges.map((he) => [he.id, he]));
+
+  mesh.halfEdges.forEach((he) => {
+    if (!he.next) return;
+    const next = halfEdgesById.get(he.next);
+    if (!next) return;
+    const from = he.vertex;
+    const to = next.vertex;
+    if (from === to) return;
+    const list = neighbourIds.get(from);
+    if (list && !list.includes(to)) list.push(to);
+  });
+
+  const posById = new Map(mesh.vertices.map((v) => [v.id, v.position]));
+  const clampedStrength = Math.max(0, Math.min(1, strength));
+
+  return {
+    ...mesh,
+    vertices: mesh.vertices.map((vertex) => {
+      // Accumulate the maximum falloff weight from all samples to this vertex.
+      let maxFalloff = 0;
+
+      for (const sample of samples) {
+        const dist = lengthVec3(subVec3(vertex.position, sample.point));
+        if (dist < radius) {
+          const f = smoothBrushFalloff(dist / radius);
+          if (f > maxFalloff) maxFalloff = f;
+        }
+      }
+
+      if (maxFalloff <= epsilon) {
+        return vertex;
+      }
+
+      const neighbours = neighbourIds.get(vertex.id);
+      if (!neighbours || neighbours.length === 0) {
+        return vertex;
+      }
+
+      // Laplacian centroid of 1-ring neighbours.
+      let cx = 0, cy = 0, cz = 0;
+      for (const nid of neighbours) {
+        const np = posById.get(nid);
+        if (np) { cx += np.x; cy += np.y; cz += np.z; }
+      }
+      const n = neighbours.length;
+      cx /= n; cy /= n; cz /= n;
+
+      // Move vertex toward centroid by strength * falloff.
+      const t = clampedStrength * maxFalloff;
+      return {
+        ...vertex,
+        position: vec3(
+          vertex.position.x + (cx - vertex.position.x) * t,
+          vertex.position.y + (cy - vertex.position.y) * t,
+          vertex.position.z + (cz - vertex.position.z) * t
+        )
+      };
+    })
+  };
+}
+
 export function sculptEditableMeshSamples(
   mesh: EditableMesh,
   samples: SculptSample[],
@@ -263,10 +357,6 @@ export function paintEditableMeshMaterialLayers(
       ...mesh,
       materialBlend: undefined,
       materialLayers: normalizeEditableMeshMaterialLayers(mesh.materialLayers, mesh.vertices.length, mesh.materialBlend),
-      vertices: mesh.vertices.map((vertex) => ({
-        ...vertex,
-        position: vec3(vertex.position.x, vertex.position.y, vertex.position.z),
-      })),
     };
   }
 
@@ -311,10 +401,6 @@ export function paintEditableMeshMaterialLayers(
     ...mesh,
     materialBlend: undefined,
     materialLayers: normalizedLayers,
-    vertices: mesh.vertices.map((vertex) => ({
-      ...vertex,
-      position: vec3(vertex.position.x, vertex.position.y, vertex.position.z),
-    })),
   };
 }
 

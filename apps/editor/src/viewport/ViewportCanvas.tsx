@@ -60,6 +60,7 @@ import { BrushClipOverlay } from "@/viewport/components/BrushClipOverlay";
 import { BrushCreatePreview } from "@/viewport/components/BrushCreatePreview";
 import { ConstructionGrid } from "@/viewport/components/ConstructionGrid";
 import { EditableMeshPreviewOverlay } from "@/viewport/components/EditableMeshPreviewOverlay";
+import { MaterialPaintWeightOverlay } from "@/viewport/components/MaterialPaintWeightOverlay";
 import { BrushEditOverlay, MeshEditOverlay } from "@/viewport/components/EditOverlays";
 import { EditorCameraRig } from "@/viewport/components/EditorCameraRig";
 import { BrushExtrudeOverlay, ExtrudeAxisGuide, MeshExtrudeOverlay } from "@/viewport/components/ExtrudeOverlays";
@@ -148,6 +149,8 @@ type MaterialPaintState = {
   modified: boolean;
   nodeId: string;
   opacity: number;
+  /** Resolved color of the paint material, used to tint the live weight overlay. */
+  paintColor: string;
   previewMesh?: EditableMesh;
   radius: number;
   strength: number;
@@ -1274,6 +1277,17 @@ export function ViewportCanvas({
       modified: false,
       nodeId: selectedMeshNode.id,
       opacity: materialPaintBrushOpacity,
+      paintColor: resolvePaintMaterialColor(
+        renderScene.meshes,
+        selectedMeshNode,
+        mode === "erase"
+          ? (normalizeEditableMeshMaterialLayers(
+              selectedMeshNode.data.materialLayers,
+              selectedMeshNode.data.vertices.length,
+              selectedMeshNode.data.materialBlend,
+            )?.at(-1)?.materialId ?? selectedMaterialId)
+          : selectedMaterialId
+      ),
       radius: sculptBrushRadius,
       strength: sculptBrushStrength,
     };
@@ -3950,6 +3964,14 @@ export function ViewportCanvas({
         {editorInteractionEnabled && isActiveViewport && materialPaintState && selectedDisplayNode ? (
           <SculptBrushOverlay hovered={materialPaintState.hovered} node={selectedDisplayNode} radius={materialPaintState.radius} />
         ) : null}
+        {editorInteractionEnabled && isActiveViewport && materialPaintState?.dragging && materialPaintState.previewMesh && selectedDisplayNode ? (
+          <MaterialPaintWeightOverlay
+            mesh={materialPaintState.previewMesh}
+            node={selectedDisplayNode}
+            materialId={materialPaintState.materialId}
+            paintColor={materialPaintState.paintColor}
+          />
+        ) : null}
         {editorInteractionEnabled && isActiveViewport && sculptState && selectedDisplayNode ? (
           <SculptBrushOverlay hovered={sculptState.hovered} node={selectedDisplayNode} radius={sculptState.radius} />
         ) : null}
@@ -4792,4 +4814,30 @@ function resolveExtrudeAmountSign(
   _kind: "edge" | "face"
 ): 1 | -1 {
   return 1;
+}
+
+/**
+ * Looks up the resolved display color of a material being painted by finding the corresponding
+ * RenderMaterialLayer on the selected mesh's DerivedRenderMesh entry. Falls back to orange so
+ * the overlay is always visible even if the material lookup fails.
+ */
+function resolvePaintMaterialColor(
+  renderMeshes: import("@ggez/render-pipeline").DerivedRenderMesh[],
+  meshNode: Extract<import("@ggez/shared").GeometryNode, { kind: "mesh" }>,
+  materialId: string
+): string {
+  const renderMesh = renderMeshes.find((m) => m.nodeId === meshNode.id);
+
+  if (!renderMesh?.materialLayers) {
+    return "#f97316";
+  }
+
+  const normalizedLayers = normalizeEditableMeshMaterialLayers(
+    meshNode.data.materialLayers,
+    meshNode.data.vertices.length,
+    meshNode.data.materialBlend
+  );
+  const layerIndex = normalizedLayers?.findIndex((l) => l.materialId === materialId) ?? -1;
+
+  return renderMesh.materialLayers[layerIndex]?.material.color ?? "#f97316";
 }

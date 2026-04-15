@@ -700,3 +700,96 @@ function computeSmoothNormals(positions: number[], indices: number[]): number[] 
 
   return result;
 }
+
+// ---------------------------------------------------------------------------
+// Fast-path helpers for material-layers-only changes
+// ---------------------------------------------------------------------------
+
+/**
+ * For each face in `meshData.faces` (in order), records how many render-vertices that face
+ * contributes to the surface buffer. A value of 0 means the face is degenerate and was skipped.
+ * This is computed once per full geometry rebuild and cached. The fast-path weight recomputation
+ * uses it to iterate faces in exactly the same order as `createEditableMeshSurface` did, without
+ * needing to re-run face triangulation.
+ */
+export type DerivedSurfaceFaceMap = {
+  faceRenderVertexCounts: number[];
+};
+
+/**
+ * Builds a `DerivedSurfaceFaceMap` for a mesh node. Must be called with the same `meshData`
+ * that was used for the most recent full surface build so the face order matches.
+ */
+export function buildEditableMeshFaceMap(
+  meshData: Extract<GeometryNode, { kind: "mesh" }>["data"]
+): DerivedSurfaceFaceMap {
+  const faceRenderVertexCounts = meshData.faces.map((face) => {
+    const triangulated = triangulateMeshFace(meshData, face.id);
+    const faceVertices = getFaceVertices(meshData, face.id);
+
+    if (!triangulated || faceVertices.length === 0) {
+      return 0;
+    }
+
+    return faceVertices.length;
+  });
+
+  return { faceRenderVertexCounts };
+}
+
+/**
+ * Recomputes ONLY the `blendLayerWeights` portion of a `DerivedSurfaceGeometry` using a
+ * pre-computed face map. Skips triangulation, position building, UV projection and normal
+ * computation. O(faces × verticesPerFace × layers).
+ *
+ * The returned weights array is in the same render-vertex order as the original surface build.
+ */
+export function recomputeBlendLayerWeightsFromFaceMap(
+  meshData: Extract<GeometryNode, { kind: "mesh" }>["data"],
+  faceMap: DerivedSurfaceFaceMap,
+  materialsById: Map<MaterialID, Material>
+): { weights: number[][]; layers: RenderMaterialLayer[] } | undefined {
+  const materialLayers = normalizeEditableMeshMaterialLayers(
+    meshData.materialLayers,
+    meshData.vertices.length,
+    meshData.materialBlend
+  );
+
+  if (!materialLayers?.length) {
+    return undefined;
+  }
+
+  const flatShaded = meshData.shading !== "smooth";
+  const vertexIndexById = new Map(meshData.vertices.map((v, i) => [v.id, i] as const));
+  const blendLayerWeights = materialLayers.map(() => [] as number[]);
+
+  meshData.faces.forEach((face, faceIdx) => {
+    const vertexCount = faceMap.faceRenderVertexCounts[faceIdx];
+
+    if (!vertexCount) {
+      return; // degenerate face — same skip condition as createEditableMeshSurface
+    }
+
+    const faceVertices = getFaceVertices(meshData, face.id);
+
+    materialLayers.forEach((layer, li) => {
+      faceVertices.forEach((vertex) => {
+        blendLayerWeights[li]!.push(layer.weights[vertexIndexById.get(vertex.id) ?? -1] ?? 0);
+      });
+    });
+  });
+
+  return {
+    weights: blendLayerWeights,
+    layers: materialLayers.map((layer) => ({
+      material: resolveRenderMaterial(
+        materialsById.get(layer.materialId),
+        "#6ed5c0",
+        flatShaded,
+        0.05,
+        0.82
+      ),
+      opacity: layer.opacity
+    }))
+  };
+}

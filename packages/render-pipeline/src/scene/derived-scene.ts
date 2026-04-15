@@ -21,7 +21,7 @@ import {
   resolveSceneGraph,
   vec3
 } from "@ggez/shared";
-import { createDerivedRenderMesh, type DerivedRenderMesh } from "../meshes/render-mesh";
+import { createDerivedRenderMesh, buildEditableMeshFaceMap, recomputeBlendLayerWeightsFromFaceMap, type DerivedRenderMesh, type DerivedSurfaceFaceMap } from "../meshes/render-mesh";
 
 export type DerivedEntityMarker = {
   entityId: Entity["id"];
@@ -92,6 +92,8 @@ type CachedDerivedRenderMeshEntry = {
   planes?: unknown;
   previewSize?: unknown;
   vertices?: unknown;
+  /** Pre-computed face map used by the weights-only fast path. Only set for mesh nodes. */
+  meshFaceMap?: DerivedSurfaceFaceMap;
 };
 
 export type DerivedRenderSceneCache = {
@@ -181,13 +183,16 @@ export function deriveRenderSceneCached(
     activeMeshIds.add(node.id);
 
     const cached = cache.meshEntries.get(node.id);
-    const mesh =
-      shouldRebuildAllMeshes || !cached || isCachedMeshEntryStale(node, worldTransform, cached)
-        ? createCachedMeshEntry(node, worldTransform, materialsById, assetsById)
-        : cached;
+    const isStale = shouldRebuildAllMeshes || !cached || isCachedMeshEntryStale(node, worldTransform, cached);
+    const meshEntry =
+      !isStale
+        ? cached!
+        : !shouldRebuildAllMeshes && cached && isMaterialLayersOnlyChange(node, worldTransform, cached)
+          ? patchCachedMeshEntryBlendWeights(cached, node, materialsById)
+          : createCachedMeshEntry(node, worldTransform, materialsById, assetsById);
 
-    cache.meshEntries.set(node.id, mesh);
-    meshes.push(mesh.mesh);
+    cache.meshEntries.set(node.id, meshEntry);
+    meshes.push(meshEntry.mesh);
   });
 
   Array.from(cache.meshEntries.keys()).forEach((nodeId) => {
@@ -329,6 +334,11 @@ function createCachedMeshEntry(
   materialsById: Map<MaterialID, Material>,
   assetsById: Map<AssetID, Asset>
 ): CachedDerivedRenderMeshEntry {
+  const meshFaceMap =
+    node.kind === "mesh"
+      ? buildEditableMeshFaceMap(node.data)
+      : undefined;
+
   return {
     mesh: createDerivedRenderMesh(node, materialsById, assetsById, worldTransform),
     sourceKind: node.kind,
@@ -344,7 +354,8 @@ function createCachedMeshEntry(
     physics: "physics" in node.data ? node.data.physics : undefined,
     planes: "planes" in node.data ? node.data.planes : undefined,
     previewSize: "previewSize" in node.data ? node.data.previewSize : undefined,
-    vertices: "vertices" in node.data ? node.data.vertices : undefined
+    vertices: "vertices" in node.data ? node.data.vertices : undefined,
+    meshFaceMap
   };
 }
 
@@ -365,6 +376,63 @@ function isCachedMeshEntryStale(
     cached.vertices !== ("vertices" in node.data ? node.data.vertices : undefined) ||
     hasTransformValuesChanged(worldTransform, cached)
   );
+}
+
+/**
+ * Returns true when the only reason the staleness check fired is that `materialLayers` changed
+ * while all structural data (vertices, faces, half-edges, topology) stayed the same. In this
+ * case we can skip the full geometry rebuild and only recompute blend-weight attributes.
+ */
+function isMaterialLayersOnlyChange(
+  node: Exclude<GeometryNode, { kind: "group" | "light" }>,
+  worldTransform: Transform,
+  cached: CachedDerivedRenderMeshEntry
+): node is Extract<typeof node, { kind: "mesh" }> {
+  return (
+    node.kind === "mesh" &&
+    cached.sourceKind === node.kind &&
+    cached.name === node.name &&
+    !hasTransformValuesChanged(worldTransform, cached) &&
+    cached.vertices !== undefined &&
+    cached.vertices === ("vertices" in node.data ? node.data.vertices : undefined) &&
+    cached.faces === ("faces" in node.data ? node.data.faces : undefined) &&
+    cached.halfEdges === ("halfEdges" in node.data ? node.data.halfEdges : undefined) &&
+    cached.planes === ("planes" in node.data ? node.data.planes : undefined) &&
+    cached.physics === ("physics" in node.data ? node.data.physics : undefined) &&
+    cached.previewSize === ("previewSize" in node.data ? node.data.previewSize : undefined)
+  );
+}
+
+/**
+ * Updates only the `blendLayerWeights` attributes on the cached mesh entry, reusing all other
+ * geometry data (positions, indices, normals, UVs, groups). O(faces × verticesPerFace × layers).
+ */
+function patchCachedMeshEntryBlendWeights(
+  cached: CachedDerivedRenderMeshEntry,
+  node: Extract<Exclude<GeometryNode, { kind: "group" | "light" }>, { kind: "mesh" }>,
+  materialsById: Map<MaterialID, Material>
+): CachedDerivedRenderMeshEntry {
+  if (!cached.meshFaceMap || !cached.mesh.surface) {
+    return cached; // Should not happen, but guard defensively
+  }
+
+  const result = recomputeBlendLayerWeightsFromFaceMap(node.data, cached.meshFaceMap, materialsById);
+
+  const patchedSurface = result
+    ? { ...cached.mesh.surface, blendLayerWeights: result.weights }
+    : { ...cached.mesh.surface, blendLayerWeights: undefined };
+
+  const patchedMesh: DerivedRenderMesh = {
+    ...cached.mesh,
+    surface: patchedSurface,
+    materialLayers: result?.layers
+  };
+
+  return {
+    ...cached,
+    data: node.data,
+    mesh: patchedMesh
+  };
 }
 
 function hasTransformValuesChanged(
