@@ -308,7 +308,24 @@ export function ViewportCanvas({
   sculptStateRef.current = sculptState;
   previewBrushDataRef.current = onPreviewBrushData;
 
+  const setCameraControlsEnabled = (enabled: boolean) => {
+    const controls = cameraControlsRef.current;
+
+    if (!controls || !("enabled" in controls)) {
+      return;
+    }
+
+    controls.enabled = enabled;
+
+    if (!enabled && typeof controls.state === "number") {
+      controls.state = -1;
+    }
+
+    controls.update?.();
+  };
+
   const handleTransformDragStateChange = (dragging: boolean) => {
+    setCameraControlsEnabled(!dragging);
     transformDraggingRef.current = dragging;
     suppressSelectionAfterTransformRef.current = true;
     selectionClickOriginRef.current = null;
@@ -428,6 +445,7 @@ export function ViewportCanvas({
     setMaterialPaintState(null);
     setInstanceBrushState(null);
     setSculptState(null);
+    setCameraControlsEnabled(true);
     setTransformDragging(false);
   }, [activeToolId, meshEditMode, selectedNode?.id, selectedNode?.kind]);
 
@@ -463,6 +481,7 @@ export function ViewportCanvas({
     sculptStateRef.current = null;
     setSculptState(null);
     setMarquee(null);
+    setCameraControlsEnabled(true);
     setTransformDragging(false);
   }, [editorInteractionEnabled]);
 
@@ -1069,6 +1088,7 @@ export function ViewportCanvas({
 
     materialPaintStateRef.current = nextState;
     setMaterialPaintState(nextState);
+    setCameraControlsEnabled(false);
     setTransformDragging(true);
     return true;
   };
@@ -1117,6 +1137,7 @@ export function ViewportCanvas({
 
     materialPaintStateRef.current = nextState;
     setMaterialPaintState(nextState);
+    setCameraControlsEnabled(true);
     setTransformDragging(false);
   };
 
@@ -1146,6 +1167,7 @@ export function ViewportCanvas({
 
     materialPaintStateRef.current = nextState;
     setMaterialPaintState(nextState);
+    setCameraControlsEnabled(true);
     setTransformDragging(false);
   };
 
@@ -1278,6 +1300,7 @@ export function ViewportCanvas({
 
     sculptStateRef.current = nextState;
     setSculptState(nextState);
+    setCameraControlsEnabled(false);
     setTransformDragging(true);
     return true;
   };
@@ -1327,6 +1350,7 @@ export function ViewportCanvas({
 
     sculptStateRef.current = nextState;
     setSculptState(nextState);
+    setCameraControlsEnabled(true);
     setTransformDragging(false);
   };
 
@@ -1353,6 +1377,7 @@ export function ViewportCanvas({
 
     sculptStateRef.current = nextState;
     setSculptState(nextState);
+    setCameraControlsEnabled(true);
     setTransformDragging(false);
   };
 
@@ -1581,6 +1606,7 @@ export function ViewportCanvas({
 
     instanceBrushStateRef.current = nextState;
     setInstanceBrushState(nextState);
+    setCameraControlsEnabled(false);
     setTransformDragging(true);
     return true;
   };
@@ -1634,6 +1660,7 @@ export function ViewportCanvas({
 
     instanceBrushStateRef.current = nextState;
     setInstanceBrushState(nextState);
+    setCameraControlsEnabled(true);
     setTransformDragging(false);
   };
 
@@ -1656,7 +1683,35 @@ export function ViewportCanvas({
 
     instanceBrushStateRef.current = nextState;
     setInstanceBrushState(nextState);
+    setCameraControlsEnabled(true);
     setTransformDragging(false);
+  };
+
+  const handlePointerDownCapture: PointerEventHandler<HTMLDivElement> = (event) => {
+    if (!editorInteractionEnabled || event.button !== 0 || event.shiftKey) {
+      return;
+    }
+
+    const bounds = event.currentTarget.getBoundingClientRect();
+
+    if (activeToolId === "brush" && brushToolMode === "instance" && resolveSceneBrushHit(bounds, event.clientX, event.clientY)) {
+      setCameraControlsEnabled(false);
+      return;
+    }
+
+    if (activeToolId !== "mesh-edit" || !selectedMeshNode) {
+      return;
+    }
+
+    const meshHit = resolveSelectedMeshSurfaceHit(bounds, event.clientX, event.clientY);
+
+    if (!meshHit) {
+      return;
+    }
+
+    if (materialPaintState || sculptState) {
+      setCameraControlsEnabled(false);
+    }
   };
 
   const selectNodesAlongRay = (bounds: DOMRect, clientX: number, clientY: number) => {
@@ -3198,7 +3253,16 @@ export function ViewportCanvas({
         ? new Vector2(event.clientX - bounds.left, event.clientY - bounds.top)
         : null;
 
-    if (extrudeState || arcState || bevelState || faceCutState || faceSubdivisionState || sculptState?.dragging || instanceBrushState?.dragging) {
+    if (
+      extrudeState ||
+      arcState ||
+      bevelState ||
+      faceCutState ||
+      faceSubdivisionState ||
+      materialPaintState?.dragging ||
+      sculptState?.dragging ||
+      instanceBrushState?.dragging
+    ) {
       return;
     }
 
@@ -3643,6 +3707,7 @@ export function ViewportCanvas({
     <div
       className="relative size-full overflow-hidden"
       ref={viewportRootRef}
+      onPointerDownCapture={handlePointerDownCapture}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -3701,6 +3766,7 @@ export function ViewportCanvas({
             !bevelState &&
             !extrudeState &&
             !instanceBrushState?.dragging &&
+            !materialPaintState?.dragging &&
             !sculptState?.dragging &&
             !faceCutState &&
             !faceSubdivisionState

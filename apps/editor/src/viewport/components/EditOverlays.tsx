@@ -121,7 +121,7 @@ export function MeshEditOverlay({
     () => computeMeshEditSelectionOrientation(handles, selectedHandleIds, meshEditMode),
     [handles, meshEditMode, selectedHandleIds]
   );
-  const selectionPivot = node.transform.pivot ?? selectionCenter;
+  const selectionPivot = selectionCenter;
 
   useEffect(() => {
     if (baselineMeshRef.current) {
@@ -420,7 +420,7 @@ export function BrushEditOverlay({
     () => computeBrushEditSelectionOrientation(handles, selectedHandleIds, meshEditMode),
     [handles, meshEditMode, selectedHandleIds]
   );
-  const selectionPivot = node.transform.pivot ?? selectionCenter;
+  const selectionPivot = selectionCenter;
   const editableMesh = useMemo(() => convertBrushToEditableMesh(node.data), [node.data]);
   const editableMeshHandles = useMemo(
     () => (editableMesh ? createMeshEditHandles(editableMesh, "edge") : []),

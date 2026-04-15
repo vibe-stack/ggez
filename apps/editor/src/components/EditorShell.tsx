@@ -1,29 +1,17 @@
-import type { EditorCore, SceneSpatialAnalysis, TransformAxis } from "@ggez/editor-core";
+import type { EditorCore, SceneSpatialAnalysis } from "@ggez/editor-core";
 import { gridSnapValues, type DerivedRenderScene, type ViewportState } from "@ggez/render-pipeline";
 import { isInstancingSourceNode } from "@ggez/shared";
 import type {
-  Brush,
-  EditableMesh,
-  EditableMeshMaterialLayer,
   Entity,
-  EntityType,
-  GeometryNode,
-  LightNodeData,
-  LightType,
-  ModelLodLevel,
-  Material,
-  ModelReference,
   SceneSettings,
   TextureRecord,
-  Transform,
-  Vec2
 } from "@ggez/shared";
-import type { PrimitiveNodeData, PrimitiveShape } from "@ggez/shared";
 import { defaultTools } from "@ggez/tool-system";
 import type { WorkerJob } from "@ggez/workers";
 import { useEffect, useMemo, type ReactNode } from "react";
 import { useSnapshot } from "valtio";
 import type { CopilotSession } from "@/lib/copilot/types";
+import { useEditorActionDomains } from "@/app/editor-action-domains";
 import { AiModelPromptBar } from "@/components/editor-shell/AiModelPromptBar";
 import { CopilotPanel } from "@/components/editor-shell/CopilotPanel";
 import { EditorMenuBar } from "@/components/editor-shell/EditorMenuBar";
@@ -39,7 +27,7 @@ import { sceneSessionStore } from "@/state/scene-session-store";
 import { toolSessionStore, stopPhysicsPlayback } from "@/state/tool-session-store";
 import { uiStore, type ViewportQuality } from "@/state/ui-store";
 import { clampSnapSize } from "@/viewport/utils/snap";
-import type { InstanceBrushSourceOption, MeshEditToolbarActionRequest } from "@/viewport/types";
+import type { InstanceBrushSourceOption } from "@/viewport/types";
 import {
   focusViewportOnPoint,
   getViewModePreset,
@@ -61,88 +49,11 @@ type EditorShellProps = {
   };
   gameConnectionControl?: ReactNode;
   analysis: SceneSpatialAnalysis;
-  canRedo: boolean;
-  canUndo: boolean;
   editor: EditorCore;
   effectiveHiddenSceneItemIds: string[];
   effectiveLockedSceneItemIds: string[];
   jobs: WorkerJob[];
   modelAssets: ModelAssetLibraryItem[];
-  onApplyMaterial: (materialId: string, scope: "faces" | "object", faceIds: string[]) => void;
-  onClipSelection: (axis: TransformAxis) => void;
-  onCommitMeshMaterialLayers: (nodeId: string, layers: EditableMeshMaterialLayer[] | undefined, beforeLayers?: EditableMeshMaterialLayer[] | undefined) => void;
-  onCommitMeshTopology: (nodeId: string, mesh: EditableMesh) => void;
-  onCreateBrush: () => void;
-  onDeleteAsset: (assetId: string) => void;
-  onClearAssetLod: (assetId: string, level: ModelLodLevel) => void;
-  onDeleteSelection: () => void;
-  onDuplicateSelection: () => void;
-  onGroupSelection: () => void;
-  onClearSelection: () => void;
-  onExportEngine: () => void;
-  onExportGltf: () => void;
-  onExportSceneDocument: () => void;
-  onExtrudeSelection: (axis: TransformAxis, direction: -1 | 1) => void;
-  onFocusAssetNodes: (assetId: string) => void;
-  onFocusNode: (nodeId: string) => void;
-  onDeleteMaterial: (materialId: string) => void;
-  onDeleteTexture: (textureId: string) => void;
-  onCancelAiModelPlacement: () => void;
-  onImportSceneDocument: () => void;
-  onLoadWhmap: () => void;
-  onNewFile: () => void;
-  onInvertSelectionNormals: () => void;
-  onPausePhysics: () => void;
-  onInsertAsset: (assetId: string) => void;
-  onMeshEditToolbarAction: (action: MeshEditToolbarActionRequest["kind"]) => void;
-  onPlaceEntity: (type: EntityType) => void;
-  onPlaceLight: (type: LightType) => void;
-  onPlaceBlockoutOpenRoom: () => void;
-  onPlaceBlockoutPlatform: () => void;
-  onPlaceBlockoutRoom: () => void;
-  onPlaceBlockoutStairs: () => void;
-  onMirrorSelection: (axis: TransformAxis) => void;
-  onGenerateAiModel: () => void;
-  onImportGlb: () => void;
-  onImportAsset: () => void;
-  onAssignAssetLod: (assetId: string, level: ModelLodLevel) => void;
-  onPlaceAsset: (position: { x: number; y: number; z: number }) => void;
-  onPlaceAiModelPlaceholder: (position: { x: number; y: number; z: number }) => void;
-  onPlaceBrush: (brush: Brush, transform: Transform) => void;
-  onPlaceInstancingNodes: (sourceNodeId: string, transforms: Transform[]) => void;
-  onPlaceMeshNode: (mesh: EditableMesh, transform: Transform, name: string) => void;
-  onPlacePrimitiveNode: (data: PrimitiveNodeData, transform: Transform, name: string) => void;
-  onPlaceProp: (shape: PrimitiveShape) => void;
-  onPlayPhysics: () => void;
-  onPreviewBrushData: (nodeId: string, brush: Brush) => void;
-  onPreviewEntityTransform: (entityId: string, transform: Transform) => void;
-  onPreviewMeshData: (nodeId: string, mesh: EditableMesh) => void;
-  onRedo: () => void;
-  onSaveWhmap: () => void;
-  onSelectAsset: (assetId: string) => void;
-  onSelectMaterial: (materialId: string) => void;
-  onStartAiModelPlacement: () => void;
-  onToggleSceneItemLock: (itemId: string) => void;
-  onToggleSceneItemVisibility: (itemId: string) => void;
-  onSetUvOffset: (scope: "faces" | "object", faceIds: string[], uvOffset: Vec2) => void;
-  onSetUvScale: (scope: "faces" | "object", faceIds: string[], uvScale: Vec2) => void;
-  onSelectNodes: (nodeIds: string[]) => void;
-  onSplitBrushAtCoordinate: (nodeId: string, axis: TransformAxis, coordinate: number) => void;
-  onPreviewNodeTransform: (nodeId: string, transform: Transform) => void;
-  onTranslateSelection: (axis: TransformAxis, direction: -1 | 1) => void;
-  onUndo: () => void;
-  onUpdateEntityProperties: (entityId: string, properties: Record<string, string | number | boolean>) => void;
-  onUpdateEntityHooks: (entityId: string, hooks: NonNullable<Entity["hooks"]>, beforeHooks?: NonNullable<Entity["hooks"]>) => void;
-  onUpdateEntityTransform: (entityId: string, transform: Transform, beforeTransform?: Transform) => void;
-  onUpdateMeshData: (nodeId: string, mesh: EditableMesh, beforeMesh?: EditableMesh) => void;
-  onUpdateNodeData: (nodeId: string, data: PrimitiveNodeData | LightNodeData | ModelReference) => void;
-  onUpdateNodeHooks: (nodeId: string, hooks: NonNullable<GeometryNode["hooks"]>, beforeHooks?: NonNullable<GeometryNode["hooks"]>) => void;
-  onUpdateAiModelPrompt: (prompt: string) => void;
-  onUpdateSceneSettings: (settings: SceneSettings, beforeSettings?: SceneSettings) => void;
-  onUpsertMaterial: (material: Material) => void;
-  onUpsertTexture: (texture: TextureRecord) => void;
-  onUpdateBrushData: (nodeId: string, brush: Brush, beforeBrush?: Brush) => void;
-  onUpdateNodeTransform: (nodeId: string, transform: Transform, beforeTransform?: Transform) => void;
   renderScene: DerivedRenderScene;
   sceneSettings: SceneSettings;
   textures: TextureRecord[];
@@ -158,94 +69,112 @@ export function EditorShell({
   copilot,
   gameConnectionControl,
   analysis,
-  canRedo,
-  canUndo,
   editor,
   effectiveHiddenSceneItemIds,
   effectiveLockedSceneItemIds,
   jobs,
   modelAssets,
-  onApplyMaterial,
-  onClipSelection,
-  onCommitMeshMaterialLayers,
-  onCommitMeshTopology,
-  onCreateBrush,
-  onAssignAssetLod,
-  onClearAssetLod,
-  onDeleteAsset,
-  onDeleteSelection,
-  onDuplicateSelection,
-  onGroupSelection,
-  onClearSelection,
-  onExportEngine,
-  onExportGltf,
-  onExportSceneDocument,
-  onExtrudeSelection,
-  onFocusAssetNodes,
-  onFocusNode,
-  onDeleteMaterial,
-  onDeleteTexture,
-  onCancelAiModelPlacement,
-  onImportSceneDocument,
-  onLoadWhmap,
-  onNewFile,
-  onInvertSelectionNormals,
-  onPausePhysics,
-  onInsertAsset,
-  onMeshEditToolbarAction,
-  onPlaceEntity,
-  onPlaceLight,
-  onPlaceBlockoutOpenRoom,
-  onPlaceBlockoutPlatform,
-  onPlaceBlockoutRoom,
-  onPlaceBlockoutStairs,
-  onMirrorSelection,
-  onGenerateAiModel,
-  onImportGlb,
-  onImportAsset,
-  onPlaceAsset,
-  onPlaceAiModelPlaceholder,
-  onPlaceBrush,
-  onPlaceInstancingNodes,
-  onPlaceMeshNode,
-  onPlacePrimitiveNode,
-  onPlaceProp,
-  onPlayPhysics,
-  onPreviewBrushData,
-  onPreviewEntityTransform,
-  onPreviewMeshData,
-  onRedo,
-  onSaveWhmap,
-  onSelectAsset,
-  onSelectMaterial,
-  onStartAiModelPlacement,
-  onToggleSceneItemLock,
-  onToggleSceneItemVisibility,
-  onSetUvOffset,
-  onSetUvScale,
-  onSelectNodes,
-  onSplitBrushAtCoordinate,
-  onPreviewNodeTransform,
-  onTranslateSelection,
-  onUndo,
-  onUpdateEntityProperties,
-  onUpdateEntityHooks,
-  onUpdateEntityTransform,
-  onUpdateNodeData,
-  onUpdateNodeHooks,
-  onUpdateAiModelPrompt,
-  onUpdateSceneSettings,
-  onUpsertMaterial,
-  onUpsertTexture,
-  onUpdateBrushData,
-  onUpdateMeshData,
-  onUpdateNodeTransform,
   renderScene,
   sceneSettings,
   textures,
   workingSet
 }: EditorShellProps) {
   void analysis;
+  const {
+    aiActions,
+    assetActions,
+    fileActions,
+    history,
+    physicsActions,
+    placementActions,
+    sceneActions,
+    selectionActions
+  } = useEditorActionDomains();
+  const { canRedo, canUndo, redo: onRedo, undo: onUndo } = history;
+  const {
+    cancelPlacement: onCancelAiModelPlacement,
+    generateModel: onGenerateAiModel,
+    startPlacement: onStartAiModelPlacement,
+    updatePrompt: onUpdateAiModelPrompt
+  } = aiActions;
+  const {
+    applyMaterial: onApplyMaterial,
+    assignAssetLod: onAssignAssetLod,
+    clearAssetLod: onClearAssetLod,
+    deleteAsset: onDeleteAsset,
+    deleteMaterial: onDeleteMaterial,
+    deleteTexture: onDeleteTexture,
+    focusAssetNodes: onFocusAssetNodes,
+    importAsset: onImportAsset,
+    insertAsset: onInsertAsset,
+    selectAsset: onSelectAsset,
+    selectMaterial: onSelectMaterial,
+    setUvOffset: onSetUvOffset,
+    setUvScale: onSetUvScale,
+    upsertMaterial: onUpsertMaterial,
+    upsertTexture: onUpsertTexture
+  } = assetActions;
+  const {
+    createBrush: onCreateBrush,
+    exportEngine: onExportEngine,
+    exportGltf: onExportGltf,
+    exportSceneDocument: onExportSceneDocument,
+    importGlb: onImportGlb,
+    importSceneDocument: onImportSceneDocument,
+    loadWhmap: onLoadWhmap,
+    newFile: onNewFile,
+    saveWhmap: onSaveWhmap
+  } = fileActions;
+  const { pause: onPausePhysics, play: onPlayPhysics } = physicsActions;
+  const {
+    placeAiModelPlaceholder: onPlaceAiModelPlaceholder,
+    placeAsset: onPlaceAsset,
+    placeBlockoutOpenRoom: onPlaceBlockoutOpenRoom,
+    placeBlockoutPlatform: onPlaceBlockoutPlatform,
+    placeBlockoutRoom: onPlaceBlockoutRoom,
+    placeBlockoutStairs: onPlaceBlockoutStairs,
+    placeBrush: onPlaceBrush,
+    placeEntity: onPlaceEntity,
+    placeInstancingNodes: onPlaceInstancingNodes,
+    placeLight: onPlaceLight,
+    placeMeshNode: onPlaceMeshNode,
+    placePrimitiveNode: onPlacePrimitiveNode,
+    placeProp: onPlaceProp
+  } = placementActions;
+  const {
+    commitMeshMaterialLayers: onCommitMeshMaterialLayers,
+    commitMeshTopology: onCommitMeshTopology,
+    meshEditToolbarAction: onMeshEditToolbarAction,
+    previewBrushData: onPreviewBrushData,
+    previewEntityTransform: onPreviewEntityTransform,
+    previewMeshData: onPreviewMeshData,
+    previewNodeTransform: onPreviewNodeTransform,
+    splitBrushAtCoordinate: onSplitBrushAtCoordinate,
+    updateBrushData: onUpdateBrushData,
+    updateEntityHooks: onUpdateEntityHooks,
+    updateEntityProperties: onUpdateEntityProperties,
+    updateEntityTransform: onUpdateEntityTransform,
+    updateMeshData: onUpdateMeshData,
+    updateNodeData: onUpdateNodeData,
+    updateNodeHooks: onUpdateNodeHooks,
+    updateNodeTransform: onUpdateNodeTransform,
+    updateSceneSettings: onUpdateSceneSettings
+  } = sceneActions;
+  const {
+    clearSelection: onClearSelection,
+    clipSelection: onClipSelection,
+    deleteSelection: onDeleteSelection,
+    duplicateSelection: onDuplicateSelection,
+    extrudeSelection: onExtrudeSelection,
+    focusNode: onFocusNode,
+    groupSelection: onGroupSelection,
+    invertSelectionNormals: onInvertSelectionNormals,
+    mirrorSelection: onMirrorSelection,
+    selectNodes: onSelectNodes,
+    toggleSceneItemLock: onToggleSceneItemLock,
+    toggleSceneItemVisibility: onToggleSceneItemVisibility,
+    translateSelection: onTranslateSelection
+  } = selectionActions;
   const ui = useSnapshot(uiStore);
   const toolSession = useSnapshot(toolSessionStore);
   const projectSession = useSnapshot(projectSessionStore);
@@ -421,6 +350,117 @@ export function EditorShell({
     uiStore.logicViewerOpen = !uiStore.logicViewerOpen;
   };
 
+  const editorMenuActions = {
+    onClearSelection,
+    onCreateBrush,
+    onDeleteSelection,
+    onDuplicateSelection,
+    onExportEngine,
+    onExportGltf,
+    onExportSceneDocument,
+    onGroupSelection,
+    onImportSceneDocument,
+    onLoadWhmap,
+    onNewFile,
+    onRedo,
+    onSaveWhmap,
+    onToggleCopilot: handleToggleCopilot,
+    onToggleLogicViewer: handleToggleLogicViewer,
+    onToggleViewportQuality: handleToggleViewportQuality,
+    onUndo
+  };
+  const viewportActions = {
+    onActivateViewport: handleActivateViewport,
+    onClearSelection,
+    onCommitMeshMaterialLayers,
+    onCommitMeshTopology,
+    onFocusNode,
+    onPlaceAsset,
+    onPlaceAiModelPlaceholder,
+    onPlaceBrush,
+    onPlaceInstancingNodes,
+    onPlaceMeshNode,
+    onPlacePrimitiveNode,
+    onPreviewBrushData,
+    onPreviewEntityTransform,
+    onPreviewMeshData,
+    onPreviewNodeTransform,
+    onSelectNodes,
+    onSplitBrushAtCoordinate,
+    onUpdateBrushData,
+    onUpdateEntityTransform,
+    onUpdateMeshData,
+    onUpdateNodeTransform,
+    onUpdateSceneSettings,
+    onViewportChange: handleUpdateViewport
+  };
+  const toolPaletteActions = {
+    onImportGlb,
+    onInvertSelectionNormals,
+    onLowerTop: () => onExtrudeSelection("y", -1),
+    onMeshEditToolbarAction,
+    onPausePhysics,
+    onPlaceBlockoutOpenRoom,
+    onPlaceBlockoutPlatform,
+    onPlaceBlockoutRoom,
+    onPlaceBlockoutStairs,
+    onPlaceEntity,
+    onPlaceLight,
+    onPlaceProp,
+    onPlayPhysics,
+    onRaiseTop: () => onExtrudeSelection("y", 1),
+    onSelectMaterial,
+    onSetRenderMode: handleSetRenderMode,
+    onSetSnapEnabled: handleSetSnapEnabled,
+    onSetSnapSize: handleSetSnapSize,
+    onSetViewMode: handleSetViewMode,
+    onStartAiModelPlacement,
+    onStopPhysics: stopPhysicsPlayback
+  };
+  const inspectorActions = {
+    onApplyMaterial,
+    onAssignAssetLod,
+    onChangeRightPanel: (panel: typeof activeRightPanel) => {
+      uiStore.rightPanel = panel;
+    },
+    onClearAssetLod,
+    onClipSelection,
+    onDeleteAsset,
+    onDeleteMaterial,
+    onDeleteTexture,
+    onExtrudeSelection,
+    onFocusAssetNodes,
+    onFocusNode,
+    onImportAsset,
+    onInsertAsset,
+    onMeshEditToolbarAction,
+    onMirrorSelection,
+    onPlaceAsset,
+    onSelectAsset,
+    onSelectMaterial,
+    onSelectNodes,
+    onSetUvOffset,
+    onSetUvScale,
+    onToggleSceneItemLock,
+    onToggleSceneItemVisibility,
+    onTranslateSelection,
+    onUpdateEntityHooks,
+    onUpdateEntityProperties,
+    onUpdateEntityTransform,
+    onUpdateMeshData,
+    onUpdateNodeData,
+    onUpdateNodeHooks,
+    onUpdateNodeTransform,
+    onUpdateSceneSettings,
+    onUpsertMaterial,
+    onUpsertTexture
+  };
+  const logicViewerActions = {
+    onClose: handleToggleLogicViewer,
+    onUpdateEntityHooks,
+    onUpdateNodeHooks
+  };
+
   const renderViewportPane = (viewportId: ViewportPaneId) => {
     const definition = viewportPaneDefinitions[viewportId];
 
@@ -430,6 +470,7 @@ export function EditorShell({
         label={definition.shortLabel}
       >
         <ViewportCanvas
+          {...viewportActions}
           activeBrushShape={activeBrushShape}
           brushToolMode={brushToolMode}
           aiModelPlacementArmed={aiModelPlacementArmed}
@@ -447,24 +488,9 @@ export function EditorShell({
           meshEditToolbarAction={meshEditToolbarAction}
           sculptBrushRadius={sculptBrushRadius}
           sculptBrushStrength={sculptBrushStrength}
-          onActivateViewport={handleActivateViewport}
-          onClearSelection={onClearSelection}
-          onCommitMeshMaterialLayers={onCommitMeshMaterialLayers}
-          onCommitMeshTopology={onCommitMeshTopology}
-          onFocusNode={onFocusNode}
           onMaterialPaintModeChange={activeViewportId === viewportId ? (mode) => {
             toolSessionStore.materialPaintMode = mode;
           } : () => {}}
-          onPlaceAsset={onPlaceAsset}
-          onPlaceAiModelPlaceholder={onPlaceAiModelPlaceholder}
-          onPlaceBrush={onPlaceBrush}
-          onPlaceInstancingNodes={onPlaceInstancingNodes}
-          onPlaceMeshNode={onPlaceMeshNode}
-          onPlacePrimitiveNode={onPlacePrimitiveNode}
-          onPreviewBrushData={onPreviewBrushData}
-          onPreviewEntityTransform={onPreviewEntityTransform}
-          onPreviewMeshData={onPreviewMeshData}
-          onPreviewNodeTransform={onPreviewNodeTransform}
           onSculptModeChange={activeViewportId === viewportId ? (mode) => {
             toolSessionStore.sculptMode = mode;
           } : () => {}}
@@ -474,17 +500,9 @@ export function EditorShell({
           onSelectScenePath={(pathId) => {
             sceneSessionStore.selectedScenePathId = pathId;
           }}
-          onSelectNodes={onSelectNodes}
           onSetToolId={(toolId) => {
             toolSessionStore.activeToolId = toolId;
           }}
-          onSplitBrushAtCoordinate={onSplitBrushAtCoordinate}
-          onUpdateBrushData={onUpdateBrushData}
-          onUpdateEntityTransform={onUpdateEntityTransform}
-          onUpdateMeshData={onUpdateMeshData}
-          onUpdateNodeTransform={onUpdateNodeTransform}
-          onUpdateSceneSettings={onUpdateSceneSettings}
-          onViewportChange={handleUpdateViewport}
           physicsPlayback={physicsPlayback}
           physicsRevision={physicsRevision}
           renderMode={renderMode}
@@ -509,33 +527,17 @@ export function EditorShell({
     <div className="flex h-screen flex-col bg-[radial-gradient(circle_at_top,rgba(16,185,129,0.08),transparent_24%),linear-gradient(180deg,#08100d_0%,#050807_100%)] text-foreground">
       <header className="shrink-0 bg-black/18 backdrop-blur-xl">
         <EditorMenuBar
+          {...editorMenuActions}
           canRedo={canRedo}
           canUndo={canUndo}
           copilotOpen={ui.copilotPanelOpen}
           gameConnectionControl={gameConnectionControl}
           logicViewerOpen={ui.logicViewerOpen}
-          onClearSelection={onClearSelection}
-          onCreateBrush={onCreateBrush}
-          onDeleteSelection={onDeleteSelection}
-          onDuplicateSelection={onDuplicateSelection}
-          onGroupSelection={onGroupSelection}
-          onExportEngine={onExportEngine}
-          onExportGltf={onExportGltf}
-          onExportSceneDocument={onExportSceneDocument}
           onFocusSelection={() => {
             if (selectedObjectId) {
               onFocusNode(selectedObjectId);
             }
           }}
-          onImportSceneDocument={onImportSceneDocument}
-          onLoadWhmap={onLoadWhmap}
-          onNewFile={onNewFile}
-          onRedo={onRedo}
-          onSaveWhmap={onSaveWhmap}
-          onToggleCopilot={handleToggleCopilot}
-          onToggleLogicViewer={handleToggleLogicViewer}
-          onToggleViewportQuality={handleToggleViewportQuality}
-          onUndo={onUndo}
           viewportQuality={viewportQuality}
         />
       </header>
@@ -547,6 +549,7 @@ export function EditorShell({
           </div>
 
         <ToolPalette
+          {...toolPaletteActions}
           activeBrushShape={activeBrushShape}
           brushToolMode={brushToolMode}
           aiModelPlacementActive={aiModelPlacementActive || aiModelPlacementArmed}
@@ -562,21 +565,6 @@ export function EditorShell({
           materialPaintMode={materialPaintMode}
           materials={materials}
           meshEditMode={meshEditMode}
-          onInvertSelectionNormals={onInvertSelectionNormals}
-          onLowerTop={() => onExtrudeSelection("y", -1)}
-          onPausePhysics={onPausePhysics}
-          onMeshEditToolbarAction={onMeshEditToolbarAction}
-          onImportGlb={onImportGlb}
-          onPlaceEntity={onPlaceEntity}
-          onPlaceLight={onPlaceLight}
-          onPlaceBlockoutOpenRoom={onPlaceBlockoutOpenRoom}
-          onPlaceBlockoutPlatform={onPlaceBlockoutPlatform}
-          onPlaceBlockoutRoom={onPlaceBlockoutRoom}
-          onPlaceBlockoutStairs={onPlaceBlockoutStairs}
-          onPlaceProp={onPlaceProp}
-          onPlayPhysics={onPlayPhysics}
-          onRaiseTop={() => onExtrudeSelection("y", 1)}
-          onSelectMaterial={onSelectMaterial}
           onSelectInstanceBrush={() => {
             toolSessionStore.brushToolMode = "instance";
             toolSessionStore.activeToolId = "brush";
@@ -611,17 +599,12 @@ export function EditorShell({
           onSetMeshEditMode={(mode) => {
             toolSessionStore.meshEditMode = mode;
           }}
-          onSetSnapEnabled={handleSetSnapEnabled}
-          onSetSnapSize={handleSetSnapSize}
-          onStopPhysics={stopPhysicsPlayback}
           onSetTransformMode={(mode) => {
             toolSessionStore.transformMode = mode;
           }}
           onSetToolId={(toolId) => {
             toolSessionStore.activeToolId = toolId;
           }}
-          onSetRenderMode={handleSetRenderMode}
-          onSetViewMode={handleSetViewMode}
           physicsPlayback={physicsPlayback}
           renderMode={renderMode}
           selectedMaterialId={selectedMaterialId}
@@ -649,6 +632,7 @@ export function EditorShell({
 
         {/* <SpatialAnalysisPanel analysis={analysis} /> */}
         <InspectorSidebar
+          {...inspectorActions}
           activeRightPanel={activeRightPanel}
           activeToolId={activeToolId}
           effectiveHiddenSceneItemIds={effectiveHiddenSceneItemIds}
@@ -660,48 +644,12 @@ export function EditorShell({
           meshEditMode={meshEditMode}
           modelAssets={modelAssets}
           nodes={nodes}
-          onApplyMaterial={onApplyMaterial}
-          onChangeRightPanel={(panel) => {
-            uiStore.rightPanel = panel;
-          }}
-          onClipSelection={onClipSelection}
-          onAssignAssetLod={onAssignAssetLod}
-          onClearAssetLod={onClearAssetLod}
-          onDeleteAsset={onDeleteAsset}
-          onDeleteMaterial={onDeleteMaterial}
-          onDeleteTexture={onDeleteTexture}
-          onExtrudeSelection={onExtrudeSelection}
-          onFocusAssetNodes={onFocusAssetNodes}
-          onFocusNode={onFocusNode}
-          onImportAsset={onImportAsset}
-          onInsertAsset={onInsertAsset}
-          onMeshEditToolbarAction={onMeshEditToolbarAction}
-          onMirrorSelection={onMirrorSelection}
-          onPlaceAsset={onPlaceAsset}
-          onSelectAsset={onSelectAsset}
-          onSelectMaterial={onSelectMaterial}
           onSelectScenePath={(pathId) => {
             sceneSessionStore.selectedScenePathId = pathId;
           }}
-          onSelectNodes={onSelectNodes}
           onSetToolId={(toolId) => {
             toolSessionStore.activeToolId = toolId;
           }}
-          onToggleSceneItemLock={onToggleSceneItemLock}
-          onToggleSceneItemVisibility={onToggleSceneItemVisibility}
-          onSetUvOffset={onSetUvOffset}
-          onSetUvScale={onSetUvScale}
-          onUpdateMeshData={onUpdateMeshData}
-          onTranslateSelection={onTranslateSelection}
-          onUpsertMaterial={onUpsertMaterial}
-          onUpsertTexture={onUpsertTexture}
-          onUpdateEntityProperties={onUpdateEntityProperties}
-          onUpdateEntityHooks={onUpdateEntityHooks}
-          onUpdateEntityTransform={onUpdateEntityTransform}
-          onUpdateNodeData={onUpdateNodeData}
-          onUpdateNodeHooks={onUpdateNodeHooks}
-          onUpdateSceneSettings={onUpdateSceneSettings}
-          onUpdateNodeTransform={onUpdateNodeTransform}
           sceneSettings={sceneSettings}
           selectedScenePathId={selectedScenePathId}
           selectionEnabled={selectionEnabled}
@@ -730,17 +678,15 @@ export function EditorShell({
 
         {ui.logicViewerOpen && (
           <LogicViewerSheet
+            {...logicViewerActions}
             entities={entities}
             nodes={nodes}
-            onClose={handleToggleLogicViewer}
             onNodeClick={(objectId) => {
               onSelectNodes([objectId]);
               if (editor.scene.getNode(objectId)) {
                 onFocusNode(objectId);
               }
             }}
-            onUpdateEntityHooks={onUpdateEntityHooks}
-            onUpdateNodeHooks={onUpdateNodeHooks}
           />
         )}
         </div>

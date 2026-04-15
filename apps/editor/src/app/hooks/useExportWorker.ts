@@ -10,6 +10,14 @@ export type ExportWorkerRequest = WorkerRequest extends infer Request
     : never
   : never;
 
+export type ExportWorkerResponse =
+  | string
+  | SceneDocumentSnapshot
+  | WorldPersistenceBundle
+  | WebHammerEngineBundle
+  | RuntimeWorldBundle
+  | WorkerArchivePayload;
+
 export function useExportWorker() {
   const [exportJobs, setExportJobs] = useState<WorkerJob[]>([]);
   const requestCounterRef = useRef(0);
@@ -19,9 +27,7 @@ export function useExportWorker() {
       string,
       {
         reject: (reason?: unknown) => void;
-        resolve: (
-          payload: string | SceneDocumentSnapshot | WorldPersistenceBundle | WebHammerEngineBundle | RuntimeWorldBundle | WorkerArchivePayload
-        ) => void;
+        resolve: (payload: ExportWorkerResponse) => void;
       }
     >()
   );
@@ -63,7 +69,7 @@ export function useExportWorker() {
   const runWorkerRequest = (
     request: ExportWorkerRequest,
     label: string
-  ): Promise<string | SceneDocumentSnapshot | WorldPersistenceBundle | WebHammerEngineBundle | RuntimeWorldBundle | WorkerArchivePayload> => {
+  ): Promise<ExportWorkerResponse> => {
     const id = `export:${requestCounterRef.current++}`;
     const workerTask =
       request.kind === "whmap-save"

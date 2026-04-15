@@ -9,52 +9,42 @@ import { cn } from "@/lib/utils";
 type SceneEditorProps = ComponentProps<typeof SceneEditor>;
 
 type WorldEditorShellProps = SceneEditorProps & {
-  onCreateDocument: () => void;
-  onLoadDocument: (documentId: string) => void;
-  onPinDocument: (documentId: string) => void;
-  onSetActiveDocument: (documentId: string) => void;
-  onSetDocumentPosition: (documentId: string, position: { x: number; y: number; z: number }) => void;
-  onSetWorldMode: (mode: "scene" | "world") => void;
-  onUnloadDocument: (documentId: string) => void;
-  onUnpinDocument: (documentId: string) => void;
-  workingSet: {
-    activeDocumentId?: string;
-    loadedDocumentIds: string[];
-    mode: "scene" | "world";
-    pinnedDocumentIds: string[];
-  };
-  worldDocuments: Array<{
-    id: string;
-    loaded: boolean;
-    name: string;
-    pinned: boolean;
-    position: {
-      x: number;
-      y: number;
-      z: number;
+  world: {
+    actions: {
+      createDocument: () => void;
+      loadDocument: (documentId: string) => void;
+      pinDocument: (documentId: string) => void;
+      setActiveDocument: (documentId: string) => void;
+      setDocumentPosition: (documentId: string, position: { x: number; y: number; z: number }) => void;
+      setWorldMode: (mode: "scene" | "world") => void;
+      unloadDocument: (documentId: string) => void;
+      unpinDocument: (documentId: string) => void;
     };
-  }>;
-  worldValidationIssues: Array<{
-    code: string;
-    message: string;
-    severity: "error" | "warning";
-  }>;
+    documents: Array<{
+      id: string;
+      loaded: boolean;
+      name: string;
+      pinned: boolean;
+      position: {
+        x: number;
+        y: number;
+        z: number;
+      };
+    }>;
+    validationIssues: Array<{
+      code: string;
+      message: string;
+      severity: "error" | "warning";
+    }>;
+  };
 };
 
 export function WorldEditorShell({
-  onCreateDocument,
-  onLoadDocument,
-  onPinDocument,
-  onSetActiveDocument,
-  onSetDocumentPosition,
-  onSetWorldMode,
-  onUnloadDocument,
-  onUnpinDocument,
-  workingSet,
-  worldDocuments,
-  worldValidationIssues,
+  world,
   ...sceneProps
 }: WorldEditorShellProps) {
+  const { workingSet } = sceneProps;
+
   return (
     <div className="relative h-full w-full">
       <SceneEditor {...sceneProps} workingSet={workingSet} />
@@ -76,7 +66,7 @@ export function WorldEditorShell({
                       ? "bg-emerald-500/14 text-emerald-300"
                       : "text-foreground/38 hover:text-foreground/60"
                   )}
-                  onClick={() => onSetWorldMode("world")}
+                  onClick={() => world.actions.setWorldMode("world")}
                   title="World mode"
                   type="button"
                 >
@@ -89,7 +79,7 @@ export function WorldEditorShell({
                       ? "bg-emerald-500/14 text-emerald-300"
                       : "text-foreground/38 hover:text-foreground/60"
                   )}
-                  onClick={() => onSetWorldMode("scene")}
+                  onClick={() => world.actions.setWorldMode("scene")}
                   title="Scene mode"
                   type="button"
                 >
@@ -99,7 +89,7 @@ export function WorldEditorShell({
 
               <button
                 className="pointer-events-auto rounded-lg p-1.5 text-foreground/38 transition-colors hover:bg-white/6 hover:text-foreground/70"
-                onClick={onCreateDocument}
+                onClick={world.actions.createDocument}
                 title="New document"
                 type="button"
               >
@@ -111,22 +101,22 @@ export function WorldEditorShell({
           {/* Document list */}
           <ScrollArea className="max-h-[clamp(12rem,40vh,28rem)]">
             <div className="space-y-0.5 px-2 pb-2">
-              {worldDocuments.length === 0 ? (
+              {world.documents.length === 0 ? (
                 <div className="px-1.5 py-4 text-center text-[11px] text-foreground/30">
                   No documents yet
                 </div>
               ) : (
-                worldDocuments.map((document) => (
+                world.documents.map((document) => (
                   <WorldDocumentCard
                     document={document}
                     isActive={document.id === workingSet.activeDocumentId}
                     key={document.id}
-                    onLoadDocument={onLoadDocument}
-                    onPinDocument={onPinDocument}
-                    onSetActiveDocument={onSetActiveDocument}
-                    onSetDocumentPosition={onSetDocumentPosition}
-                    onUnloadDocument={onUnloadDocument}
-                    onUnpinDocument={onUnpinDocument}
+                    onLoadDocument={world.actions.loadDocument}
+                    onPinDocument={world.actions.pinDocument}
+                    onSetActiveDocument={world.actions.setActiveDocument}
+                    onSetDocumentPosition={world.actions.setDocumentPosition}
+                    onUnloadDocument={world.actions.unloadDocument}
+                    onUnpinDocument={world.actions.unpinDocument}
                   />
                 ))
               )}
@@ -134,10 +124,10 @@ export function WorldEditorShell({
           </ScrollArea>
 
           {/* Validation issues */}
-          {worldValidationIssues.length > 0 && (
+          {world.validationIssues.length > 0 && (
             <div className="border-t border-white/5 px-3.5 py-2.5">
               <div className="space-y-1.5">
-                {worldValidationIssues.map((issue, index) => (
+                {world.validationIssues.map((issue, index) => (
                   <div className="flex items-start gap-2 text-[11px]" key={`${issue.code}:${index}`}>
                     {issue.severity === "error" ? (
                       <CircleAlert className="mt-0.5 size-3 shrink-0 text-red-400" />
