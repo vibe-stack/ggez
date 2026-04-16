@@ -67,6 +67,10 @@ export function useTransformControlsCameraLock({
     }
 
     const cleanups = controlsInstances.map((controls) => {
+      if (!controls) {
+        return () => {};
+      }
+
       const handleDraggingChanged = (event: { value?: boolean }) => {
         if (event.value) {
           beginDrag();

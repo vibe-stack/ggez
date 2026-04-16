@@ -46,13 +46,25 @@ export type InstanceBrushSourceOption = {
   label: string;
 };
 
-export type ViewportCanvasProps = {
+export type ViewportCanvasExternalProps = {
+  hiddenSceneItemIds?: string[];
+  instanceBrushSourceTransform?: Transform;
+  renderScene: DerivedRenderScene;
+  sceneSettings: SceneSettings;
+  selectedEntity?: Entity;
+  selectedNode?: GeometryNode;
+  selectedNodeIds: string[];
+  selectedNodes: GeometryNode[];
+  viewportId: ViewportPaneId;
+  viewportPlane: ConstructionPlane;
+};
+
+export type ViewportCanvasBindings = {
   activeBrushShape: BrushShape;
   brushToolMode: BrushToolMode;
   aiModelPlacementArmed: boolean;
   activeToolId: ToolId;
   dprScale: number;
-  hiddenSceneItemIds?: string[];
   instanceBrushAlignToNormal: boolean;
   instanceBrushAverageNormal: boolean;
   instanceBrushDensity: number;
@@ -60,7 +72,6 @@ export type ViewportCanvasProps = {
   instanceBrushSize: number;
   instanceBrushSourceNodeId?: string;
   instanceBrushSourceNodeIds: string[];
-  instanceBrushSourceTransform?: Transform;
   instanceBrushYOffsetMin: number;
   instanceBrushYOffsetMax: number;
   instanceBrushScaleMin: number;
@@ -102,20 +113,16 @@ export type ViewportCanvasProps = {
   onViewportChange: (viewportId: ViewportPaneId, viewport: ViewportState) => void;
   physicsPlayback: "paused" | "running" | "stopped";
   physicsRevision: number;
-  renderScene: DerivedRenderScene;
   renderMode: ViewportRenderMode;
-  sceneSettings: SceneSettings;
   selectedMaterialId: string;
   selectedScenePathId?: string;
-  selectedEntity?: Entity;
-  selectedNode?: GeometryNode;
-  selectedNodeIds: string[];
-  selectedNodes: GeometryNode[];
   transformMode: "rotate" | "scale" | "translate";
-  viewportId: ViewportPaneId;
-  viewportPlane: ConstructionPlane;
   viewport: ViewportState;
 };
+
+export type ViewportCanvasProps = ViewportCanvasBindings & ViewportCanvasExternalProps;
+
+export type ConnectedViewportCanvasProps = ViewportCanvasExternalProps;
 
 export type MarqueeState = {
   active: boolean;

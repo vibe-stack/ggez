@@ -1,10 +1,9 @@
 import type { EditorCore, SceneSpatialAnalysis } from "@ggez/editor-core";
-import { gridSnapValues, type DerivedRenderScene, type ViewportState } from "@ggez/render-pipeline";
+import { gridSnapValues, type DerivedRenderScene } from "@ggez/render-pipeline";
 import { isInstancingSourceNode } from "@ggez/shared";
 import type {
   SceneSettings,
   TextureRecord,
-  Transform,
 } from "@ggez/shared";
 import { defaultTools } from "@ggez/tool-system";
 import type { WorkerJob } from "@ggez/workers";
@@ -21,7 +20,7 @@ import { ToolPaletteContainer } from "@/components/editor-shell/ToolPaletteConta
 import { LogicViewerSheet } from "@/components/editor-shell/logic-viewer/LogicViewerSheet";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import type { ModelAssetLibraryItem } from "@/lib/model-assets";
-import { ViewportCanvas } from "@/viewport/ViewportCanvas";
+import { ConnectedViewportCanvas } from "@/viewport/ConnectedViewportCanvas";
 import { projectSessionStore } from "@/state/project-session-store";
 import { sceneSessionStore } from "@/state/scene-session-store";
 import { toolSessionStore } from "@/state/tool-session-store";
@@ -119,23 +118,10 @@ export function EditorShell({
     saveWhmap: onSaveWhmap
   } = fileActions;
   const {
-    placeAiModelPlaceholder: onPlaceAiModelPlaceholder,
     placeAsset: onPlaceAsset,
-    placeBrush: onPlaceBrush,
-    placeInstancingNodes: onPlaceInstancingNodes,
-    placeMeshNode: onPlaceMeshNode,
-    placePrimitiveNode: onPlacePrimitiveNode,
   } = placementActions;
   const {
-    commitMeshMaterialLayers: onCommitMeshMaterialLayers,
-    commitMeshTopology: onCommitMeshTopology,
     meshEditToolbarAction: onMeshEditToolbarAction,
-    previewBrushData: onPreviewBrushData,
-    previewEntityTransform: onPreviewEntityTransform,
-    previewMeshData: onPreviewMeshData,
-    previewNodeTransform: onPreviewNodeTransform,
-    splitBrushAtCoordinate: onSplitBrushAtCoordinate,
-    updateBrushData: onUpdateBrushData,
     updateEntityHooks: onUpdateEntityHooks,
     updateEntityProperties: onUpdateEntityProperties,
     updateEntityTransform: onUpdateEntityTransform,
@@ -237,14 +223,6 @@ export function EditorShell({
       instanceBrushSourceNode.transform
     );
   }, [instanceBrushSourceNode, renderScene.nodeTransforms, workingSet.activeDocumentId, workingSet.mode]);
-  const handleActivateViewport = (viewportId: ViewportPaneId) => {
-    uiStore.activeViewportId = viewportId;
-  };
-
-  const handleUpdateViewport = (viewportId: ViewportPaneId, viewport: ViewportState) => {
-    uiStore.viewports[viewportId].projection = viewport.projection;
-    uiStore.viewports[viewportId].camera = viewport.camera;
-  };
 
   const handleToggleViewportQuality = () => {
     uiStore.viewportQuality =
@@ -283,44 +261,6 @@ export function EditorShell({
     onToggleLogicViewer: handleToggleLogicViewer,
     onToggleViewportQuality: handleToggleViewportQuality,
     onUndo
-  };
-  const viewportActions = {
-    onActivateViewport: handleActivateViewport,
-    onClearSelection,
-    onCommitMeshMaterialLayers,
-    onCommitMeshTopology,
-    onFocusNode,
-    onPlaceAsset,
-    onPlaceAiModelPlaceholder,
-    onPlaceBrush,
-    onPlaceInstancingNodes,
-    onPlaceInstanceBrushNodes: (placements: Array<{ sourceNodeId: string; transform: Transform }>) => {
-      if (placements.length === 0) return;
-      // Group by sourceNodeId and make one call per unique source.
-      const grouped = new Map<string, Transform[]>();
-      for (const { sourceNodeId, transform } of placements) {
-        const existing = grouped.get(sourceNodeId);
-        if (existing) existing.push(transform);
-        else grouped.set(sourceNodeId, [transform]);
-      }
-      grouped.forEach((transforms, sourceNodeId) => {
-        onPlaceInstancingNodes(sourceNodeId, transforms);
-      });
-    },
-    onPlaceMeshNode,
-    onPlacePrimitiveNode,
-    onPreviewBrushData,
-    onPreviewEntityTransform,
-    onPreviewMeshData,
-    onPreviewNodeTransform,
-    onSelectNodes,
-    onSplitBrushAtCoordinate,
-    onUpdateBrushData,
-    onUpdateEntityTransform,
-    onUpdateMeshData,
-    onUpdateNodeTransform,
-    onUpdateSceneSettings,
-    onViewportChange: handleUpdateViewport
   };
   const inspectorActions = {
     onApplyMaterial,
@@ -374,60 +314,15 @@ export function EditorShell({
         key={viewportId}
         label={definition.shortLabel}
       >
-        <ViewportCanvas
-          {...viewportActions}
-          activeBrushShape={activeBrushShape}
-          brushToolMode={brushToolMode}
-          aiModelPlacementArmed={aiModelPlacementArmed}
-          activeToolId={activeToolId}
-          dprScale={resolveViewportDprScale(viewportQuality)}
+        <ConnectedViewportCanvas
           hiddenSceneItemIds={effectiveHiddenSceneItemIds}
-          instanceBrushAlignToNormal={instanceBrushAlignToNormal}
-          instanceBrushAverageNormal={instanceBrushAverageNormal}
-          instanceBrushDensity={instanceBrushDensity}
-          instanceBrushRandomness={instanceBrushRandomness}
-          instanceBrushSize={instanceBrushSize}
-          instanceBrushSourceNodeId={instanceBrushSourceNodeId}
-          instanceBrushSourceNodeIds={[...instanceBrushSourceNodeIds]}
           instanceBrushSourceTransform={instanceBrushSourceTransform}
-          instanceBrushYOffsetMin={instanceBrushYOffsetMin}
-          instanceBrushYOffsetMax={instanceBrushYOffsetMax}
-          instanceBrushScaleMin={instanceBrushScaleMin}
-          instanceBrushScaleMax={instanceBrushScaleMax}
-          isActiveViewport={activeViewportId === viewportId}
-          materialPaintBrushOpacity={materialPaintBrushOpacity}
-          meshEditMode={meshEditMode}
-          meshEditToolbarAction={meshEditToolbarAction}
-          sculptBrushRadius={sculptBrushRadius}
-          sculptBrushStrength={sculptBrushStrength}
-          onMaterialPaintModeChange={activeViewportId === viewportId ? (mode) => {
-            toolSessionStore.materialPaintMode = mode;
-          } : () => {}}
-          onSculptModeChange={activeViewportId === viewportId ? (mode) => {
-            toolSessionStore.sculptMode = mode;
-          } : () => {}}
-          onSelectMaterialFaces={(faceIds) => {
-            sceneSessionStore.selectedMaterialFaceIds = faceIds;
-          }}
-          onSelectScenePath={(pathId) => {
-            sceneSessionStore.selectedScenePathId = pathId;
-          }}
-          onSetToolId={(toolId) => {
-            toolSessionStore.activeToolId = toolId;
-          }}
-          physicsPlayback={physicsPlayback}
-          physicsRevision={physicsRevision}
-          renderMode={renderMode}
           renderScene={renderScene}
           sceneSettings={sceneSettings}
-          selectedMaterialId={selectedMaterialId}
-          selectedScenePathId={selectedScenePathId}
           selectedEntity={selectedEntity}
           selectedNode={selectedNode}
           selectedNodeIds={selectedNodeIds}
           selectedNodes={selectedNodes}
-          transformMode={transformMode}
-          viewport={viewports[viewportId]}
           viewportId={viewportId}
           viewportPlane={definition.plane}
         />
@@ -550,10 +445,6 @@ export function EditorShell({
       </main>
     </div>
   );
-}
-
-function resolveViewportDprScale(quality: ViewportQuality) {
-  return quality;
 }
 
 function ViewportLayout({

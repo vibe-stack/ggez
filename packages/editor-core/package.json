@@ -36,6 +36,6 @@
   "dependencies": {
     "@ggez/geometry-kernel": "workspace:*",
     "@ggez/shared": "workspace:*",
-    "three": "^0.183.2"
+    "three": "^0.184.0"
   }
 }

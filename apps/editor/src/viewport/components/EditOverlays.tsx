@@ -582,7 +582,9 @@ export const BrushEditOverlay = memo(function BrushEditOverlay({
           </group>
         ) : null}
       </NodeTransformGroup>
-      {previewBrush ? <EditableMeshPreviewOverlay mesh={convertBrushToEditableMesh(previewBrush)} node={node} showWireframe={false} /> : null}
+      {previewBrush && convertBrushToEditableMesh(previewBrush) ? (
+        <EditableMeshPreviewOverlay mesh={convertBrushToEditableMesh(previewBrush)!} node={node} showWireframe={false} />
+      ) : null}
 
       <BatchedHandleMarkers
         handles={handles}

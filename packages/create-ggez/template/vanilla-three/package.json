@@ -26,7 +26,7 @@
     "@ggez/vfx-exporter": "^0.1.8",
     "@ggez/vfx-schema": "^0.1.8",
     "@ggez/vfx-three": "^0.1.8",
-    "three": "^0.183.2"
+    "three": "^0.184.0"
   },
   "devDependencies": {
     "@types/three": "^0.181.0",

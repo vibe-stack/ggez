@@ -18,7 +18,7 @@
     "@ggez/runtime-physics-rapier": "workspace:*",
     "@ggez/shared": "workspace:*",
     "@ggez/three-runtime": "workspace:*",
-    "three": "^0.183.2"
+    "three": "^0.184.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.1",

@@ -1,4 +1,4 @@
-import { Canvas, useThree, type RootState } from "@react-three/fiber";
+import { Canvas, type RootState } from "@react-three/fiber";
 import {
   arcEditableMeshEdges,
   bevelEditableMeshEdges,
@@ -11,7 +11,6 @@ import {
   extrudeEditableMeshFaces,
   fillEditableMeshFaceFromEdges,
   fillEditableMeshFaceFromVertices,
-  getFaceVertexIds,
   invertEditableMeshNormals,
   mergeEditableMeshEdges,
   mergeEditableMeshFaces,
@@ -19,13 +18,8 @@ import {
   paintEditableMeshMaterialLayers,
   sculptEditableMeshSamples,
   smoothEditableMeshSamples,
-  subdivideEditableMeshFace,
-  triangulateMeshFace
+  subdivideEditableMeshFace
 } from "@ggez/geometry-kernel";
-import {
-  applyWebHammerWorldSettings,
-  clearWebHammerWorldSettings
-} from "@ggez/three-runtime";
 import {
   addVec3,
   averageVec3,
@@ -37,7 +31,6 @@ import {
   lengthVec3,
   normalizeVec3,
   scaleVec3,
-  snapValue,
   toTuple,
   subVec3,
   vec3,
@@ -64,6 +57,7 @@ import { BrushCreatePreview } from "@/viewport/components/BrushCreatePreview";
 import { ConstructionGrid } from "@/viewport/components/ConstructionGrid";
 import { EditableMeshPreviewOverlay } from "@/viewport/components/EditableMeshPreviewOverlay";
 import { MaterialPaintWeightOverlay } from "@/viewport/components/MaterialPaintWeightOverlay";
+import { InstanceBrushPreview, SculptBrushOverlay } from "@/viewport/components/ViewportBrushOverlays";
 import { BrushEditOverlay, MeshEditOverlay } from "@/viewport/components/EditOverlays";
 import { EditorCameraRig } from "@/viewport/components/EditorCameraRig";
 import { BrushExtrudeOverlay, ExtrudeAxisGuide, MeshExtrudeOverlay } from "@/viewport/components/ExtrudeOverlays";
@@ -72,6 +66,12 @@ import { MeshSubdivideOverlay } from "@/viewport/components/MeshSubdivideOverlay
 import { NodeTransformGroup } from "@/viewport/components/NodeTransformGroup";
 import { ObjectTransformGizmo } from "@/viewport/components/ObjectTransformGizmo";
 import { ScenePreview } from "@/viewport/components/ScenePreview";
+import { DefaultViewportSun, ViewportWorldSettings } from "@/viewport/components/ViewportEnvironment";
+import { useEventCallback } from "@/viewport/hooks/useEventCallback";
+import { useViewportBrushInteractions } from "@/viewport/hooks/useViewportBrushInteractions";
+import { useViewportMeshEditOperations } from "@/viewport/hooks/useViewportMeshEditOperations";
+import { useViewportPointerRouter } from "@/viewport/hooks/useViewportPointerRouter";
+import { useStableOverlayHandles } from "@/viewport/hooks/useStableOverlayHandles";
 import {
   createBrushCreateBasis,
   createBrushCreateDragPlane,
@@ -94,6 +94,30 @@ import {
   vec3LengthSquared
 } from "@/viewport/utils/interaction";
 import {
+  appendScenePathPoint,
+  buildInstanceBrushSampleOffsets,
+  buildSculptVertexRenderMap,
+  composeInstanceBrushRotation,
+  createInstanceBrushTransformKey,
+  createNextScenePathDefinition,
+  findEditableEdgeHandleHit,
+  findPathPointHit,
+  findPathSegmentHit,
+  insertScenePathPoint,
+  patchSculptScenePositions,
+  projectWorldPointToClient,
+  resolveExtrudeAmountSign,
+  resolveExtrudeAnchor,
+  resolveExtrudeInteractionNormal,
+  resolveNodeIdFromIntersection,
+  resolvePaintMaterialColor,
+  resolveViewportConstructionPlane,
+  snapPathEditorPoint,
+  snapPointToViewportPlane,
+  updateScenePathPoint,
+  vec3ApproximatelyEqual,
+} from "@/viewport/utils/viewport-canvas-helpers";
+import {
   createScreenRect,
   intersectsSelectionRect,
   projectLocalPointToScreen,
@@ -103,97 +127,18 @@ import { composeTransformRotation, rebaseTransformPivot } from "@/viewport/utils
 import { resolveViewportSnapSize } from "@/viewport/utils/snap";
 import {
   renderModeUsesEditorLighting,
-  renderModeUsesFullLighting,
   renderModeUsesShadows
 } from "@/viewport/viewports";
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEventHandler } from "react";
-import { BufferGeometry, Camera, Color, Euler, Float32BufferAttribute, Matrix4, Mesh, Object3D, Plane, Quaternion, Raycaster, Vector2, Vector3 } from "three";
+import { Camera, Matrix4, Object3D, Plane, Raycaster, Vector2, Vector3 } from "three";
 import type {
-  ArcState,
-  BevelState,
   BrushCreateState,
-  ExtrudeGestureState,
-  FaceSubdivisionState,
-  LastMeshEditAction,
   MarqueeState,
-  MeshEditToolbarAction,
   ViewportCanvasProps
 } from "@/viewport/types";
 
-type SculptBrushMode = "deflate" | "inflate" | "smooth";
-type MaterialPaintBrushMode = "erase" | "paint";
-
-type SculptBrushHit = {
-  normal: Vec3;
-  point: Vec3;
-};
-
-type SculptBrushState = {
-  beforeMesh?: EditableMesh;
-  dragging: boolean;
-  hovered?: SculptBrushHit;
-  lastPoint?: Vec3;
-  mode: SculptBrushMode;
-  modified: boolean;
-  nodeId: string;
-  previewMesh?: EditableMesh;
-  radius: number;
-  strokeVertexNormals?: ReadonlyMap<string, Vec3>;
-  strength: number;
-};
-
-type MaterialPaintState = {
-  beforeMesh?: EditableMesh;
-  dragging: boolean;
-  hovered?: SculptBrushHit;
-  lastPoint?: Vec3;
-  materialId: string;
-  mode: MaterialPaintBrushMode;
-  modified: boolean;
-  nodeId: string;
-  opacity: number;
-  /** Resolved color of the paint material, used to tint the live weight overlay. */
-  paintColor: string;
-  previewMesh?: EditableMesh;
-  radius: number;
-  strength: number;
-};
-
-type InstanceBrushState = {
-  dragging: boolean;
-  hovered?: SculptBrushHit;
-  lastStampedHit?: SculptBrushHit;
-  /** Each pending placement carries the resolved sourceNodeId alongside the transform. */
-  pendingPlacements: Array<{ sourceNodeId: string; transform: Transform }>;
-};
-
 const CLICK_SELECTION_THRESHOLD_PX = 4;
 const VERTEX_HANDLE_HIT_THRESHOLD_PX = 14;
-
-function ViewportWorldSettings({ renderMode, sceneSettings }: Pick<ViewportCanvasProps, "renderMode" | "sceneSettings">) {
-  const { scene } = useThree();
-
-  useEffect(() => {
-    if (!renderModeUsesFullLighting(renderMode)) {
-      clearWebHammerWorldSettings(scene);
-      scene.background = new Color(renderMode === "wireframe" ? "#091018" : "#0b1016");
-      scene.environment = null;
-      return;
-    }
-
-    scene.background = new Color(sceneSettings.world.fogColor);
-
-    void applyWebHammerWorldSettings(scene, { settings: sceneSettings });
-
-    return () => {
-      clearWebHammerWorldSettings(scene);
-      scene.background = null;
-      scene.environment = null;
-    };
-  }, [renderMode, scene, sceneSettings]);
-
-  return null;
-}
 
 export function ViewportCanvas({
   activeBrushShape,
@@ -279,11 +224,6 @@ export function ViewportCanvas({
   const raycasterRef = useRef(new Raycaster());
   const [brushEditHandleIds, setBrushEditHandleIds] = useState<string[]>([]);
   const [brushCreateState, setBrushCreateState] = useState<BrushCreateState | null>(null);
-  const [arcState, setArcState] = useState<ArcState | null>(null);
-  const [bevelState, setBevelState] = useState<BevelState | null>(null);
-  const [extrudeState, setExtrudeState] = useState<ExtrudeGestureState | null>(null);
-  const [faceCutState, setFaceCutState] = useState<{ faceId: string } | null>(null);
-  const [faceSubdivisionState, setFaceSubdivisionState] = useState<FaceSubdivisionState | null>(null);
   const [pathAddSessionId, setPathAddSessionId] = useState<string | null>(null);
   const [pathDragState, setPathDragState] = useState<{
     beforeSettings: ViewportCanvasProps["sceneSettings"];
@@ -294,42 +234,15 @@ export function ViewportCanvas({
   } | null>(null);
   const [pathPreviewPaths, setPathPreviewPaths] = useState<ScenePathDefinition[] | null>(null);
   const [selectedPathPointIndex, setSelectedPathPointIndex] = useState<number | null>(null);
-  const [materialPaintState, setMaterialPaintState] = useState<MaterialPaintState | null>(null);
-  const [instanceBrushState, setInstanceBrushState] = useState<InstanceBrushState | null>(null);
-  const [sculptState, setSculptState] = useState<SculptBrushState | null>(null);
   const snapSize = resolveViewportSnapSize(viewport);
   const editorInteractionEnabled = physicsPlayback === "stopped";
   const [meshEditSelectionIds, setMeshEditSelectionIds] = useState<string[]>([]);
   const [transformDragging, setTransformDragging] = useState(false);
   const [marquee, setMarquee] = useState<MarqueeState | null>(null);
-  const extrudeStateRef = useRef<ExtrudeGestureState | null>(null);
   const pathPreviewPathsRef = useRef<ScenePathDefinition[] | null>(null);
-  const materialPaintStateRef = useRef<MaterialPaintState | null>(null);
-  const instanceBrushStateRef = useRef<InstanceBrushState | null>(null);
-  const sculptStateRef = useRef<SculptBrushState | null>(null);
-  /** Cached vertex-id → render-vertex-index[] map built once per sculpt stroke. */
-  const sculptVertexMapRef = useRef<Map<string, number[]> | null>(null);
-  /** The before-mesh saved at stroke start, kept here for position reset on cancel. */
-  const sculptBeforeMeshRef = useRef<EditableMesh | null>(null);
-  const previewFrameRef = useRef<number | null>(null);
-  const materialPaintStrokeFrameRef = useRef<number | null>(null);
-  const sculptStrokeFrameRef = useRef<number | null>(null);
-  const pendingPreviewUpdateRef = useRef<{
-    bounds: DOMRect;
-    clientX: number;
-    clientY: number;
-    kind: "arc" | "bevel" | "extrude" | "material-paint" | "sculpt";
-  } | null>(null);
-  const lastMeshEditActionRef = useRef<LastMeshEditAction | null>(null);
-  const previewBrushDataRef = useRef(onPreviewBrushData);
   const transformDraggingRef = useRef(false);
   const suppressSelectionAfterTransformRef = useRef(false);
-  extrudeStateRef.current = extrudeState;
   pathPreviewPathsRef.current = pathPreviewPaths;
-  materialPaintStateRef.current = materialPaintState;
-  instanceBrushStateRef.current = instanceBrushState;
-  sculptStateRef.current = sculptState;
-  previewBrushDataRef.current = onPreviewBrushData;
   const handlePreviewBrushData = useEventCallback(onPreviewBrushData);
   const handleUpdateBrushData = useEventCallback(onUpdateBrushData);
   const handlePreviewMeshData = useEventCallback(onPreviewMeshData);
@@ -379,105 +292,15 @@ export function ViewportCanvas({
   };
 
   useEffect(() => {
-    return () => {
-      if (previewFrameRef.current !== null) {
-        cancelAnimationFrame(previewFrameRef.current);
-      }
-
-      if (materialPaintStrokeFrameRef.current !== null) {
-        cancelAnimationFrame(materialPaintStrokeFrameRef.current);
-      }
-
-      if (sculptStrokeFrameRef.current !== null) {
-        cancelAnimationFrame(sculptStrokeFrameRef.current);
-      }
-    };
-  }, []);
-
-  const stopMaterialPaintStrokeLoop = () => {
-    if (materialPaintStrokeFrameRef.current !== null) {
-      cancelAnimationFrame(materialPaintStrokeFrameRef.current);
-      materialPaintStrokeFrameRef.current = null;
-    }
-  };
-
-  const queueMaterialPaintStrokeFrame = () => {
-    if (materialPaintStrokeFrameRef.current !== null) {
-      return;
-    }
-
-    materialPaintStrokeFrameRef.current = requestAnimationFrame(() => {
-      materialPaintStrokeFrameRef.current = null;
-
-      const currentState = materialPaintStateRef.current;
-      const bounds = viewportRootRef.current?.getBoundingClientRect();
-      const pointer = pointerPositionRef.current;
-
-      if (!currentState?.dragging || !bounds || !pointer) {
-        return;
-      }
-
-      updateMaterialPaintStroke(bounds, pointer.x + bounds.left, pointer.y + bounds.top);
-      queueMaterialPaintStrokeFrame();
-    });
-  };
-
-  const stopSculptStrokeLoop = () => {
-    if (sculptStrokeFrameRef.current !== null) {
-      cancelAnimationFrame(sculptStrokeFrameRef.current);
-      sculptStrokeFrameRef.current = null;
-    }
-  };
-
-  const queueSculptStrokeFrame = () => {
-    if (sculptStrokeFrameRef.current !== null) {
-      return;
-    }
-
-    sculptStrokeFrameRef.current = requestAnimationFrame(() => {
-      sculptStrokeFrameRef.current = null;
-
-      const currentState = sculptStateRef.current;
-      const bounds = viewportRootRef.current?.getBoundingClientRect();
-      const pointer = pointerPositionRef.current;
-
-      if (!currentState?.dragging || !bounds || !pointer) {
-        return;
-      }
-
-      updateSculptStroke(bounds, pointer.x + bounds.left, pointer.y + bounds.top);
-      queueSculptStrokeFrame();
-    });
-  };
-
-  useEffect(() => {
-    const currentExtrudeState = extrudeStateRef.current;
-
-    if (currentExtrudeState?.kind === "brush") {
-      previewBrushDataRef.current(currentExtrudeState.nodeId, currentExtrudeState.baseBrush);
-    }
-
-    extrudeStateRef.current = null;
-    materialPaintStateRef.current = null;
-    instanceBrushStateRef.current = null;
-    sculptStateRef.current = null;
     setMeshEditSelectionIds([]);
     setBrushEditHandleIds([]);
-    setArcState(null);
-    setBevelState(null);
-    setFaceCutState(null);
-    setFaceSubdivisionState(null);
-    setExtrudeState(null);
     setPathAddSessionId(null);
     setPathDragState(null);
     pathPreviewPathsRef.current = null;
     setPathPreviewPaths(null);
     setSelectedPathPointIndex(null);
-    setMaterialPaintState(null);
-    setInstanceBrushState(null);
-    setSculptState(null);
-    setCameraControlsEnabled(true);
-    setTransformDragging(false);
+    resetBrushInteractions();
+    resetMeshEditOperations();
   }, [activeToolId, meshEditMode, selectedNode?.id, selectedNode?.kind]);
 
   useEffect(() => {
@@ -485,15 +308,6 @@ export function ViewportCanvas({
       setBrushCreateState(null);
     }
   }, [activeToolId, brushToolMode]);
-
-  useEffect(() => {
-    const hasSource = instanceBrushSourceNodeIds.length > 0 || !!instanceBrushSourceNodeId;
-    if (activeToolId !== "brush" || brushToolMode !== "instance" || !hasSource || !instanceBrushSourceTransform) {
-      instanceBrushStateRef.current = null;
-      setInstanceBrushState(null);
-      setTransformDragging(false);
-    }
-  }, [activeToolId, brushToolMode, instanceBrushSourceNodeId, instanceBrushSourceNodeIds, instanceBrushSourceTransform]);
 
   useEffect(() => {
     if (editorInteractionEnabled) {
@@ -508,13 +322,9 @@ export function ViewportCanvas({
     setPathDragState(null);
     pathPreviewPathsRef.current = null;
     setPathPreviewPaths(null);
-    materialPaintStateRef.current = null;
-    setMaterialPaintState(null);
-    sculptStateRef.current = null;
-    setSculptState(null);
     setMarquee(null);
-    setCameraControlsEnabled(true);
-    setTransformDragging(false);
+    resetBrushInteractions();
+    resetMeshEditOperations();
   }, [editorInteractionEnabled]);
 
   useEffect(() => {
@@ -700,6 +510,68 @@ export function ViewportCanvas({
   const selectedPath = selectedScenePathId
     ? pathDefinitions.find((pathDefinition) => pathDefinition.id === selectedScenePathId)
     : undefined;
+  const {
+    materialPaintState,
+    instanceBrushState,
+    sculptState,
+    beginInstanceBrushStroke,
+    beginMaterialPaintStroke,
+    beginSculptStroke,
+    cancelInstanceBrushStroke,
+    cancelMaterialPaintStroke,
+    cancelSculptStroke,
+    clearMaterialPaintMode,
+    clearSculptMode,
+    commitInstanceBrushStroke,
+    commitMaterialPaintStroke,
+    commitSculptStroke,
+    resetBrushInteractions,
+    resolveSceneBrushHit,
+    resolveSelectedMeshSurfaceHit,
+    startMaterialPaintMode,
+    startSculptMode,
+    updateInstanceBrushStroke,
+    updateMaterialPaintStroke,
+    updateSculptStroke
+  } = useViewportBrushInteractions({
+    activeToolId,
+    brushToolMode,
+    editorInteractionEnabled,
+    instanceBrushAlignToNormal,
+    instanceBrushAverageNormal,
+    instanceBrushDensity,
+    instanceBrushRandomness,
+    instanceBrushScaleMax,
+    instanceBrushScaleMin,
+    instanceBrushSize,
+    instanceBrushSourceNodeId,
+    instanceBrushSourceNodeIds,
+    instanceBrushSourceTransform,
+    instanceBrushYOffsetMax,
+    instanceBrushYOffsetMin,
+    materialPaintBrushOpacity,
+    meshEditMode,
+    meshObjectsRef,
+    onCommitMeshMaterialLayers,
+    onMaterialPaintModeChange,
+    onPlaceInstanceBrushNodes,
+    onSculptModeChange,
+    onUpdateMeshData: handleUpdateMeshData,
+    pointerPositionRef,
+    raycasterRef,
+    renderMeshes: renderScene.meshes,
+    sculptBrushRadius,
+    sculptBrushStrength,
+    selectedMaterialId,
+    selectedMeshNode,
+    selectedNode,
+    setCameraControlsEnabled,
+    setTransformDragging,
+    snapSize,
+    viewport,
+    viewportPlane,
+    viewportRootRef
+  });
 
   useEffect(() => {
     if (!isActiveViewport) {
@@ -758,9 +630,6 @@ export function ViewportCanvas({
     [activeToolId, editableMeshSource, meshEditMode, meshEditHandles, selectedMeshNode]
   );
   const editableMeshHandles = useStableOverlayHandles(nextEditableMeshHandles);
-  const handleCommitMeshEditAction = useCallback((action: LastMeshEditAction) => {
-    lastMeshEditActionRef.current = action;
-  }, []);
   const shouldTreatAsSelectionClick = useCallback(() => allowPointerClickSelectionRef.current, []);
   const resolveMeshEditEdgeHandleHit = (bounds: DOMRect, clientX: number, clientY: number) => {
     if (activeToolId !== "mesh-edit" || meshEditMode !== "edge" || !cameraRef.current || !selectedDisplayNode) {
@@ -774,7 +643,8 @@ export function ViewportCanvas({
       clientY,
       bounds,
       cameraRef.current,
-      selectedDisplayNode
+      selectedDisplayNode,
+      projectLocalPointToScreen
     );
   };
   const resolveMeshEditVertexHandleHit = (bounds: DOMRect, clientX: number, clientY: number) => {
@@ -859,6 +729,67 @@ export function ViewportCanvas({
 
     return selectedMeshNode ? meshEditSelectionIds : brushEditHandleIds;
   };
+  const {
+    arcState,
+    bevelState,
+    extrudeState,
+    faceCutState,
+    faceSubdivisionState,
+    cancelExtrudePreview,
+    commitArcPreview,
+    commitBevelPreview,
+    commitExtrudePreview,
+    commitMeshTopology,
+    handleCommitMeshEditAction,
+    resetMeshEditOperations,
+    runMeshEditToolbarAction,
+    setFaceCutState,
+    setFaceSubdivisionState,
+    updateArcPreview,
+    updateBevelPreview,
+    updateExtrudeAxisLock,
+    updateExtrudePreview
+  } = useViewportMeshEditOperations({
+    activeToolId,
+    brushEditHandleIds,
+    brushEditHandles,
+    cameraRef,
+    clearMaterialPaintMode,
+    clearSculptMode,
+    clearSubobjectSelection: () => {
+      setBrushEditHandleIds([]);
+      setMeshEditSelectionIds([]);
+    },
+    editableMeshHandles,
+    editableMeshSource,
+    materialPaintDragging: Boolean(materialPaintState?.dragging),
+    materialPaintVisible: Boolean(materialPaintState),
+    meshEditMode,
+    meshEditSelectionIds,
+    meshEditToolbarAction,
+    meshEditHandles,
+    onCommitMeshTopology,
+    onPreviewBrushData,
+    onStartMaterialPaintMode: startMaterialPaintMode,
+    onStartSculptMode: startSculptMode,
+    onUpdateBrushData: handleUpdateBrushData,
+    onUpdateMeshData: handleUpdateMeshData,
+    onUpdateNodeTransform,
+    pointerPositionRef,
+    raycasterRef,
+    resolveSelectedEditableMeshEdgePairs,
+    resolveSelectedEditableMeshFaceIds,
+    resolveSelectedEditableMeshVertexIds,
+    selectedBrushNode,
+    selectedMeshNode,
+    selectedNode,
+    setCameraControlsEnabled,
+    setTransformDragging,
+    sculptDragging: Boolean(sculptState?.dragging),
+    sculptVisible: Boolean(sculptState),
+    snapSize,
+    viewportRootRef
+  });
 
   const handleMeshObjectChange = (nodeId: string, object: Object3D | null) => {
     if (object) {
@@ -1067,806 +998,6 @@ export function ViewportCanvas({
     setSelectedPathPointIndex(segmentHit.insertIndex);
   };
 
-  const resolveSelectedMeshSurfaceHit = (bounds: DOMRect, clientX: number, clientY: number): SculptBrushHit | undefined => {
-    if (!cameraRef.current || !selectedMeshNode) {
-      return undefined;
-    }
-
-    const selectedObject = meshObjectsRef.current.get(selectedMeshNode.id);
-
-    if (!selectedObject) {
-      return undefined;
-    }
-
-    const ndc = new Vector2(
-      ((clientX - bounds.left) / bounds.width) * 2 - 1,
-      -(((clientY - bounds.top) / bounds.height) * 2 - 1)
-    );
-
-    raycasterRef.current.setFromCamera(ndc, cameraRef.current);
-    const hit = raycasterRef.current.intersectObject(selectedObject, true)[0];
-
-    if (!hit) {
-      return undefined;
-    }
-
-    const localPoint = selectedObject.worldToLocal(hit.point.clone());
-    const faceNormal = hit.face?.normal?.clone() ?? new Vector3(0, 1, 0);
-    const worldNormal = faceNormal.transformDirection(hit.object.matrixWorld);
-    const localNormal = worldNormal.transformDirection(new Matrix4().copy(selectedObject.matrixWorld).invert());
-
-    const normal = vec3(localNormal.x, localNormal.y, localNormal.z);
-
-    return {
-      normal: lengthVec3(normal) > 0.000001 ? normalizeVec3(normal) : vec3(0, 1, 0),
-      point: vec3(localPoint.x, localPoint.y, localPoint.z)
-    };
-  };
-
-  const applyMaterialPaintHit = (state: MaterialPaintState, hit: SculptBrushHit) => {
-    const sourceMesh = state.previewMesh ?? state.beforeMesh;
-
-    if (!sourceMesh || !state.materialId) {
-      return state;
-    }
-
-    const spacing = Math.max(0.05, state.radius * 0.25);
-    const previousPoint = state.lastPoint ?? hit.point;
-    const delta = subVec3(hit.point, previousPoint);
-    const distance = lengthVec3(delta);
-    const steps = Math.max(1, Math.ceil(distance / spacing));
-    const samples = Array.from({ length: steps }, (_, index) => {
-      const step = index + 1;
-      const t = distance <= 0.000001 ? 1 : step / steps;
-
-      return {
-        point: vec3(
-          previousPoint.x + delta.x * t,
-          previousPoint.y + delta.y * t,
-          previousPoint.z + delta.z * t,
-        ),
-      };
-    });
-    const nextMesh = paintEditableMeshMaterialLayers(
-      sourceMesh,
-      state.materialId,
-      samples,
-      state.radius,
-      state.strength,
-      state.opacity,
-      state.mode === "paint" ? "add" : "erase",
-    );
-
-    return {
-      ...state,
-      hovered: hit,
-      lastPoint: hit.point,
-      modified: true,
-      previewMesh: nextMesh,
-    };
-  };
-
-  const beginMaterialPaintStroke = (bounds: DOMRect, clientX: number, clientY: number) => {
-    if (!selectedMeshNode || !materialPaintStateRef.current || !selectedMaterialId) {
-      return false;
-    }
-
-    const hit = resolveSelectedMeshSurfaceHit(bounds, clientX, clientY);
-
-    if (!hit) {
-      return false;
-    }
-
-    const initialState: MaterialPaintState = {
-      ...materialPaintStateRef.current,
-      beforeMesh: selectedMeshNode.data,
-      dragging: true,
-      hovered: hit,
-      lastPoint: hit.point,
-      materialId: materialPaintStateRef.current.materialId,
-      modified: false,
-      nodeId: selectedMeshNode.id,
-      opacity: materialPaintBrushOpacity,
-      previewMesh: undefined,
-      radius: sculptBrushRadius,
-      strength: sculptBrushStrength,
-    };
-    const nextState = applyMaterialPaintHit(initialState, hit);
-
-    materialPaintStateRef.current = nextState;
-    setMaterialPaintState(nextState);
-    setCameraControlsEnabled(false);
-    setTransformDragging(true);
-    return true;
-  };
-
-  const updateMaterialPaintStroke = (bounds: DOMRect, clientX: number, clientY: number) => {
-    const currentState = materialPaintStateRef.current;
-
-    if (!currentState) {
-      return;
-    }
-
-    const hit = resolveSelectedMeshSurfaceHit(bounds, clientX, clientY);
-
-    if (!hit) {
-      return;
-    }
-
-    const nextState = currentState.dragging
-      ? applyMaterialPaintHit(currentState, hit)
-      : {
-          ...currentState,
-          hovered: hit,
-        };
-
-    materialPaintStateRef.current = nextState;
-    setMaterialPaintState(nextState);
-  };
-
-  const cancelMaterialPaintStroke = (exitMode = false) => {
-    const currentState = materialPaintStateRef.current;
-
-    if (!currentState) {
-      return;
-    }
-
-    const nextState = exitMode
-      ? null
-      : {
-          ...currentState,
-          beforeMesh: undefined,
-          dragging: false,
-          lastPoint: undefined,
-          modified: false,
-          previewMesh: undefined,
-        };
-
-    materialPaintStateRef.current = nextState;
-    setMaterialPaintState(nextState);
-    setCameraControlsEnabled(true);
-    setTransformDragging(false);
-  };
-
-  const commitMaterialPaintStroke = () => {
-    const currentState = materialPaintStateRef.current;
-
-    if (!currentState) {
-      return;
-    }
-
-    if (currentState.modified && currentState.beforeMesh && currentState.previewMesh) {
-      onCommitMeshMaterialLayers(
-        currentState.nodeId,
-        currentState.previewMesh.materialLayers,
-        currentState.beforeMesh.materialLayers,
-      );
-    }
-
-    const nextState = {
-      ...currentState,
-      beforeMesh: undefined,
-      dragging: false,
-      lastPoint: undefined,
-      modified: false,
-      previewMesh: undefined,
-    };
-
-    materialPaintStateRef.current = nextState;
-    setMaterialPaintState(nextState);
-    setCameraControlsEnabled(true);
-    setTransformDragging(false);
-  };
-
-  const startMaterialPaintMode = (mode: MaterialPaintBrushMode) => {
-    if (!selectedMeshNode || !selectedMaterialId) {
-      return;
-    }
-
-    const currentState = materialPaintStateRef.current;
-
-    if (currentState?.dragging) {
-      return;
-    }
-
-    if (
-      currentState?.mode === mode &&
-      currentState.nodeId === selectedMeshNode.id &&
-      currentState.materialId === selectedMaterialId
-    ) {
-      materialPaintStateRef.current = null;
-      setMaterialPaintState(null);
-      return;
-    }
-
-    const nextState: MaterialPaintState = {
-      dragging: false,
-      hovered: currentState?.nodeId === selectedMeshNode.id ? currentState.hovered : undefined,
-      materialId:
-        mode === "erase"
-          ? normalizeEditableMeshMaterialLayers(
-              selectedMeshNode.data.materialLayers,
-              selectedMeshNode.data.vertices.length,
-              selectedMeshNode.data.materialBlend,
-            )?.at(-1)?.materialId ?? selectedMaterialId
-          : selectedMaterialId,
-      mode,
-      modified: false,
-      nodeId: selectedMeshNode.id,
-      opacity: materialPaintBrushOpacity,
-      paintColor: resolvePaintMaterialColor(
-        renderScene.meshes,
-        selectedMeshNode,
-        mode === "erase"
-          ? (normalizeEditableMeshMaterialLayers(
-              selectedMeshNode.data.materialLayers,
-              selectedMeshNode.data.vertices.length,
-              selectedMeshNode.data.materialBlend,
-            )?.at(-1)?.materialId ?? selectedMaterialId)
-          : selectedMaterialId
-      ),
-      radius: sculptBrushRadius,
-      strength: sculptBrushStrength,
-    };
-
-    materialPaintStateRef.current = nextState;
-    setMaterialPaintState(nextState);
-
-    const bounds = viewportRootRef.current?.getBoundingClientRect();
-    const pointer = pointerPositionRef.current;
-
-    if (bounds && pointer) {
-      updateMaterialPaintStroke(bounds, pointer.x + bounds.left, pointer.y + bounds.top);
-    }
-  };
-
-  const applySculptHit = (state: SculptBrushState, hit: SculptBrushHit) => {
-    const sourceMesh = state.previewMesh ?? state.beforeMesh;
-
-    if (!sourceMesh) {
-      return state;
-    }
-
-    const signedStrength = state.mode === "inflate" ? state.strength : -state.strength;
-    const spacing = Math.max(0.05, state.radius * 0.25);
-    const previousPoint = state.lastPoint ?? hit.point;
-    const delta = subVec3(hit.point, previousPoint);
-    const distance = lengthVec3(delta);
-    const steps = Math.max(1, Math.ceil(distance / spacing));
-    const samples = Array.from({ length: steps }, (_, index) => {
-      const step = index + 1;
-      const t = distance <= 0.000001 ? 1 : step / steps;
-      const point = vec3(
-        previousPoint.x + delta.x * t,
-        previousPoint.y + delta.y * t,
-        previousPoint.z + delta.z * t
-      );
-      const normal = normalizeVec3(
-        vec3(
-          (state.hovered?.normal.x ?? hit.normal.x) * (1 - t) + hit.normal.x * t,
-          (state.hovered?.normal.y ?? hit.normal.y) * (1 - t) + hit.normal.y * t,
-          (state.hovered?.normal.z ?? hit.normal.z) * (1 - t) + hit.normal.z * t
-        )
-      );
-
-      return {
-        normal,
-        point
-      };
-    });
-
-    let nextMesh: EditableMesh;
-
-    if (state.mode === "smooth") {
-      nextMesh = smoothEditableMeshSamples(
-        sourceMesh,
-        samples,
-        state.radius,
-        state.strength,
-        0.0001
-      );
-    } else {
-      nextMesh = sculptEditableMeshSamples(
-        sourceMesh,
-        samples,
-        state.radius,
-        signedStrength,
-        0.0001,
-        state.strokeVertexNormals
-      );
-    }
-
-    return {
-      ...state,
-      hovered: hit,
-      lastPoint: hit.point,
-      modified: true,
-      previewMesh: nextMesh
-    };
-  };
-
-  const beginSculptStroke = (bounds: DOMRect, clientX: number, clientY: number) => {
-    if (!selectedMeshNode || !sculptStateRef.current) {
-      return false;
-    }
-
-    const hit = resolveSelectedMeshSurfaceHit(bounds, clientX, clientY);
-
-    if (!hit) {
-      return false;
-    }
-
-    const initialState: SculptBrushState = {
-      ...sculptStateRef.current,
-      beforeMesh: selectedMeshNode.data,
-      dragging: true,
-      hovered: hit,
-      lastPoint: hit.point,
-      modified: false,
-      nodeId: selectedMeshNode.id,
-      previewMesh: undefined,
-      strokeVertexNormals: buildEditableMeshVertexNormals(selectedMeshNode.data)
-    };
-    const nextState = applySculptHit(initialState, hit);
-
-    sculptStateRef.current = nextState;
-    setSculptState(nextState);
-    setCameraControlsEnabled(false);
-    setTransformDragging(true);
-    return true;
-  };
-
-  const updateSculptStroke = (bounds: DOMRect, clientX: number, clientY: number) => {
-    const currentState = sculptStateRef.current;
-
-    if (!currentState) {
-      return;
-    }
-
-    const hit = resolveSelectedMeshSurfaceHit(bounds, clientX, clientY);
-
-    if (!hit) {
-      return;
-    }
-
-    const nextState = currentState.dragging
-      ? applySculptHit(currentState, hit)
-      : {
-          ...currentState,
-          hovered: hit
-        };
-
-    sculptStateRef.current = nextState;
-    setSculptState(nextState);
-  };
-
-  const cancelSculptStroke = (exitMode = false) => {
-    const currentState = sculptStateRef.current;
-
-    if (!currentState) {
-      return;
-    }
-
-    const nextState = exitMode
-      ? null
-      : {
-          ...currentState,
-          beforeMesh: undefined,
-          dragging: false,
-          lastPoint: undefined,
-          modified: false,
-          previewMesh: undefined,
-          strokeVertexNormals: undefined
-        };
-
-    sculptStateRef.current = nextState;
-    setSculptState(nextState);
-    setCameraControlsEnabled(true);
-    setTransformDragging(false);
-  };
-
-  const commitSculptStroke = () => {
-    const currentState = sculptStateRef.current;
-
-    if (!currentState) {
-      return;
-    }
-
-    if (currentState.modified && currentState.beforeMesh && currentState.previewMesh) {
-      onUpdateMeshData(currentState.nodeId, currentState.previewMesh, currentState.beforeMesh);
-    }
-
-    const nextState = {
-      ...currentState,
-      beforeMesh: undefined,
-      dragging: false,
-      lastPoint: undefined,
-      modified: false,
-      previewMesh: undefined,
-      strokeVertexNormals: undefined
-    };
-
-    sculptStateRef.current = nextState;
-    setSculptState(nextState);
-    setCameraControlsEnabled(true);
-    setTransformDragging(false);
-  };
-
-  const startSculptMode = (mode: SculptBrushMode) => {
-    if (!selectedMeshNode) {
-      return;
-    }
-
-    const currentState = sculptStateRef.current;
-
-    if (currentState?.dragging) {
-      return;
-    }
-
-    if (currentState?.mode === mode && currentState.nodeId === selectedMeshNode.id) {
-      sculptStateRef.current = null;
-      setSculptState(null);
-      return;
-    }
-
-    const nextState: SculptBrushState = {
-      dragging: false,
-      hovered: currentState?.nodeId === selectedMeshNode.id ? currentState.hovered : undefined,
-      mode,
-      modified: false,
-      nodeId: selectedMeshNode.id,
-      radius: sculptBrushRadius,
-      strength: sculptBrushStrength
-    };
-
-    sculptStateRef.current = nextState;
-    setSculptState(nextState);
-
-    const bounds = viewportRootRef.current?.getBoundingClientRect();
-    const pointer = pointerPositionRef.current;
-
-    if (bounds && pointer) {
-      updateSculptStroke(bounds, pointer.x + bounds.left, pointer.y + bounds.top);
-    }
-  };
-
-  const resolveSceneBrushHit = (bounds: DOMRect, clientX: number, clientY: number) => {
-    if (!cameraRef.current) {
-      return undefined;
-    }
-
-    const constructionPlane = resolveViewportConstructionPlane(viewportPlane, viewport);
-    const hit = resolveBrushCreateSurfaceHit(
-      clientX,
-      clientY,
-      bounds,
-      cameraRef.current,
-      raycasterRef.current,
-      meshObjectsRef.current,
-      constructionPlane.point,
-      constructionPlane.normal
-    );
-
-    if (!hit) {
-      return undefined;
-    }
-
-    return {
-      normal: hit.normal,
-      point:
-        hit.kind === "plane" && viewport.grid.enabled
-          ? snapPointToViewportPlane(hit.point, viewportPlane, viewport, snapSize)
-          : hit.point
-    } satisfies SculptBrushHit;
-  };
-
-  const createInstanceBrushStampPlacements = (
-    centerHit: SculptBrushHit,
-    bounds: DOMRect,
-    /** Per-placement seeded random [0,1) so multi-source selection is repeatable within a stroke. */
-    seededRng: () => number
-  ): Array<{ sourceNodeId: string; transform: Transform }> => {
-    if (!cameraRef.current || !instanceBrushSourceTransform) {
-      return [];
-    }
-
-    // Resolve the pool of source node IDs: prefer the multi-source list, fall back to single.
-    const sourcePool = instanceBrushSourceNodeIds.length > 0
-      ? instanceBrushSourceNodeIds
-      : instanceBrushSourceNodeId ? [instanceBrushSourceNodeId] : [];
-
-    if (sourcePool.length === 0) {
-      return [];
-    }
-
-    const constructionPlane = resolveViewportConstructionPlane(viewportPlane, viewport);
-    const offsets = buildInstanceBrushSampleOffsets(Math.max(1, Math.round(instanceBrushDensity)), instanceBrushRandomness);
-
-    // Average normal: blend all sample-hit normals before composing rotation.
-    const hitNormal = instanceBrushAverageNormal ? centerHit.normal : undefined;
-
-    const basis = createBrushRingBasis(centerHit.normal);
-    const surfaceOffset = Math.max(0.01, instanceBrushSize * 0.01);
-
-    return offsets.flatMap((offset) => {
-      const samplePoint = addVec3(
-        centerHit.point,
-        addVec3(scaleVec3(basis.u, offset.x * instanceBrushSize), scaleVec3(basis.v, offset.y * instanceBrushSize))
-      );
-      const clientPoint = projectWorldPointToClient(samplePoint, cameraRef.current!, bounds);
-
-      if (!clientPoint) {
-        return [];
-      }
-
-      const sampleHit = resolveBrushCreateSurfaceHit(
-        clientPoint.clientX,
-        clientPoint.clientY,
-        bounds,
-        cameraRef.current!,
-        raycasterRef.current,
-        meshObjectsRef.current,
-        constructionPlane.point,
-        constructionPlane.normal
-      );
-
-      if (!sampleHit) {
-        return [];
-      }
-
-      const normalForRotation = hitNormal ?? sampleHit.normal;
-
-      // Y offset
-      const yOffset = instanceBrushYOffsetMin === instanceBrushYOffsetMax
-        ? instanceBrushYOffsetMin
-        : instanceBrushYOffsetMin + seededRng() * (instanceBrushYOffsetMax - instanceBrushYOffsetMin);
-
-      const position = addVec3(
-        addVec3(sampleHit.point, scaleVec3(sampleHit.normal, surfaceOffset)),
-        vec3(0, yOffset, 0)
-      );
-
-      // Scale
-      const uniformScale = instanceBrushScaleMin === instanceBrushScaleMax
-        ? instanceBrushScaleMin
-        : instanceBrushScaleMin + seededRng() * (instanceBrushScaleMax - instanceBrushScaleMin);
-      const baseScale = instanceBrushSourceTransform.scale;
-
-      const rotation = instanceBrushAlignToNormal
-        ? composeInstanceBrushRotation(normalForRotation, instanceBrushSourceTransform.rotation)
-        : instanceBrushSourceTransform.rotation;
-
-      // Pick a random source from the pool (randomness drives weighting).
-      const effectiveRandomness = Math.max(0, Math.min(1, instanceBrushRandomness));
-      const sourceIndex = effectiveRandomness > 0 && sourcePool.length > 1
-        ? Math.floor(seededRng() * sourcePool.length)
-        : 0;
-      const sourceNodeId = sourcePool[sourceIndex] ?? sourcePool[0]!;
-
-      return [
-        {
-          sourceNodeId,
-          transform: {
-            position,
-            rotation,
-            scale: { x: baseScale.x * uniformScale, y: baseScale.y * uniformScale, z: baseScale.z * uniformScale }
-          }
-        }
-      ];
-    });
-  };
-
-  const applyInstanceBrushHit = (state: InstanceBrushState, hit: SculptBrushHit, bounds: DOMRect) => {
-    const hasSource = instanceBrushSourceNodeIds.length > 0 || !!instanceBrushSourceNodeId;
-
-    if (!state.dragging || !instanceBrushSourceTransform || !hasSource) {
-      return { ...state, hovered: hit };
-    }
-
-    const spacing = Math.max(0.2, instanceBrushSize * Math.max(0.18, 0.85 / Math.sqrt(Math.max(1, instanceBrushDensity))));
-    const dedupeSize = Math.max(0.08, instanceBrushSize * 0.12);
-    const existingKeys = new Set(
-      state.pendingPlacements.map((p) => createInstanceBrushTransformKey(p.transform.position, dedupeSize))
-    );
-    let nextPendingPlacements = state.pendingPlacements;
-    let nextLastStampedHit = state.lastStampedHit;
-
-    // Simple seeded LCG so source selection is deterministic per stamp.
-    let rngSeed = Math.floor(hit.point.x * 1000 + hit.point.z * 997 + nextPendingPlacements.length * 31);
-    const rng = () => { rngSeed = (rngSeed * 1664525 + 1013904223) & 0xffffffff; return (rngSeed >>> 0) / 0x100000000; };
-
-    if (!nextLastStampedHit) {
-      const stamped = createInstanceBrushStampPlacements(hit, bounds, rng).filter((p) => {
-        const key = createInstanceBrushTransformKey(p.transform.position, dedupeSize);
-        if (existingKeys.has(key)) return false;
-        existingKeys.add(key);
-        return true;
-      });
-      nextPendingPlacements = [...nextPendingPlacements, ...stamped];
-      nextLastStampedHit = hit;
-    } else {
-      const delta = subVec3(hit.point, nextLastStampedHit.point);
-      const distance = lengthVec3(delta);
-
-      if (distance >= spacing) {
-        const startHit = nextLastStampedHit;
-        let latestStampedHit = nextLastStampedHit;
-
-        for (let travelled = spacing; travelled <= distance + 0.0001; travelled += spacing) {
-          const t = distance <= 0.000001 ? 1 : travelled / distance;
-          const stampedHit = {
-            normal: normalizeVec3(
-              vec3(
-                startHit.normal.x + (hit.normal.x - startHit.normal.x) * t,
-                startHit.normal.y + (hit.normal.y - startHit.normal.y) * t,
-                startHit.normal.z + (hit.normal.z - startHit.normal.z) * t
-              )
-            ),
-            point: vec3(
-              startHit.point.x + delta.x * t,
-              startHit.point.y + delta.y * t,
-              startHit.point.z + delta.z * t
-            )
-          } satisfies SculptBrushHit;
-
-          const stamped = createInstanceBrushStampPlacements(stampedHit, bounds, rng).filter((p) => {
-            const key = createInstanceBrushTransformKey(p.transform.position, dedupeSize);
-            if (existingKeys.has(key)) return false;
-            existingKeys.add(key);
-            return true;
-          });
-
-          if (stamped.length > 0) {
-            nextPendingPlacements = [...nextPendingPlacements, ...stamped];
-          }
-          latestStampedHit = stampedHit;
-        }
-
-        nextLastStampedHit = latestStampedHit;
-      }
-    }
-
-    return {
-      dragging: true,
-      hovered: hit,
-      lastStampedHit: nextLastStampedHit,
-      pendingPlacements: nextPendingPlacements
-    } satisfies InstanceBrushState;
-  };
-
-  const beginInstanceBrushStroke = (bounds: DOMRect, clientX: number, clientY: number) => {
-    const hasSource = instanceBrushSourceNodeIds.length > 0 || !!instanceBrushSourceNodeId;
-    if (!hasSource || !instanceBrushSourceTransform) {
-      return false;
-    }
-
-    const hit = resolveSceneBrushHit(bounds, clientX, clientY);
-
-    if (!hit) {
-      return false;
-    }
-
-    const nextState = applyInstanceBrushHit(
-      {
-        dragging: true,
-        hovered: hit,
-        pendingPlacements: []
-      },
-      hit,
-      bounds
-    );
-
-    instanceBrushStateRef.current = nextState;
-    setInstanceBrushState(nextState);
-    setCameraControlsEnabled(false);
-    setTransformDragging(true);
-    return true;
-  };
-
-  const updateInstanceBrushStroke = (bounds: DOMRect, clientX: number, clientY: number) => {
-    const hasSource = instanceBrushSourceNodeIds.length > 0 || !!instanceBrushSourceNodeId;
-    if (!hasSource || !instanceBrushSourceTransform) {
-      if (!instanceBrushStateRef.current?.dragging) {
-        instanceBrushStateRef.current = null;
-        setInstanceBrushState(null);
-      }
-      return;
-    }
-
-    const currentState = instanceBrushStateRef.current;
-    const hit = resolveSceneBrushHit(bounds, clientX, clientY);
-
-    if (!hit) {
-      if (!currentState?.dragging) {
-        instanceBrushStateRef.current = null;
-        setInstanceBrushState(null);
-      }
-      return;
-    }
-
-    const nextState = currentState
-      ? applyInstanceBrushHit(currentState, hit, bounds)
-      : {
-          dragging: false,
-          hovered: hit,
-          pendingPlacements: []
-        } satisfies InstanceBrushState;
-
-    instanceBrushStateRef.current = nextState;
-    setInstanceBrushState(nextState);
-  };
-
-  const cancelInstanceBrushStroke = (exitMode = false) => {
-    const currentState = instanceBrushStateRef.current;
-
-    if (!currentState) {
-      return;
-    }
-
-    const nextState = exitMode
-      ? null
-      : {
-          dragging: false,
-          hovered: currentState.hovered,
-          pendingPlacements: []
-        } satisfies InstanceBrushState;
-
-    instanceBrushStateRef.current = nextState;
-    setInstanceBrushState(nextState);
-    setCameraControlsEnabled(true);
-    setTransformDragging(false);
-  };
-
-  const commitInstanceBrushStroke = () => {
-    const currentState = instanceBrushStateRef.current;
-
-    if (!currentState) {
-      return;
-    }
-
-    if (currentState.pendingPlacements.length > 0) {
-      onPlaceInstanceBrushNodes(currentState.pendingPlacements);
-    }
-
-    const nextState = {
-      dragging: false,
-      hovered: currentState.hovered,
-      pendingPlacements: []
-    } satisfies InstanceBrushState;
-
-    instanceBrushStateRef.current = nextState;
-    setInstanceBrushState(nextState);
-    setCameraControlsEnabled(true);
-    setTransformDragging(false);
-  };
-
-  const handlePointerDownCapture: PointerEventHandler<HTMLDivElement> = (event) => {
-    if (!editorInteractionEnabled || event.button !== 0 || event.shiftKey) {
-      return;
-    }
-
-    const bounds = event.currentTarget.getBoundingClientRect();
-
-    if (activeToolId === "brush" && brushToolMode === "instance" && resolveSceneBrushHit(bounds, event.clientX, event.clientY)) {
-      setCameraControlsEnabled(false);
-      return;
-    }
-
-    if (activeToolId !== "mesh-edit" || !selectedMeshNode) {
-      return;
-    }
-
-    const meshHit = resolveSelectedMeshSurfaceHit(bounds, event.clientX, event.clientY);
-
-    if (!meshHit) {
-      return;
-    }
-
-    if (materialPaintState || sculptState) {
-      setCameraControlsEnabled(false);
-    }
-  };
-
   const selectNodesAlongRay = (bounds: DOMRect, clientX: number, clientY: number) => {
     if (!cameraRef.current) {
       return;
@@ -1904,1434 +1035,6 @@ export function ViewportCanvas({
     setBrushEditHandleIds([]);
     setMeshEditSelectionIds([]);
   };
-
-  const updateSelectedNodePivot = (nextPivot?: { x: number; y: number; z: number }) => {
-    if (!selectedNode) {
-      return;
-    }
-
-    onUpdateNodeTransform(
-      selectedNode.id,
-      rebaseTransformPivot(selectedNode.transform, nextPivot ? vec3(nextPivot.x, nextPivot.y, nextPivot.z) : undefined),
-      selectedNode.transform
-    );
-  };
-
-  const startFaceCutOperation = () => {
-    if (meshEditMode !== "face" || !editableMeshSource) {
-      return;
-    }
-
-    const selectedFaces = resolveSelectedEditableMeshFaceIds();
-
-    if (selectedFaces.length !== 1) {
-      return;
-    }
-
-    setFaceCutState({
-      faceId: selectedFaces[0]
-    });
-  };
-
-  const startFaceSubdivisionOperation = () => {
-    if (meshEditMode !== "face" || !editableMeshSource) {
-      return;
-    }
-
-    const selectedFaces = resolveSelectedEditableMeshFaceIds();
-
-    if (selectedFaces.length !== 1) {
-      return;
-    }
-
-    setFaceSubdivisionState({
-      baseMesh: structuredClone(editableMeshSource),
-      cuts: 1,
-      faceId: selectedFaces[0]
-    });
-  };
-
-  const repeatLastMeshEditAction = () => {
-    const action = lastMeshEditActionRef.current;
-
-    if (!action || !selectedNode) {
-      return;
-    }
-
-    if (action.kind === "extrude") {
-      if (action.handleKind === "face") {
-        const selectedFaces = resolveSelectedEditableMeshFaceIds();
-
-        if (selectedFaces.length === 0) {
-          return;
-        }
-
-        if (selectedBrushNode) {
-          const handle = createBrushExtrudeHandles(selectedBrushNode.data).find(
-            (candidate) => candidate.kind === "face" && candidate.id === selectedFaces[0]
-          );
-
-          if (!handle) {
-            return;
-          }
-
-          const nextBrush = extrudeBrushHandle(selectedBrushNode.data, handle, action.amount);
-
-          if (nextBrush) {
-            onUpdateBrushData(selectedBrushNode.id, nextBrush, selectedBrushNode.data);
-          }
-          return;
-        }
-
-        if (selectedMeshNode) {
-          const nextMesh =
-            selectedFaces.length === 1
-              ? extrudeEditableMeshFace(selectedMeshNode.data, selectedFaces[0], action.amount)
-              : extrudeEditableMeshFaces(selectedMeshNode.data, selectedFaces, action.amount);
-
-          if (nextMesh) {
-            onUpdateMeshData(selectedMeshNode.id, nextMesh, selectedMeshNode.data);
-          }
-        }
-        return;
-      }
-
-      const selectedEdges = resolveSelectedEditableMeshEdgePairs();
-
-      if (selectedEdges.length !== 1) {
-        return;
-      }
-
-      const direction = action.direction ?? vec3(0, 0, 0);
-
-      if (selectedMeshNode) {
-        const nextMesh = extrudeEditableMeshEdge(selectedMeshNode.data, selectedEdges[0], action.amount, direction);
-
-        if (nextMesh) {
-          onUpdateMeshData(selectedMeshNode.id, nextMesh, selectedMeshNode.data);
-        }
-      } else if (editableMeshSource) {
-        const nextMesh = extrudeEditableMeshEdge(editableMeshSource, selectedEdges[0], action.amount, direction);
-
-        if (nextMesh) {
-          commitMeshTopology(nextMesh);
-        }
-      }
-      return;
-    }
-
-    if (meshEditMode !== action.mode) {
-      return;
-    }
-
-    const baselinePosition = selectedNode.transform.pivot
-      ?? (selectedMeshNode
-        ? computeMeshEditSelectionCenter(meshEditHandles, meshEditSelectionIds)
-        : selectedBrushNode
-          ? computeBrushEditSelectionCenter(brushEditHandles, brushEditHandleIds)
-          : vec3(0, 0, 0));
-    const baselineRotation =
-      selectedMeshNode
-        ? computeMeshEditSelectionOrientation(meshEditHandles, meshEditSelectionIds, meshEditMode)
-        : selectedBrushNode
-          ? computeBrushEditSelectionOrientation(brushEditHandles, brushEditHandleIds, meshEditMode)
-          : undefined;
-    const baselineTransform = {
-      position: vec3(baselinePosition.x, baselinePosition.y, baselinePosition.z),
-      rotation: baselineRotation ?? vec3(0, 0, 0),
-      scale: vec3(1, 1, 1)
-    };
-    const currentTransform = {
-      position: vec3(
-        baselinePosition.x + action.translation.x,
-        baselinePosition.y + action.translation.y,
-        baselinePosition.z + action.translation.z
-      ),
-      rotation: composeTransformRotation(
-        baselineTransform.rotation,
-        action.rotationDelta
-      ),
-      scale: vec3(action.scaleFactor.x, action.scaleFactor.y, action.scaleFactor.z)
-    };
-
-    if (selectedMeshNode && meshEditSelectionIds.length > 0) {
-      const nextMesh = applyMeshEditTransform(
-        selectedMeshNode.data,
-        meshEditMode,
-        meshEditSelectionIds,
-        baselineTransform,
-        currentTransform
-      );
-      onUpdateMeshData(selectedMeshNode.id, nextMesh, selectedMeshNode.data);
-      return;
-    }
-
-    if (selectedBrushNode && brushEditHandleIds.length > 0) {
-      const nextBrush = applyBrushEditTransform(
-        selectedBrushNode.data,
-        brushEditHandles,
-        brushEditHandleIds,
-        baselineTransform,
-        currentTransform,
-        snapSize
-      );
-
-      if (nextBrush) {
-        onUpdateBrushData(selectedBrushNode.id, nextBrush, selectedBrushNode.data);
-      }
-    }
-  };
-
-  const commitMeshTopology = (mesh: EditableMesh | undefined) => {
-    if (!selectedNode || !mesh) {
-      return;
-    }
-
-    onCommitMeshTopology(selectedNode.id, mesh);
-    clearSubobjectSelection();
-    setArcState(null);
-    setBevelState(null);
-    setFaceSubdivisionState(null);
-  };
-
-  const startArcOperation = () => {
-    if (!editableMeshSource || !cameraRef.current || !selectedNode || !pointerPositionRef.current) {
-      return;
-    }
-
-    const selectedEdges = resolveSelectedEditableMeshEdgePairs();
-
-    if (selectedEdges.length === 0) {
-      return;
-    }
-
-    const bounds = viewportRootRef.current?.getBoundingClientRect();
-
-    if (!bounds) {
-      return;
-    }
-
-    const selectedEdgeHandles = selectedEdges.flatMap((selectedEdge) => {
-      const handle = editableMeshHandles.find(
-        (candidate) =>
-          candidate.vertexIds.length === 2 &&
-          makeUndirectedPairKey(candidate.vertexIds as [string, string]) === makeUndirectedPairKey(selectedEdge)
-      );
-
-      return handle?.points && handle.points.length === 2
-        ? [handle as typeof handle & { points: [Vec3, Vec3] }]
-        : [];
-    });
-
-    if (selectedEdgeHandles.length !== selectedEdges.length) {
-      return;
-    }
-
-    const midpoints = selectedEdgeHandles.map((handle) => averageVec3(handle.points!));
-    const anchor = averageVec3(midpoints);
-    const averageAxis = normalizeVec3(
-      averageVec3(selectedEdgeHandles.map((handle) => normalizeVec3(subVec3(handle.points![1], handle.points![0]))))
-    );
-    const cameraDirection = cameraRef.current.getWorldDirection(new Vector3());
-    const dragPlane = new Plane().setFromNormalAndCoplanarPoint(
-      cameraDirection.clone().normalize(),
-      new Vector3(anchor.x, anchor.y, anchor.z)
-    );
-    const startPoint =
-      projectPointerToThreePlane(
-        pointerPositionRef.current.x + bounds.left,
-        pointerPositionRef.current.y + bounds.top,
-        bounds,
-        cameraRef.current,
-        raycasterRef.current,
-        dragPlane
-      ) ?? new Vector3(anchor.x, anchor.y, anchor.z);
-    const worldUp = vec3(0, 1, 0);
-    const yDragDirection = rejectVec3FromAxis(
-      worldUp,
-      vec3(cameraDirection.x, cameraDirection.y, cameraDirection.z)
-    );
-    const fallbackDirection = normalizeVec3(
-      crossVec3(
-        vec3(cameraDirection.x, cameraDirection.y, cameraDirection.z),
-        vec3LengthSquared(averageAxis) > 0.000001 ? averageAxis : vec3(0, 1, 0)
-      )
-    );
-
-    setArcState({
-      baseMesh: structuredClone(editableMeshSource),
-      dragDirection:
-        vec3LengthSquared(yDragDirection) > 0.000001 ? normalizeVec3(yDragDirection) : fallbackDirection,
-      dragPlane,
-      edges: selectedEdges,
-      offset: 0,
-      previewMesh: structuredClone(editableMeshSource),
-      segments: 4,
-      startPoint: vec3(startPoint.x, startPoint.y, startPoint.z)
-    });
-  };
-
-  const startBevelOperation = () => {
-    if (!editableMeshSource || !cameraRef.current || !selectedNode || !pointerPositionRef.current) {
-      return;
-    }
-
-    const selectedEdges = resolveSelectedEditableMeshEdgePairs();
-
-    if (selectedEdges.length === 0) {
-      return;
-    }
-
-    const bounds = viewportRootRef.current?.getBoundingClientRect();
-
-    if (!bounds) {
-      return;
-    }
-
-    const selectedEdgeHandles = selectedEdges.flatMap((selectedEdge) => {
-      const handle = editableMeshHandles.find(
-        (candidate) =>
-          candidate.vertexIds.length === 2 &&
-          makeUndirectedPairKey(candidate.vertexIds as [string, string]) === makeUndirectedPairKey(selectedEdge)
-      );
-
-      return handle?.points && handle.points.length === 2
-        ? [handle as typeof handle & { points: [Vec3, Vec3] }]
-        : [];
-    });
-
-    if (selectedEdgeHandles.length !== selectedEdges.length) {
-      return;
-    }
-
-    const midpoints = selectedEdgeHandles.map((handle) => averageVec3(handle.points!));
-    const anchor = averageVec3(midpoints);
-    const axes = selectedEdgeHandles.map((handle) => normalizeVec3(subVec3(handle.points![1], handle.points![0])));
-    const faceHandles = createMeshEditHandles(editableMeshSource, "face");
-    const faceDirections = selectedEdgeHandles
-      .flatMap((edgeHandle) => {
-        const midpoint = averageVec3(edgeHandle.points!);
-        const axis = normalizeVec3(subVec3(edgeHandle.points![1], edgeHandle.points![0]));
-
-        return faceHandles
-          .filter((handle) => edgeHandle.vertexIds.every((vertexId) => handle.vertexIds.includes(vertexId)))
-          .map((handle) => rejectVec3FromAxis(subVec3(handle.position, midpoint), axis));
-      })
-      .filter((direction) => vec3LengthSquared(direction) > 0.000001);
-    const averageAxis = normalizeVec3(averageVec3(axes));
-    const cameraDirection = cameraRef.current.getWorldDirection(new Vector3());
-    const dragPlane = new Plane().setFromNormalAndCoplanarPoint(
-      cameraDirection.clone().normalize(),
-      new Vector3(anchor.x, anchor.y, anchor.z)
-    );
-    const startPoint =
-      projectPointerToThreePlane(
-        pointerPositionRef.current.x + bounds.left,
-        pointerPositionRef.current.y + bounds.top,
-        bounds,
-        cameraRef.current,
-        raycasterRef.current,
-        dragPlane
-      ) ?? new Vector3(anchor.x, anchor.y, anchor.z);
-    const averagedFaceDirection = rejectVec3FromAxis(
-      normalizeVec3(averageVec3(faceDirections)),
-      vec3(cameraDirection.x, cameraDirection.y, cameraDirection.z)
-    );
-    const fallbackDirection = normalizeVec3(
-      crossVec3(
-        vec3(cameraDirection.x, cameraDirection.y, cameraDirection.z),
-        vec3LengthSquared(averageAxis) > 0.000001 ? averageAxis : vec3(0, 1, 0)
-      )
-    );
-
-    setBevelState({
-      baseMesh: structuredClone(editableMeshSource),
-      dragDirection:
-        vec3LengthSquared(averagedFaceDirection) > 0.000001 ? averagedFaceDirection : fallbackDirection,
-      dragPlane,
-      edges: selectedEdges,
-      profile: "flat",
-      previewMesh: structuredClone(editableMeshSource),
-      startPoint: vec3(startPoint.x, startPoint.y, startPoint.z),
-      steps: 1,
-      width: 0
-    });
-  };
-
-  const startExtrudeOperation = () => {
-    if (!cameraRef.current || !selectedNode || !pointerPositionRef.current) {
-      return;
-    }
-
-    const bounds = viewportRootRef.current?.getBoundingClientRect();
-
-    if (!bounds) {
-      return;
-    }
-
-    if (selectedBrushNode) {
-      if (meshEditMode === "vertex" || brushEditHandleIds.length !== 1) {
-        return;
-      }
-
-      const handle = createBrushExtrudeHandles(selectedBrushNode.data).find(
-        (candidate) => candidate.id === brushEditHandleIds[0]
-      );
-
-      if (!handle?.normal) {
-        return;
-      }
-
-      if (handle.kind === "edge") {
-        const baseMesh = convertBrushToEditableMesh(selectedBrushNode.data);
-
-        if (!baseMesh) {
-          return;
-        }
-
-        const editableEdgePair = findMatchingMeshEdgePair(createMeshEditHandles(baseMesh, "edge"), handle);
-
-        if (!editableEdgePair) {
-          return;
-        }
-
-        const meshHandle = createMeshExtrudeHandles(baseMesh).find(
-          (candidate) =>
-            candidate.kind === "edge" &&
-            makeUndirectedPairKey(candidate.vertexIds as [string, string]) === makeUndirectedPairKey(editableEdgePair)
-        );
-
-        if (!meshHandle) {
-          return;
-        }
-
-        const anchor = resolveExtrudeAnchor(meshHandle.position, meshHandle.normal, meshHandle.kind);
-        const dragPlane = createBrushCreateDragPlane(cameraRef.current, meshHandle.normal, anchor);
-        const startPoint =
-          projectPointerToThreePlane(
-            pointerPositionRef.current.x + bounds.left,
-            pointerPositionRef.current.y + bounds.top,
-            bounds,
-            cameraRef.current,
-            raycasterRef.current,
-            dragPlane
-          ) ?? new Vector3(anchor.x, anchor.y, anchor.z);
-
-        setExtrudeState({
-          amount: 0,
-          amountSign: 1,
-          baseBrush: structuredClone(selectedBrushNode.data),
-          baseMesh: structuredClone(baseMesh),
-          dragPlane,
-          handle: structuredClone(meshHandle),
-          kind: "brush-mesh",
-          nodeId: selectedBrushNode.id,
-          normal: vec3(meshHandle.normal.x, meshHandle.normal.y, meshHandle.normal.z),
-          previewMesh: structuredClone(baseMesh),
-          startPoint: vec3(startPoint.x, startPoint.y, startPoint.z)
-        });
-        return;
-      }
-
-      const interactionNormal = resolveExtrudeInteractionNormal(cameraRef.current, handle.normal, handle.kind);
-      const amountSign = resolveExtrudeAmountSign(interactionNormal, handle.normal, handle.kind);
-      const anchor = resolveExtrudeAnchor(handle.position, interactionNormal, handle.kind);
-      const dragPlane = createBrushCreateDragPlane(cameraRef.current, interactionNormal, anchor);
-      const startPoint =
-        projectPointerToThreePlane(
-          pointerPositionRef.current.x + bounds.left,
-          pointerPositionRef.current.y + bounds.top,
-          bounds,
-          cameraRef.current,
-          raycasterRef.current,
-          dragPlane
-        ) ?? new Vector3(anchor.x, anchor.y, anchor.z);
-
-      setExtrudeState({
-        amount: 0,
-        amountSign,
-        baseBrush: structuredClone(selectedBrushNode.data),
-        dragPlane,
-        handle: structuredClone(handle),
-        kind: "brush",
-        nodeId: selectedBrushNode.id,
-        normal: vec3(interactionNormal.x, interactionNormal.y, interactionNormal.z),
-        previewBrush: structuredClone(selectedBrushNode.data),
-        startPoint: vec3(startPoint.x, startPoint.y, startPoint.z)
-      });
-      return;
-    }
-
-    if (selectedMeshNode) {
-      if (meshEditSelectionIds.length === 0) {
-        return;
-      }
-
-      const selectedFaceIds = meshEditMode === "face" ? resolveSelectedEditableMeshFaceIds() : [];
-      const handles = createMeshExtrudeHandles(selectedMeshNode.data);
-      const handle =
-        meshEditMode === "face"
-          ? handles.find((candidate) => candidate.kind === "face" && candidate.id === selectedFaceIds[0])
-          : handles.find((candidate) => candidate.id === meshEditSelectionIds[0]);
-
-      if (!handle) {
-        return;
-      }
-
-      const resolvedNormal =
-        meshEditMode === "face" && selectedFaceIds.length > 1
-          ? normalizeVec3(
-              averageVec3(
-                handles
-                  .filter((candidate) => candidate.kind === "face" && selectedFaceIds.includes(candidate.id))
-                  .map((candidate) => candidate.normal)
-              )
-            )
-          : handle.normal;
-      const resolvedAnchor =
-        meshEditMode === "face" && selectedFaceIds.length > 1
-          ? averageVec3(
-              handles
-                .filter((candidate) => candidate.kind === "face" && selectedFaceIds.includes(candidate.id))
-                .map((candidate) => candidate.position)
-            )
-          : handle.position;
-      const baseNormal = vec3LengthSquared(resolvedNormal) > 0.000001 ? resolvedNormal : handle.normal;
-      const normal = resolveExtrudeInteractionNormal(cameraRef.current, baseNormal, handle.kind);
-      const amountSign = resolveExtrudeAmountSign(normal, handle.normal, handle.kind);
-
-      const anchor = resolveExtrudeAnchor(resolvedAnchor, normal, handle.kind);
-      const dragPlane = createBrushCreateDragPlane(cameraRef.current, normal, anchor);
-      const startPoint =
-        projectPointerToThreePlane(
-          pointerPositionRef.current.x + bounds.left,
-          pointerPositionRef.current.y + bounds.top,
-          bounds,
-          cameraRef.current,
-          raycasterRef.current,
-          dragPlane
-        ) ?? new Vector3(anchor.x, anchor.y, anchor.z);
-
-      setExtrudeState({
-        amount: 0,
-        amountSign,
-        baseMesh: structuredClone(selectedMeshNode.data),
-        dragPlane,
-        faceIds: meshEditMode === "face" ? selectedFaceIds : undefined,
-        handle: structuredClone(handle),
-        kind: "mesh",
-        nodeId: selectedMeshNode.id,
-        normal: vec3(normal.x, normal.y, normal.z),
-        previewMesh: structuredClone(selectedMeshNode.data),
-        startPoint: vec3(startPoint.x, startPoint.y, startPoint.z)
-      });
-    }
-  };
-
-  const runMeshEditToolbarAction = (action: MeshEditToolbarAction) => {
-    if (
-      activeToolId !== "mesh-edit" ||
-      !selectedNode ||
-      arcState ||
-      bevelState ||
-      extrudeState ||
-      faceCutState ||
-      faceSubdivisionState ||
-      materialPaintState?.dragging ||
-      sculptState?.dragging
-    ) {
-      return;
-    }
-
-    if (materialPaintState && action !== "paint-material" && action !== "erase-material") {
-      materialPaintStateRef.current = null;
-      setMaterialPaintState(null);
-    }
-
-    if (sculptState && action !== "inflate" && action !== "deflate" && action !== "smooth") {
-      sculptStateRef.current = null;
-      setSculptState(null);
-    }
-
-    switch (action) {
-      case "arc": {
-        if (meshEditMode === "edge") {
-          startArcOperation();
-        }
-        return;
-      }
-      case "bevel": {
-        if (meshEditMode === "edge") {
-          startBevelOperation();
-        }
-        return;
-      }
-      case "cut": {
-        if (meshEditMode === "face") {
-          startFaceCutOperation();
-          return;
-        }
-
-        if (meshEditMode === "edge") {
-          const selectedEdges = resolveSelectedEditableMeshEdgePairs();
-
-          if (selectedEdges.length === 2) {
-            commitMeshTopology(cutEditableMeshBetweenEdges(editableMeshSource ?? emptyEditableMesh(), selectedEdges));
-          }
-        }
-        return;
-      }
-      case "delete": {
-        if (meshEditMode === "face") {
-          const selectedFaces = resolveSelectedEditableMeshFaceIds();
-
-          if (selectedFaces.length > 0) {
-            commitMeshTopology(deleteEditableMeshFaces(editableMeshSource ?? emptyEditableMesh(), selectedFaces));
-          }
-        }
-        return;
-      }
-      case "extrude": {
-        if (meshEditMode !== "vertex") {
-          startExtrudeOperation();
-        }
-        return;
-      }
-      case "erase-material": {
-        startMaterialPaintMode("erase");
-        return;
-      }
-      case "fill-face": {
-        if (meshEditMode === "edge") {
-          const selectedEdges = resolveSelectedEditableMeshEdgePairs();
-
-          if (selectedEdges.length >= 3) {
-            commitMeshTopology(fillEditableMeshFaceFromEdges(editableMeshSource ?? emptyEditableMesh(), selectedEdges));
-          }
-          return;
-        }
-
-        if (meshEditMode === "vertex") {
-          const selectedVertices = resolveSelectedEditableMeshVertexIds();
-
-          if (selectedVertices.length >= 3) {
-            commitMeshTopology(fillEditableMeshFaceFromVertices(editableMeshSource ?? emptyEditableMesh(), selectedVertices));
-          }
-        }
-        return;
-      }
-      case "inflate": {
-        startSculptMode("inflate");
-        return;
-      }
-      case "invert-normals": {
-        if (meshEditMode === "face") {
-          const selectedFaces = resolveSelectedEditableMeshFaceIds();
-
-          if (selectedFaces.length > 0) {
-            commitMeshTopology(invertEditableMeshNormals(editableMeshSource ?? emptyEditableMesh(), selectedFaces));
-            return;
-          }
-        }
-
-        commitMeshTopology(invertEditableMeshNormals(editableMeshSource ?? emptyEditableMesh()));
-        return;
-      }
-      case "merge": {
-        if (meshEditMode === "face") {
-          const selectedFaces = resolveSelectedEditableMeshFaceIds();
-
-          if (selectedFaces.length > 1) {
-            commitMeshTopology(mergeEditableMeshFaces(editableMeshSource ?? emptyEditableMesh(), selectedFaces));
-          }
-          return;
-        }
-
-        if (meshEditMode === "edge") {
-          const selectedEdges = resolveSelectedEditableMeshEdgePairs();
-
-          if (selectedEdges.length > 0) {
-            commitMeshTopology(mergeEditableMeshEdges(editableMeshSource ?? emptyEditableMesh(), selectedEdges));
-          }
-          return;
-        }
-
-        if (meshEditMode === "vertex") {
-          const selectedVertices = resolveSelectedEditableMeshVertexIds();
-
-          if (selectedVertices.length > 1) {
-            commitMeshTopology(mergeEditableMeshVertices(editableMeshSource ?? emptyEditableMesh(), selectedVertices));
-          }
-        }
-        return;
-      }
-      case "paint-material": {
-        startMaterialPaintMode("paint");
-        return;
-      }
-      case "deflate": {
-        startSculptMode("deflate");
-        return;
-      }
-      case "smooth": {
-        startSculptMode("smooth");
-        return;
-      }
-      case "subdivide": {
-        if (meshEditMode === "face") {
-          startFaceSubdivisionOperation();
-        }
-        return;
-      }
-      default:
-        return;
-    }
-  };
-
-  useEffect(() => {
-    if (!meshEditToolbarAction) {
-      return;
-    }
-
-    runMeshEditToolbarAction(meshEditToolbarAction.kind);
-  }, [meshEditToolbarAction?.id]);
-
-  useEffect(() => {
-    setMaterialPaintState((current) =>
-      current
-        ? {
-            ...current,
-            materialId:
-              current.dragging || current.mode === "erase"
-                ? current.materialId
-                : selectedMaterialId,
-            opacity: materialPaintBrushOpacity,
-            radius: sculptBrushRadius,
-            strength: sculptBrushStrength,
-          }
-        : current
-    );
-  }, [materialPaintBrushOpacity, sculptBrushRadius, sculptBrushStrength, selectedMaterialId]);
-
-  useEffect(() => {
-    setSculptState((current) =>
-      current
-        ? {
-            ...current,
-            radius: sculptBrushRadius,
-            strength: sculptBrushStrength
-          }
-        : current
-    );
-  }, [sculptBrushRadius, sculptBrushStrength]);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (!instanceBrushState) {
-        return;
-      }
-
-      if (event.key === "Escape") {
-        event.preventDefault();
-        cancelInstanceBrushStroke(true);
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [instanceBrushState]);
-
-  useEffect(() => {
-    onMaterialPaintModeChange(materialPaintState?.mode ?? null);
-  }, [materialPaintState?.mode, onMaterialPaintModeChange]);
-
-  useEffect(() => {
-    onSculptModeChange(sculptState?.mode ?? null);
-  }, [onSculptModeChange, sculptState?.mode]);
-
-  // Live sculpt preview: patch positions directly on the scene geometry so the actual
-  // material and lighting are visible throughout the stroke (no blue overlay mesh).
-  useEffect(() => {
-    if (!sculptState?.dragging || !sculptState.previewMesh || !sculptState.beforeMesh) {
-      // Stroke ended (commit or cancel) — reset positions to pre-stroke state and clear cache.
-      if (sculptBeforeMeshRef.current && sculptVertexMapRef.current) {
-        const nodeId = sculptStateRef.current?.nodeId;
-        patchSculptScenePositions(
-          sculptBeforeMeshRef.current,
-          sculptVertexMapRef.current,
-          nodeId ? meshObjectsRef.current.get(nodeId) : undefined
-        );
-      }
-      sculptVertexMapRef.current = null;
-      sculptBeforeMeshRef.current = null;
-      return;
-    }
-
-    // Build vertex → render-index mapping once per stroke from the committed before-mesh.
-    if (!sculptVertexMapRef.current) {
-      sculptVertexMapRef.current = buildSculptVertexRenderMap(sculptState.beforeMesh);
-      sculptBeforeMeshRef.current = sculptState.beforeMesh;
-    }
-
-    patchSculptScenePositions(
-      sculptState.previewMesh,
-      sculptVertexMapRef.current,
-      meshObjectsRef.current.get(sculptState.nodeId)
-    );
-  }, [sculptState?.previewMesh, sculptState?.dragging]);
-
-  useEffect(() => {
-    if (materialPaintState?.dragging) {
-      queueMaterialPaintStrokeFrame();
-      return;
-    }
-
-    stopMaterialPaintStrokeLoop();
-  }, [materialPaintState?.dragging]);
-
-  useEffect(() => {
-    if (sculptState?.dragging) {
-      queueSculptStrokeFrame();
-      return;
-    }
-
-    stopSculptStrokeLoop();
-  }, [sculptState?.dragging]);
-
-  useEffect(() => {
-    const handleWheel = (event: WheelEvent) => {
-      if (!arcState) {
-        return;
-      }
-
-      event.preventDefault();
-      setArcState((current) =>
-        current
-          ? {
-              ...current,
-              previewMesh:
-                arcEditableMeshEdges(
-                  current.baseMesh,
-                  current.edges,
-                  current.offset,
-                  Math.max(2, current.segments + (event.deltaY < 0 ? 1 : -1)),
-                  current.dragDirection
-                ) ?? current.previewMesh,
-              segments: Math.max(2, current.segments + (event.deltaY < 0 ? 1 : -1))
-            }
-          : current
-      );
-    };
-
-    window.addEventListener("wheel", handleWheel, { passive: false });
-
-    return () => {
-      window.removeEventListener("wheel", handleWheel);
-    };
-  }, [arcState]);
-
-  useEffect(() => {
-    const handleWheel = (event: WheelEvent) => {
-      if (!bevelState) {
-        return;
-      }
-
-      event.preventDefault();
-      setBevelState((current) =>
-        current
-          ? {
-              ...current,
-              previewMesh:
-                bevelEditableMeshEdges(
-                  current.baseMesh,
-                  current.edges,
-                  current.width,
-                  Math.max(1, current.steps + (event.deltaY < 0 ? 1 : -1)),
-                  current.profile
-                ) ?? current.previewMesh,
-              steps: Math.max(1, current.steps + (event.deltaY < 0 ? 1 : -1))
-            }
-          : current
-      );
-    };
-
-    window.addEventListener("wheel", handleWheel, { passive: false });
-
-    return () => {
-      window.removeEventListener("wheel", handleWheel);
-    };
-  }, [bevelState]);
-
-  useEffect(() => {
-    const handleWheel = (event: WheelEvent) => {
-      if (!faceSubdivisionState) {
-        return;
-      }
-
-      event.preventDefault();
-      setFaceSubdivisionState((current) => {
-        if (!current) {
-          return current;
-        }
-
-        const nextCuts = Math.max(1, current.cuts + (event.deltaY < 0 ? 1 : -1));
-
-        return {
-          ...current,
-          cuts: nextCuts
-        };
-      });
-    };
-
-    window.addEventListener("wheel", handleWheel, { passive: false });
-
-    return () => {
-      window.removeEventListener("wheel", handleWheel);
-    };
-  }, [faceSubdivisionState]);
-
-  useEffect(() => {
-    if (!faceSubdivisionState) {
-      return;
-    }
-
-    setCameraControlsEnabled(false);
-
-    return () => {
-      setCameraControlsEnabled(true);
-    };
-  }, [faceSubdivisionState]);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (activeToolId !== "mesh-edit" || !selectedNode) {
-        return;
-      }
-
-      const modifier = event.metaKey || event.ctrlKey;
-
-      if (event.shiftKey && event.key.toLowerCase() === "g") {
-        event.preventDefault();
-        repeatLastMeshEditAction();
-        return;
-      }
-
-      if (modifier && event.key.toLowerCase() === "p") {
-        event.preventDefault();
-
-        if (event.shiftKey) {
-          updateSelectedNodePivot(undefined);
-          return;
-        }
-
-        const nextPivot =
-          selectedMeshNode && meshEditSelectionIds.length > 0
-            ? computeMeshEditSelectionCenter(meshEditHandles, meshEditSelectionIds)
-            : selectedBrushNode && brushEditHandleIds.length > 0
-              ? computeBrushEditSelectionCenter(brushEditHandles, brushEditHandleIds)
-              : undefined;
-
-        if (nextPivot) {
-          updateSelectedNodePivot(nextPivot);
-        }
-        return;
-      }
-
-      if (materialPaintState) {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          cancelMaterialPaintStroke(!materialPaintState.dragging);
-        }
-        return;
-      }
-
-      if (sculptState) {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          cancelSculptStroke(!sculptState.dragging);
-        }
-        return;
-      }
-
-      if (extrudeState) {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          cancelExtrudePreview();
-        } else if (event.key.toLowerCase() === "x") {
-          event.preventDefault();
-          updateExtrudeAxisLock("x");
-        } else if (event.key.toLowerCase() === "y") {
-          event.preventDefault();
-          updateExtrudeAxisLock("y");
-        } else if (event.key.toLowerCase() === "z") {
-          event.preventDefault();
-          updateExtrudeAxisLock("z");
-        }
-        return;
-      }
-
-      if (faceCutState) {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          setFaceCutState(null);
-        }
-        return;
-      }
-
-      if (faceSubdivisionState) {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          setFaceSubdivisionState(null);
-        }
-        return;
-      }
-
-      if (arcState) {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          setArcState(null);
-          setTransformDragging(false);
-        }
-        return;
-      }
-
-      if (bevelState) {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          setBevelState(null);
-          setTransformDragging(false);
-        } else if (event.key.toLowerCase() === "f") {
-          event.preventDefault();
-          setBevelState((current) =>
-            current
-              ? {
-                  ...current,
-                  previewMesh:
-                    bevelEditableMeshEdges(
-                      current.baseMesh,
-                      current.edges,
-                      current.width,
-                      current.steps,
-                      current.profile === "flat" ? "round" : "flat"
-                    ) ?? current.previewMesh,
-                  profile: current.profile === "flat" ? "round" : "flat"
-                }
-              : current
-          );
-        }
-        return;
-      }
-
-      if ((event.key === "Delete" || event.key === "Backspace") && meshEditMode === "face") {
-        event.preventDefault();
-        runMeshEditToolbarAction("delete");
-        return;
-      }
-
-      if (event.key.toLowerCase() === "m" && meshEditMode === "face") {
-        event.preventDefault();
-        runMeshEditToolbarAction("merge");
-        return;
-      }
-
-      if (event.shiftKey && event.key.toLowerCase() === "k" && meshEditMode === "face") {
-        event.preventDefault();
-        runMeshEditToolbarAction("cut");
-        return;
-      }
-
-      if (!event.shiftKey && event.key.toLowerCase() === "d" && meshEditMode === "face") {
-        event.preventDefault();
-        runMeshEditToolbarAction("subdivide");
-        return;
-      }
-
-      if (!event.shiftKey && event.key.toLowerCase() === "k" && meshEditMode === "edge") {
-        event.preventDefault();
-        runMeshEditToolbarAction("cut");
-        return;
-      }
-
-      if (event.shiftKey && event.key.toLowerCase() === "f") {
-        event.preventDefault();
-        runMeshEditToolbarAction("fill-face");
-        return;
-      }
-
-      if (!event.shiftKey && event.key.toLowerCase() === "a" && meshEditMode === "edge") {
-        event.preventDefault();
-        runMeshEditToolbarAction("arc");
-        return;
-      }
-
-      if (event.key.toLowerCase() === "b" && meshEditMode === "edge") {
-        event.preventDefault();
-        runMeshEditToolbarAction("bevel");
-        return;
-      }
-
-      if (event.key.toLowerCase() === "x" && meshEditMode !== "vertex") {
-        event.preventDefault();
-        runMeshEditToolbarAction("extrude");
-        return;
-      }
-
-      if (event.key.toLowerCase() === "n") {
-        event.preventDefault();
-        runMeshEditToolbarAction("invert-normals");
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [
-    activeToolId,
-    arcState,
-    bevelState,
-    brushEditHandleIds,
-    brushEditHandles,
-    editableMeshHandles,
-    editableMeshSource,
-    extrudeState,
-    faceCutState,
-    faceSubdivisionState,
-    meshEditHandles,
-    meshEditMode,
-    meshEditSelectionIds,
-    sculptState,
-    selectedBrushNode,
-    selectedMeshNode,
-    selectedNode
-  ]);
-
-  const updateArcPreview = (clientX: number, clientY: number, bounds: DOMRect) => {
-    if (!cameraRef.current || !arcState) {
-      return;
-    }
-
-    const point = projectPointerToThreePlane(
-      clientX,
-      clientY,
-      bounds,
-      cameraRef.current,
-      raycasterRef.current,
-      arcState.dragPlane
-    );
-
-    if (!point) {
-      return;
-    }
-
-    const offset =
-      (point.x - arcState.startPoint.x) * arcState.dragDirection.x +
-      (point.y - arcState.startPoint.y) * arcState.dragDirection.y +
-      (point.z - arcState.startPoint.z) * arcState.dragDirection.z;
-
-    setArcState((currentState) => {
-      if (!currentState) {
-        return currentState;
-      }
-
-      const previewMesh =
-        arcEditableMeshEdges(
-          currentState.baseMesh,
-          currentState.edges,
-          offset,
-          currentState.segments,
-          currentState.dragDirection
-        ) ?? currentState.previewMesh;
-
-      return {
-        ...currentState,
-        offset,
-        previewMesh
-      };
-    });
-  };
-
-  const commitArcPreview = () => {
-    if (!arcState) {
-      return;
-    }
-
-    if (Math.abs(arcState.offset) <= 0.0001) {
-      setArcState(null);
-      setTransformDragging(false);
-      return;
-    }
-
-    setArcState(null);
-    setTransformDragging(false);
-    commitMeshTopology(arcState.previewMesh);
-  };
-
-  const updateBevelPreview = (clientX: number, clientY: number, bounds: DOMRect) => {
-    if (!cameraRef.current || !bevelState) {
-      return;
-    }
-
-    const point = projectPointerToThreePlane(
-      clientX,
-      clientY,
-      bounds,
-      cameraRef.current,
-      raycasterRef.current,
-      bevelState.dragPlane
-    );
-
-    if (!point) {
-      return;
-    }
-
-    const width =
-      (point.x - bevelState.startPoint.x) * bevelState.dragDirection.x +
-      (point.y - bevelState.startPoint.y) * bevelState.dragDirection.y +
-      (point.z - bevelState.startPoint.z) * bevelState.dragDirection.z;
-
-    setBevelState((currentState) => {
-      if (!currentState) {
-        return currentState;
-      }
-
-      const previewMesh =
-        bevelEditableMeshEdges(
-          currentState.baseMesh,
-          currentState.edges,
-          width,
-          currentState.steps,
-          currentState.profile
-        ) ?? currentState.previewMesh;
-
-      return {
-        ...currentState,
-        previewMesh,
-        width
-      };
-    });
-  };
-
-  const commitBevelPreview = () => {
-    if (!bevelState) {
-      return;
-    }
-
-    if (Math.abs(bevelState.width) <= 0.0001) {
-      setBevelState(null);
-      setTransformDragging(false);
-      return;
-    }
-
-    setBevelState(null);
-    setTransformDragging(false);
-    commitMeshTopology(bevelState.previewMesh);
-  };
-
-  function buildExtrudePreviewState(state: ExtrudeGestureState, amount: number): ExtrudeGestureState {
-    const appliedAmount = amount * state.amountSign;
-
-    if (state.kind === "brush") {
-      const previewBrush =
-        extrudeBrushHandle(
-          state.baseBrush,
-          state.handle,
-          appliedAmount,
-          resolveExtrudeDirection(state)
-        ) ?? state.baseBrush;
-      onPreviewBrushData(state.nodeId, previewBrush);
-
-      return {
-        ...state,
-        amount,
-        previewBrush
-      };
-    }
-
-    const previewMesh =
-      state.handle.kind === "face"
-        ? (
-            state.faceIds && state.faceIds.length > 1
-              ? extrudeEditableMeshFaces(state.baseMesh, state.faceIds, appliedAmount)
-              : extrudeEditableMeshFace(state.baseMesh, state.handle.id, appliedAmount)
-          ) ?? state.baseMesh
-        : extrudeEditableMeshEdge(
-            state.baseMesh,
-            state.handle.vertexIds as [string, string],
-            appliedAmount,
-            resolveExtrudeDirection(state)
-          ) ?? state.baseMesh;
-
-    return {
-      ...state,
-      amount,
-      previewMesh
-    };
-  }
-
-  function updateExtrudePreview(
-    clientX: number,
-    clientY: number,
-    bounds: DOMRect,
-    stateOverride?: ExtrudeGestureState
-  ) {
-    const currentExtrudeState = stateOverride ?? extrudeStateRef.current;
-
-    if (!cameraRef.current || !currentExtrudeState) {
-      return;
-    }
-
-    const point = projectPointerToThreePlane(
-      clientX,
-      clientY,
-      bounds,
-      cameraRef.current,
-      raycasterRef.current,
-      currentExtrudeState.dragPlane
-    );
-
-    if (!point) {
-      return;
-    }
-
-    const effectiveNormal = resolveExtrudeDirection(currentExtrudeState);
-    const extrusionNormal = new Vector3(
-      effectiveNormal.x,
-      effectiveNormal.y,
-      effectiveNormal.z
-    ).normalize();
-    const amount =
-      Math.round(
-        point
-          .clone()
-          .sub(new Vector3(currentExtrudeState.startPoint.x, currentExtrudeState.startPoint.y, currentExtrudeState.startPoint.z))
-          .dot(extrusionNormal) / snapSize
-      ) * snapSize;
-
-    const nextState = buildExtrudePreviewState(currentExtrudeState, amount);
-    extrudeStateRef.current = nextState;
-    setExtrudeState(nextState);
-  }
-
-  function cancelExtrudePreview() {
-    if (!extrudeState) {
-      return;
-    }
-
-    if (extrudeState.kind === "brush") {
-      onPreviewBrushData(extrudeState.nodeId, extrudeState.baseBrush);
-    }
-
-    extrudeStateRef.current = null;
-    setExtrudeState(null);
-    setTransformDragging(false);
-  }
-
-  function commitExtrudePreview() {
-    if (!extrudeState) {
-      return;
-    }
-
-    if (Math.abs(extrudeState.amount) <= 0.0001) {
-      cancelExtrudePreview();
-      return;
-    }
-
-    lastMeshEditActionRef.current = {
-      amount: extrudeState.amount * extrudeState.amountSign,
-      direction: extrudeState.handle.kind === "edge" ? resolveExtrudeDirection(extrudeState) : undefined,
-      handleKind: extrudeState.handle.kind,
-      kind: "extrude"
-    };
-
-    if (extrudeState.kind === "brush") {
-      onUpdateBrushData(extrudeState.nodeId, extrudeState.previewBrush, extrudeState.baseBrush);
-    } else if (extrudeState.kind === "mesh") {
-      onUpdateMeshData(extrudeState.nodeId, extrudeState.previewMesh, extrudeState.baseMesh);
-    } else {
-      commitMeshTopology(extrudeState.previewMesh);
-    }
-
-    extrudeStateRef.current = null;
-    setExtrudeState(null);
-    setTransformDragging(false);
-  }
-
-  function updateExtrudeAxisLock(axisLock?: "x" | "y" | "z") {
-    if (!extrudeStateRef.current || !cameraRef.current) {
-      return;
-    }
-
-    if (extrudeStateRef.current.handle.kind === "face") {
-      return;
-    }
-
-    const bounds = viewportRootRef.current?.getBoundingClientRect();
-    const pointer = pointerPositionRef.current;
-
-    if (!bounds || !pointer) {
-      const currentState = extrudeStateRef.current;
-
-      if (!currentState) {
-        return;
-      }
-
-      const nextState = {
-        ...currentState,
-        axisLock
-      };
-      extrudeStateRef.current = nextState;
-      setExtrudeState(nextState);
-      return;
-    }
-
-    const currentState = extrudeStateRef.current;
-
-    if (!currentState) {
-      return;
-    }
-
-    const nextState = {
-      ...currentState,
-      axisLock
-    };
-    const nextDirection = resolveExtrudeDirection(nextState);
-    const nextDragPlane = createBrushCreateDragPlane(
-      cameraRef.current!,
-      nextDirection,
-      resolveExtrudeAnchor(nextState.handle.position, nextDirection, nextState.handle.kind)
-    );
-    const point = projectPointerToThreePlane(
-      pointer.x + bounds.left,
-      pointer.y + bounds.top,
-      bounds,
-      cameraRef.current!,
-      raycasterRef.current,
-      nextDragPlane
-    );
-    const nextStateWithPlane = point
-      ? {
-          ...nextState,
-          dragPlane: nextDragPlane,
-          startPoint: vec3(
-            point.x - nextDirection.x * nextState.amount,
-            point.y - nextDirection.y * nextState.amount,
-            point.z - nextDirection.z * nextState.amount
-          )
-        }
-      : {
-          ...nextState,
-          dragPlane: nextDragPlane
-        };
-
-    extrudeStateRef.current = nextStateWithPlane;
-    setExtrudeState(nextStateWithPlane);
-    updateExtrudePreview(pointer.x + bounds.left, pointer.y + bounds.top, bounds, nextStateWithPlane);
-  }
 
   const updateBrushCreatePreview = (clientX: number, clientY: number, bounds: DOMRect) => {
     if (!cameraRef.current || !brushCreateState) {
@@ -3439,491 +1142,88 @@ export function ViewportCanvas({
     );
   };
 
-  const handlePointerDown: PointerEventHandler<HTMLDivElement> = (event) => {
-    onActivateViewport(viewportId);
-
-    if (!editorInteractionEnabled) {
-      return;
-    }
-
-    const bounds = event.currentTarget.getBoundingClientRect();
-    pointerPositionRef.current = new Vector2(event.clientX - bounds.left, event.clientY - bounds.top);
-    allowPointerClickSelectionRef.current = event.button === 0;
-    selectionClickOriginRef.current =
-      event.button === 0
-        ? new Vector2(event.clientX - bounds.left, event.clientY - bounds.top)
-        : null;
-
-    if (
-      extrudeState ||
-      arcState ||
-      bevelState ||
-      faceCutState ||
-      faceSubdivisionState ||
-      materialPaintState?.dragging ||
-      sculptState?.dragging ||
-      instanceBrushState?.dragging
-    ) {
-      return;
-    }
-
-    if (aiModelPlacementArmed && event.button === 0 && !event.shiftKey) {
-      aiPlacementClickOriginRef.current = new Vector2(event.clientX - bounds.left, event.clientY - bounds.top);
-      return;
-    }
-
-    if (activeToolId === "brush" && brushToolMode === "instance" && event.button === 0 && !event.shiftKey) {
-      beginInstanceBrushStroke(bounds, event.clientX, event.clientY);
-      return;
-    }
-
-    if (activeToolId === "brush" && brushToolMode === "create" && event.button === 0 && !event.shiftKey) {
-      brushClickOriginRef.current = new Vector2(event.clientX - bounds.left, event.clientY - bounds.top);
-      return;
-    }
-
-    if ((activeToolId === "path-add" || activeToolId === "path-edit") && event.button === 0 && !event.shiftKey) {
-      pathToolClickOriginRef.current = new Vector2(event.clientX - bounds.left, event.clientY - bounds.top);
-
-      if (activeToolId === "path-edit") {
-        const pointHit = resolvePathPointHit(bounds, event.clientX, event.clientY);
-        const pathPoint = pointHit
-          ? pathDefinitions.find((pathDefinition) => pathDefinition.id === pointHit.pathId)?.points[pointHit.pointIndex]
-          : undefined;
-
-        if (pointHit && pathPoint) {
-          startPathPointDrag(pointHit.pathId, pointHit.pointIndex, pathPoint);
-        }
-      }
-
-      return;
-    }
-
-    if (activeToolId === "mesh-edit" && materialPaintState && selectedMeshNode && event.button === 0 && !event.shiftKey) {
-      if (beginMaterialPaintStroke(bounds, event.clientX, event.clientY)) {
-        return;
-      }
-    }
-
-    if (activeToolId === "mesh-edit" && sculptState && selectedMeshNode && event.button === 0 && !event.shiftKey) {
-      if (beginSculptStroke(bounds, event.clientX, event.clientY)) {
-        return;
-      }
-    }
-
-    if (event.button !== 0 || !event.shiftKey) {
-      return;
-    }
-
-    marqueeOriginRef.current = new Vector2(event.clientX - bounds.left, event.clientY - bounds.top);
-  };
-
-  const handlePointerMove: PointerEventHandler<HTMLDivElement> = (event) => {
-    if (!editorInteractionEnabled) {
-      return;
-    }
-
-    const bounds = event.currentTarget.getBoundingClientRect();
-    pointerPositionRef.current = new Vector2(event.clientX - bounds.left, event.clientY - bounds.top);
-
-    if (
-      allowPointerClickSelectionRef.current &&
-      selectionClickOriginRef.current &&
-      pointerPositionRef.current.distanceTo(selectionClickOriginRef.current) > CLICK_SELECTION_THRESHOLD_PX
-    ) {
-      allowPointerClickSelectionRef.current = false;
-    }
-
-    if (extrudeState) {
-      queuePreviewUpdate("extrude", event.clientX, event.clientY, bounds);
-      return;
-    }
-
-    if (materialPaintState) {
-      if (materialPaintState.dragging) {
-        return;
-      }
-
-      queuePreviewUpdate("material-paint", event.clientX, event.clientY, bounds);
-      return;
-    }
-
-    if (sculptState) {
-      if (sculptState.dragging) {
-        return;
-      }
-
-      queuePreviewUpdate("sculpt", event.clientX, event.clientY, bounds);
-      return;
-    }
-
-    if (arcState) {
-      queuePreviewUpdate("arc", event.clientX, event.clientY, bounds);
-      return;
-    }
-
-    if (faceCutState) {
-      return;
-    }
-
-    if (faceSubdivisionState) {
-      return;
-    }
-
-    if (bevelState) {
-      queuePreviewUpdate("bevel", event.clientX, event.clientY, bounds);
-      return;
-    }
-
-    if (activeToolId === "brush" && brushToolMode === "instance") {
-      updateInstanceBrushStroke(bounds, event.clientX, event.clientY);
-      return;
-    }
-
-    if (activeToolId === "brush") {
-      if (brushCreateState) {
-        updateBrushCreatePreview(event.clientX, event.clientY, bounds);
-      }
-      return;
-    }
-
-    if (pathDragState) {
-      updatePathPreviewPoint(pathDragState, event.clientX, event.clientY, bounds);
-      return;
-    }
-
-    if (activeToolId === "path-add" || activeToolId === "path-edit") {
-      return;
-    }
-
-    if (!marqueeOriginRef.current) {
-      return;
-    }
-
-    const point = new Vector2(event.clientX - bounds.left, event.clientY - bounds.top);
-    const origin = marqueeOriginRef.current;
-
-    if (!marquee && point.distanceTo(origin) < 4) {
-      return;
-    }
-
-    setMarquee({
-      active: true,
-      current: point,
-      origin
-    });
-  };
-
-  const queuePreviewUpdate = (
-    kind: "arc" | "bevel" | "extrude" | "material-paint" | "sculpt",
-    clientX: number,
-    clientY: number,
-    bounds: DOMRect
-  ) => {
-    pendingPreviewUpdateRef.current = {
-      bounds,
-      clientX,
-      clientY,
-      kind
-    };
-
-    if (previewFrameRef.current !== null) {
-      return;
-    }
-
-    previewFrameRef.current = requestAnimationFrame(() => {
-      previewFrameRef.current = null;
-      const pending = pendingPreviewUpdateRef.current;
-      pendingPreviewUpdateRef.current = null;
-
-      if (!pending) {
-        return;
-      }
-
-      switch (pending.kind) {
-        case "extrude":
-          updateExtrudePreview(pending.clientX, pending.clientY, pending.bounds);
-          return;
-        case "material-paint":
-          updateMaterialPaintStroke(pending.bounds, pending.clientX, pending.clientY);
-          return;
-        case "sculpt":
-          updateSculptStroke(pending.bounds, pending.clientX, pending.clientY);
-          return;
-        case "arc":
-          updateArcPreview(pending.clientX, pending.clientY, pending.bounds);
-          return;
-        case "bevel":
-          updateBevelPreview(pending.clientX, pending.clientY, pending.bounds);
-          return;
-      }
-    });
-  };
-
-  const handlePointerUp: PointerEventHandler<HTMLDivElement> = (event) => {
-    if (!editorInteractionEnabled) {
-      return;
-    }
-
-    if (typeof window !== "undefined") {
-      window.requestAnimationFrame(() => {
-        allowPointerClickSelectionRef.current = false;
-      });
-    }
-
-    if (transformDraggingRef.current || suppressSelectionAfterTransformRef.current) {
-      selectionClickOriginRef.current = null;
-      marqueeOriginRef.current = null;
-      return;
-    }
-
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const point = new Vector2(event.clientX - bounds.left, event.clientY - bounds.top);
-    pointerPositionRef.current = point;
-
-    if (extrudeState) {
-      if (event.button === 0) {
-        commitExtrudePreview();
-      }
-      return;
-    }
-
-    if (materialPaintState?.dragging) {
-      if (event.button === 0) {
-        commitMaterialPaintStroke();
-      }
-      return;
-    }
-
-    if (sculptState?.dragging) {
-      if (event.button === 0) {
-        commitSculptStroke();
-      }
-      return;
-    }
-
-    if (instanceBrushState?.dragging) {
-      if (event.button === 0) {
-        commitInstanceBrushStroke();
-      }
-      return;
-    }
-
-    if (arcState) {
-      if (event.button === 0) {
-        commitArcPreview();
-      }
-      return;
-    }
-
-    if (faceCutState) {
-      return;
-    }
-
-    if (faceSubdivisionState) {
-      return;
-    }
-
-    if (bevelState) {
-      if (event.button === 0) {
-        commitBevelPreview();
-      }
-      return;
-    }
-
-    if (pathDragState) {
-      if (event.button === 0) {
-        pathToolClickOriginRef.current = null;
-        commitPathPreview(pathDragState);
-      }
-      return;
-    }
-
-    if (aiModelPlacementArmed) {
-      const origin = aiPlacementClickOriginRef.current;
-      aiPlacementClickOriginRef.current = null;
-
-      if (!origin) {
-        return;
-      }
-
-      const point = new Vector2(event.clientX - bounds.left, event.clientY - bounds.top);
-
-      if (point.distanceTo(origin) > 4) {
-        return;
-      }
-
-      handleAiModelPlacementClick(event.clientX, event.clientY, bounds);
-      return;
-    }
-
-    if (activeToolId === "brush" && brushToolMode === "instance") {
-      return;
-    }
-
-    if (activeToolId === "brush") {
-      const origin = brushClickOriginRef.current;
-      brushClickOriginRef.current = null;
-
-      if (!origin) {
-        return;
-      }
-
-      const point = new Vector2(event.clientX - bounds.left, event.clientY - bounds.top);
-
-      if (point.distanceTo(origin) > 4) {
-        return;
-      }
-
-      handleBrushCreateClick(event.clientX, event.clientY, bounds);
-      return;
-    }
-
-    if (activeToolId === "path-add" || activeToolId === "path-edit") {
-      const origin = pathToolClickOriginRef.current;
-      pathToolClickOriginRef.current = null;
-
-      if (!origin) {
-        return;
-      }
-
-      const point = new Vector2(event.clientX - bounds.left, event.clientY - bounds.top);
-
-      if (point.distanceTo(origin) > 4) {
-        return;
-      }
-
-      if (activeToolId === "path-add") {
-        handlePathAddClick(bounds, event.clientX, event.clientY);
-      } else {
-        handlePathEditClick(bounds, event.clientX, event.clientY);
-      }
-      return;
-    }
-
-    const selectionOrigin = selectionClickOriginRef.current;
-    selectionClickOriginRef.current = null;
-    const clickOrigin = selectionOrigin ?? marqueeOriginRef.current;
-
-    if (
-      activeToolId === "mesh-edit" &&
-      meshEditMode === "vertex" &&
-      event.button === 0 &&
-      clickOrigin &&
-      point.distanceTo(clickOrigin) <= CLICK_SELECTION_THRESHOLD_PX
-    ) {
-      const vertexHandleHit = resolveMeshEditVertexHandleHit(bounds, event.clientX, event.clientY);
-
-      if (vertexHandleHit) {
-        marqueeOriginRef.current = null;
-        setMarquee(null);
-
-        if (selectedBrushNode) {
-          setBrushEditHandleIds(resolveSubobjectSelection(brushEditHandleIds, vertexHandleHit.id, event.shiftKey));
-        } else {
-          setMeshEditSelectionIds(resolveSubobjectSelection(meshEditSelectionIds, vertexHandleHit.id, event.shiftKey));
-        }
-
-        return;
-      }
-    }
-
-    if (
-      activeToolId === "mesh-edit" &&
-      meshEditMode === "edge" &&
-      event.button === 0 &&
-      !event.altKey &&
-      clickOrigin &&
-      point.distanceTo(clickOrigin) <= CLICK_SELECTION_THRESHOLD_PX
-    ) {
-      const edgeHandleHit = resolveMeshEditEdgeHandleHit(bounds, event.clientX, event.clientY);
-
-      if (edgeHandleHit) {
-        marqueeOriginRef.current = null;
-        setMarquee(null);
-
-        if (selectedBrushNode) {
-          setBrushEditHandleIds(resolveSubobjectSelection(brushEditHandleIds, edgeHandleHit.id, event.shiftKey));
-        } else {
-          setMeshEditSelectionIds(resolveSubobjectSelection(meshEditSelectionIds, edgeHandleHit.id, event.shiftKey));
-        }
-
-        return;
-      }
-    }
-
-    if (
-      viewport.projection === "orthographic" &&
-      activeToolId !== "mesh-edit" &&
-      event.button === 0 &&
-      !event.shiftKey &&
-      selectionOrigin &&
-      point.distanceTo(selectionOrigin) <= CLICK_SELECTION_THRESHOLD_PX
-    ) {
-      selectNodesAlongRay(bounds, event.clientX, event.clientY);
-      return;
-    }
-
-    if (!marqueeOriginRef.current) {
-      return;
-    }
-
-    const origin = marqueeOriginRef.current;
-    marqueeOriginRef.current = null;
-
-    if (!marquee) {
-      return;
-    }
-
-    const finalMarquee = {
-      ...marquee,
-      current: point,
-      origin
-    };
-
-    setMarquee(null);
-
-    if (!cameraRef.current) {
-      return;
-    }
-
-    const selectionRect = createScreenRect(finalMarquee.origin, finalMarquee.current);
-
-    if (selectionRect.width < 4 && selectionRect.height < 4) {
-      return;
-    }
-
-    if (activeToolId === "mesh-edit" && selectedDisplayNode) {
-      const handleSelections = (selectedBrushNode ? brushEditHandles : meshEditHandles)
-        .filter((handle) =>
-          rectContainsPoint(
-            selectionRect,
-            projectLocalPointToScreen(handle.position, selectedDisplayNode, cameraRef.current!, bounds)
-          )
-        )
-        .map((handle) => handle.id);
-
-      if (handleSelections.length > 0) {
-        if (selectedBrushNode) {
-          setBrushEditHandleIds(handleSelections);
-        } else {
-          setMeshEditSelectionIds(handleSelections);
-        }
-        return;
-      }
-    }
-
-    const selectedIds = Array.from(meshObjectsRef.current.entries())
-      .filter(([, object]) => intersectsSelectionRect(object, cameraRef.current!, bounds, selectionRect))
-      .map(([nodeId]) => nodeId);
-
-    if (selectedIds.length > 0) {
-      onSelectNodes(selectedIds);
-      return;
-    }
-
-    onClearSelection();
-  };
+  const {
+    handlePointerDownCapture,
+    handlePointerDown,
+    handlePointerMove,
+    handlePointerUp
+  } = useViewportPointerRouter({
+    activeToolId,
+    aiModelPlacementArmed,
+    aiPlacementClickOriginRef,
+    allowPointerClickSelectionRef,
+    arcState,
+    beginInstanceBrushStroke,
+    beginMaterialPaintStroke,
+    beginSculptStroke,
+    bevelState,
+    brushClickOriginRef,
+    brushCreateState,
+    brushEditHandleIds,
+    brushToolMode,
+    commitArcPreview,
+    commitBevelPreview,
+    commitExtrudePreview,
+    commitInstanceBrushStroke,
+    commitMaterialPaintStroke,
+    commitPathPreview,
+    commitSculptStroke,
+    editorInteractionEnabled,
+    eventBlockers: {
+      faceCutState,
+      faceSubdivisionState,
+      extrudeState,
+      instanceBrushDragging: Boolean(instanceBrushState?.dragging),
+      materialPaintDragging: Boolean(materialPaintState?.dragging),
+      sculptDragging: Boolean(sculptState?.dragging)
+    },
+    extrudeState,
+    faceCutState,
+    faceSubdivisionState,
+    handleAiModelPlacementClick,
+    handleBrushCreateClick,
+    handlePathAddClick,
+    handlePathEditClick,
+    marquee,
+    marqueeOriginRef,
+    meshEditMode,
+    meshEditSelectionIds,
+    onActivateViewport,
+    onClearSelection,
+    onSelectNodes,
+    pathDefinitions,
+    pathDragState,
+    pathToolClickOriginRef,
+    pointerPositionRef,
+    resolveMeshEditEdgeHandleHit,
+    resolveMeshEditVertexHandleHit,
+    resolvePathPointHit,
+    resolveSceneBrushHit,
+    resolveSelectedMeshSurfaceHit,
+    selectNodesAlongRay,
+    selectedBrushNode,
+    selectedDisplayNode,
+    selectedMeshNode,
+    selectionClickOriginRef,
+    setBrushEditHandleIds,
+    setCameraControlsEnabled,
+    setMarquee,
+    setMeshEditSelectionIds,
+    startPathPointDrag,
+    suppressSelectionAfterTransformRef,
+    transformDraggingRef,
+    updateArcPreview,
+    updateBevelPreview,
+    updateBrushCreatePreview,
+    updateExtrudePreview,
+    updateInstanceBrushStroke,
+    updateMaterialPaintStroke,
+    updatePathPreviewPoint,
+    updateSculptStroke,
+    viewport,
+    viewportId,
+    viewportRootRef
+  });
 
   const marqueeRect = marquee ? createScreenRect(marquee.origin, marquee.current) : undefined;
   const canvasCamera =
@@ -4227,127 +1527,13 @@ function emptyEditableMesh(): EditableMesh {
   return { faces: [], halfEdges: [], vertices: [] };
 }
 
-function useEventCallback<T extends (...args: any[]) => unknown>(callback: T): T {
-  const callbackRef = useRef(callback);
+function createBrushRingBasis(normal: Vec3) {
+  const axis = lengthVec3(normal) > 0.000001 ? normalizeVec3(normal) : vec3(0, 1, 0);
+  const reference = Math.abs(axis.y) < 0.99 ? vec3(0, 1, 0) : vec3(1, 0, 0);
+  const u = normalizeVec3(crossVec3(reference, axis));
+  const v = normalizeVec3(crossVec3(axis, u));
 
-  useEffect(() => {
-    callbackRef.current = callback;
-  }, [callback]);
-
-  return useCallback(((...args: Parameters<T>) => callbackRef.current(...args)) as T, []);
-}
-
-function useStableOverlayHandles<T extends ComparableOverlayHandle>(handles: T[]) {
-  const handlesRef = useRef(handles);
-
-  return useMemo(() => {
-    const previousHandles = handlesRef.current;
-
-    if (areOverlayHandlesEqual(previousHandles, handles)) {
-      return previousHandles;
-    }
-
-    handlesRef.current = handles;
-    return handles;
-  }, [handles]);
-}
-
-function DefaultViewportSun({ center }: { center: Vec3 }) {
-  const lightRef = useRef<any>(null);
-  const targetRef = useRef<Object3D | null>(null);
-
-  useEffect(() => {
-    if (!lightRef.current || !targetRef.current) {
-      return;
-    }
-
-    lightRef.current.target = targetRef.current;
-    targetRef.current.updateMatrixWorld();
-  }, [center.x, center.y, center.z]);
-
-  return (
-    <>
-      <directionalLight
-        castShadow
-        intensity={1.35}
-        position={[center.x + 28, center.y + 42, center.z + 24]}
-        ref={lightRef}
-        shadow-bias={-0.00015}
-        shadow-camera-bottom={-72}
-        shadow-camera-far={180}
-        shadow-camera-left={-72}
-        shadow-camera-right={72}
-        shadow-camera-top={72}
-        shadow-mapSize-height={2048}
-        shadow-mapSize-width={2048}
-        shadow-normalBias={0.03}
-      />
-      <object3D position={[center.x, center.y, center.z]} ref={targetRef} />
-    </>
-  );
-}
-
-function resolveViewportConstructionPlane(
-  viewportPlane: ViewportCanvasProps["viewportPlane"],
-  viewport: ViewportCanvasProps["viewport"]
-) {
-  switch (viewportPlane) {
-    case "xy":
-      return {
-        normal: vec3(0, 0, 1),
-        point: vec3(0, 0, viewport.camera.target.z)
-      };
-    case "yz":
-      return {
-        normal: vec3(1, 0, 0),
-        point: vec3(viewport.camera.target.x, 0, 0)
-      };
-    case "xz":
-    default:
-      return {
-        normal: vec3(0, 1, 0),
-        point: vec3(0, viewport.grid.elevation, 0)
-      };
-  }
-}
-
-function snapPointToViewportPlane(
-  point: Vec3,
-  viewportPlane: ViewportCanvasProps["viewportPlane"],
-  viewport: ViewportCanvasProps["viewport"],
-  snapSize: number
-) {
-  switch (viewportPlane) {
-    case "xy":
-      return vec3(snapValue(point.x, snapSize), snapValue(point.y, snapSize), viewport.camera.target.z);
-    case "yz":
-      return vec3(viewport.camera.target.x, snapValue(point.y, snapSize), snapValue(point.z, snapSize));
-    case "xz":
-    default:
-      return vec3(snapValue(point.x, snapSize), viewport.grid.elevation, snapValue(point.z, snapSize));
-  }
-}
-
-function snapPathEditorPoint(
-  point: Vec3,
-  viewportPlane: ViewportCanvasProps["viewportPlane"],
-  viewport: ViewportCanvasProps["viewport"],
-  snapSize: number
-) {
-  if (!viewport.grid.enabled) {
-    return point;
-  }
-
-  switch (viewport.projection) {
-    case "orthographic":
-      return snapPointToViewportPlane(point, viewportPlane, viewport, snapSize);
-    default:
-      return vec3(
-        snapValue(point.x, snapSize),
-        snapValue(point.y, snapSize),
-        snapValue(point.z, snapSize)
-      );
-  }
+  return { u, v };
 }
 
 function SelectedPathPointOverlay({
@@ -4375,728 +1561,4 @@ function SelectedPathPointOverlay({
       </mesh>
     </group>
   );
-}
-
-function createNextScenePathDefinition(paths: ScenePathDefinition[]): ScenePathDefinition {
-  let index = paths.length + 1;
-  let id = `path_${index}`;
-
-  while (paths.some((pathDefinition) => pathDefinition.id === id)) {
-    index += 1;
-    id = `path_${index}`;
-  }
-
-  return {
-    id,
-    loop: false,
-    name: `Path ${index}`,
-    points: []
-  };
-}
-
-function appendScenePathPoint(paths: ScenePathDefinition[], pathId: string, point: Vec3) {
-  return paths.map((pathDefinition) =>
-    pathDefinition.id === pathId
-      ? {
-          ...pathDefinition,
-          points: [...pathDefinition.points, point]
-        }
-      : pathDefinition
-  );
-}
-
-function insertScenePathPoint(paths: ScenePathDefinition[], pathId: string, insertIndex: number, point: Vec3) {
-  return paths.map((pathDefinition) =>
-    pathDefinition.id === pathId
-      ? {
-          ...pathDefinition,
-          points: [
-            ...pathDefinition.points.slice(0, insertIndex),
-            point,
-            ...pathDefinition.points.slice(insertIndex)
-          ]
-        }
-      : pathDefinition
-  );
-}
-
-function updateScenePathPoint(paths: ScenePathDefinition[], pathId: string, pointIndex: number, point: Vec3) {
-  return paths.map((pathDefinition) =>
-    pathDefinition.id === pathId
-      ? {
-          ...pathDefinition,
-          points: pathDefinition.points.map((entry, index) => (index === pointIndex ? point : entry))
-        }
-      : pathDefinition
-  );
-}
-
-function findPathPointHit(
-  paths: ScenePathDefinition[],
-  clientX: number,
-  clientY: number,
-  bounds: DOMRect,
-  camera: Camera
-) {
-  let bestHit: { distance: number; pathId: string; pointIndex: number } | undefined;
-  const pointerX = clientX - bounds.left;
-  const pointerY = clientY - bounds.top;
-
-  paths.forEach((pathDefinition) => {
-    pathDefinition.points.forEach((point, pointIndex) => {
-      const projected = projectWorldPointToScreen(point, camera, bounds);
-      const distance = Math.hypot(projected.x - pointerX, projected.y - pointerY);
-
-      if (distance > 14 || (bestHit && bestHit.distance <= distance)) {
-        return;
-      }
-
-      bestHit = {
-        distance,
-        pathId: pathDefinition.id,
-        pointIndex
-      };
-    });
-  });
-
-  return bestHit;
-}
-
-function findPathSegmentHit(
-  paths: ScenePathDefinition[],
-  clientX: number,
-  clientY: number,
-  bounds: DOMRect,
-  camera: Camera,
-  selectedPathId?: string
-) {
-  let bestHit: { distance: number; insertIndex: number; pathId: string } | undefined;
-  const pointer = { x: clientX - bounds.left, y: clientY - bounds.top };
-
-  const orderedPaths = selectedPathId
-    ? [
-        ...paths.filter((pathDefinition) => pathDefinition.id === selectedPathId),
-        ...paths.filter((pathDefinition) => pathDefinition.id !== selectedPathId)
-      ]
-    : paths;
-
-  orderedPaths.forEach((pathDefinition) => {
-    const segments = buildPathSegments(pathDefinition);
-
-    segments.forEach((segment) => {
-      const start = projectWorldPointToScreen(segment.start, camera, bounds);
-      const end = projectWorldPointToScreen(segment.end, camera, bounds);
-      const distance = distanceToScreenSegment(
-        pointer,
-        start,
-        end
-      );
-
-      if (distance > 10 || (bestHit && bestHit.distance <= distance)) {
-        return;
-      }
-
-      bestHit = {
-        distance,
-        insertIndex: segment.insertIndex,
-        pathId: pathDefinition.id
-      };
-    });
-  });
-
-  return bestHit;
-}
-
-function findEditableEdgeHandleHit(
-  handles: Array<{ id: string; points?: Vec3[] }>,
-  selectedIds: ReadonlySet<string>,
-  clientX: number,
-  clientY: number,
-  bounds: DOMRect,
-  camera: Camera,
-  node: GeometryNode,
-  threshold = 12
-) {
-  const pointer = { x: clientX - bounds.left, y: clientY - bounds.top };
-  let bestHit:
-    | {
-        distance: number;
-        endpointClearance: number;
-        id: string;
-        selected: boolean;
-      }
-    | undefined;
-
-  handles.forEach((handle) => {
-    if (!handle.points || handle.points.length !== 2) {
-      return;
-    }
-
-    const start = projectLocalPointToScreen(handle.points[0], node, camera, bounds);
-    const end = projectLocalPointToScreen(handle.points[1], node, camera, bounds);
-
-    if (!Number.isFinite(start.x) || !Number.isFinite(start.y) || !Number.isFinite(end.x) || !Number.isFinite(end.y)) {
-      return;
-    }
-
-    const measurement = measureScreenSegmentDistance(pointer, start, end);
-
-    if (measurement.distance > threshold) {
-      return;
-    }
-
-    const endpointClearance = Math.min(measurement.t, 1 - measurement.t);
-    const selected = selectedIds.has(handle.id);
-
-    if (!bestHit) {
-      bestHit = {
-        distance: measurement.distance,
-        endpointClearance,
-        id: handle.id,
-        selected
-      };
-      return;
-    }
-
-    const distanceDelta = measurement.distance - bestHit.distance;
-    const endpointDelta = endpointClearance - bestHit.endpointClearance;
-
-    if (
-      distanceDelta < -0.5 ||
-      (Math.abs(distanceDelta) <= 0.5 && endpointDelta > 0.05) ||
-      (Math.abs(distanceDelta) <= 0.5 && Math.abs(endpointDelta) <= 0.05 && selected && !bestHit.selected)
-    ) {
-      bestHit = {
-        distance: measurement.distance,
-        endpointClearance,
-        id: handle.id,
-        selected
-      };
-    }
-  });
-
-  return bestHit;
-}
-
-function buildPathSegments(pathDefinition: ScenePathDefinition) {
-  const segments: Array<{ end: Vec3; insertIndex: number; start: Vec3 }> = [];
-  const points = pathDefinition.points;
-
-  for (let index = 0; index < points.length - 1; index += 1) {
-    segments.push({
-      end: points[index + 1],
-      insertIndex: index + 1,
-      start: points[index]
-    });
-  }
-
-  if (pathDefinition.loop && points.length > 2) {
-    segments.push({
-      end: points[0],
-      insertIndex: points.length,
-      start: points[points.length - 1]
-    });
-  }
-
-  return segments;
-}
-
-type ComparableOverlayHandle = {
-  faceIds?: string[];
-  id: string;
-  normal?: Vec3;
-  points?: Vec3[];
-  position: Vec3;
-  vertexIds: string[];
-};
-
-function areOverlayHandlesEqual<T extends ComparableOverlayHandle>(previous: T[], next: T[]) {
-  if (previous === next) {
-    return true;
-  }
-
-  if (previous.length !== next.length) {
-    return false;
-  }
-
-  return previous.every((handle, index) => areOverlayHandleEqual(handle, next[index]));
-}
-
-function areOverlayHandleEqual(previous: ComparableOverlayHandle, next: ComparableOverlayHandle) {
-  return (
-    previous === next ||
-    (previous.id === next.id &&
-      areVec3Equal(previous.position, next.position) &&
-      areOptionalVec3Equal(previous.normal, next.normal) &&
-      areVec3ArraysEqual(previous.points, next.points) &&
-      areStringArraysEqual(previous.vertexIds, next.vertexIds) &&
-      areStringArraysEqual(previous.faceIds, next.faceIds))
-  );
-}
-
-function areVec3ArraysEqual(previous?: Vec3[], next?: Vec3[]) {
-  if (previous === next) {
-    return true;
-  }
-
-  if (!previous || !next) {
-    return previous === next;
-  }
-
-  if (previous.length !== next.length) {
-    return false;
-  }
-
-  return previous.every((point, index) => areVec3Equal(point, next[index]));
-}
-
-function areStringArraysEqual(previous?: string[], next?: string[]) {
-  if (previous === next) {
-    return true;
-  }
-
-  if (!previous || !next) {
-    return previous === next;
-  }
-
-  if (previous.length !== next.length) {
-    return false;
-  }
-
-  return previous.every((value, index) => value === next[index]);
-}
-
-function areOptionalVec3Equal(previous?: Vec3, next?: Vec3) {
-  if (!previous || !next) {
-    return previous === next;
-  }
-
-  return areVec3Equal(previous, next);
-}
-
-function areVec3Equal(previous: Vec3, next: Vec3) {
-  return previous.x === next.x && previous.y === next.y && previous.z === next.z;
-}
-
-function projectWorldPointToScreen(point: Vec3, camera: Camera, bounds: DOMRect) {
-  const projected = new Vector3(point.x, point.y, point.z).project(camera);
-
-  return {
-    x: ((projected.x + 1) * 0.5) * bounds.width,
-    y: ((1 - projected.y) * 0.5) * bounds.height
-  };
-}
-
-function distanceToScreenSegment(point: { x: number; y: number }, start: { x: number; y: number }, end: { x: number; y: number }) {
-  return measureScreenSegmentDistance(point, start, end).distance;
-}
-
-function measureScreenSegmentDistance(point: { x: number; y: number }, start: { x: number; y: number }, end: { x: number; y: number }) {
-  const deltaX = end.x - start.x;
-  const deltaY = end.y - start.y;
-  const lengthSquared = deltaX * deltaX + deltaY * deltaY;
-
-  if (lengthSquared <= 0.0001) {
-    return {
-      distance: Math.hypot(point.x - start.x, point.y - start.y),
-      t: 0
-    };
-  }
-
-  const t = Math.max(0, Math.min(1, ((point.x - start.x) * deltaX + (point.y - start.y) * deltaY) / lengthSquared));
-  const projectedX = start.x + deltaX * t;
-  const projectedY = start.y + deltaY * t;
-
-  return {
-    distance: Math.hypot(point.x - projectedX, point.y - projectedY),
-    t
-  };
-}
-
-function vec3ApproximatelyEqual(left: Vec3, right: Vec3, epsilon = 0.0001) {
-  return (
-    Math.abs(left.x - right.x) <= epsilon &&
-    Math.abs(left.y - right.y) <= epsilon &&
-    Math.abs(left.z - right.z) <= epsilon
-  );
-}
-
-/**
- * Shows a lightweight ghost preview (axis cross + tiny ring) for each pending placement
- * during an instance brush drag. Uses a single combined line-segments geometry for all
- * ghosts so it's one draw call regardless of density.
- */
-function InstanceBrushPreview({
-  placements
-}: {
-  placements: Array<{ transform: Transform }>;
-}) {
-  const geometryRef = useRef<BufferGeometry>(new BufferGeometry());
-
-  useEffect(() => {
-    const geo = geometryRef.current;
-    const ARM = 0.25; // half-length of each axis arm
-    const RING_SEGS = 8;
-    const RING_R = 0.18;
-    const positions: number[] = [];
-
-    for (const { transform } of placements) {
-      const { position, rotation } = transform;
-      const q = new Quaternion().setFromEuler(new Euler(rotation.x, rotation.y, rotation.z, "XYZ"));
-      const up = new Vector3(0, 1, 0).applyQuaternion(q);
-      const fwd = new Vector3(0, 0, 1).applyQuaternion(q);
-      const right = new Vector3(1, 0, 0).applyQuaternion(q);
-
-      // Y axis line (up)
-      positions.push(
-        position.x - up.x * ARM, position.y - up.y * ARM, position.z - up.z * ARM,
-        position.x + up.x * ARM, position.y + up.y * ARM, position.z + up.z * ARM
-      );
-      // Ring in the XZ plane of the instance
-      for (let i = 0; i < RING_SEGS; i++) {
-        const a0 = (i / RING_SEGS) * Math.PI * 2;
-        const a1 = ((i + 1) / RING_SEGS) * Math.PI * 2;
-        const c0 = Math.cos(a0) * RING_R, s0 = Math.sin(a0) * RING_R;
-        const c1 = Math.cos(a1) * RING_R, s1 = Math.sin(a1) * RING_R;
-        positions.push(
-          position.x + right.x * c0 + fwd.x * s0,
-          position.y + right.y * c0 + fwd.y * s0,
-          position.z + right.z * c0 + fwd.z * s0,
-          position.x + right.x * c1 + fwd.x * s1,
-          position.y + right.y * c1 + fwd.y * s1,
-          position.z + right.z * c1 + fwd.z * s1,
-        );
-      }
-    }
-
-    const existing = geo.getAttribute("position") as Float32BufferAttribute | undefined;
-    if (existing && existing.array.length === positions.length) {
-      (existing.array as Float32Array).set(positions);
-      existing.needsUpdate = true;
-    } else {
-      geo.setAttribute("position", new Float32BufferAttribute(positions, 3));
-    }
-
-    geo.computeBoundingBox();
-    geo.computeBoundingSphere();
-  }, [placements]);
-
-  useEffect(() => () => { geometryRef.current.dispose(); }, []);
-
-  if (placements.length === 0) return null;
-
-  return (
-    <lineSegments frustumCulled={false} geometry={geometryRef.current} renderOrder={15}>
-      <lineBasicMaterial color="#4ade80" depthWrite={false} opacity={0.8} toneMapped={false} transparent />
-    </lineSegments>
-  );
-}
-
-function SculptBrushOverlay({
-  hovered,
-  node,
-  radius
-}: {
-  hovered?: SculptBrushHit;
-  node?: ViewportCanvasProps["selectedNode"];
-  radius: number;
-}) {
-  const geometryRef = useRef<BufferGeometry>(new BufferGeometry());
-
-  useEffect(() => {
-    const geometry = geometryRef.current;
-
-    if (!hovered) {
-      geometry.deleteAttribute("position");
-      return;
-    }
-
-    const basis = createBrushRingBasis(hovered.normal);
-    const segmentCount = 40;
-    const positions: number[] = [];
-
-    for (let index = 0; index < segmentCount; index += 1) {
-      const angle = (index / segmentCount) * Math.PI * 2;
-      const radialOffset = addVec3(
-        scaleVec3(basis.u, Math.cos(angle) * radius),
-        scaleVec3(basis.v, Math.sin(angle) * radius)
-      );
-      const point = addVec3(hovered.point, addVec3(radialOffset, scaleVec3(hovered.normal, 0.02)));
-
-      positions.push(point.x, point.y, point.z);
-    }
-
-    const current = geometry.getAttribute("position");
-
-    if (!(current instanceof Float32BufferAttribute) || current.array.length !== positions.length) {
-      geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
-    } else {
-      current.array.set(positions);
-      current.needsUpdate = true;
-    }
-
-    geometry.computeBoundingBox();
-    geometry.computeBoundingSphere();
-  }, [hovered, radius]);
-
-  useEffect(
-    () => () => {
-      geometryRef.current.dispose();
-    },
-    []
-  );
-
-  if (!hovered) {
-    return null;
-  }
-
-  const ring = (
-    <lineLoop geometry={geometryRef.current as never} renderOrder={14}>
-      <lineBasicMaterial color="#f8fafc" depthWrite={false} opacity={0.95} toneMapped={false} transparent />
-    </lineLoop>
-  );
-
-  if (!node) {
-    return ring;
-  }
-
-  return <NodeTransformGroup transform={node.transform}>{ring}</NodeTransformGroup>;
-}
-
-function createBrushRingBasis(normal: Vec3) {
-  const axis = lengthVec3(normal) > 0.000001 ? normalizeVec3(normal) : vec3(0, 1, 0);
-  const reference = Math.abs(axis.y) < 0.99 ? vec3(0, 1, 0) : vec3(1, 0, 0);
-  const u = normalizeVec3(crossVec3(reference, axis));
-  const v = normalizeVec3(crossVec3(axis, u));
-
-  return { u, v };
-}
-
-function buildInstanceBrushSampleOffsets(count: number, randomness: number) {
-  const normalizedRandomness = Math.max(0, Math.min(1, randomness));
-  const safeCount = Math.max(1, count);
-  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-
-  return Array.from({ length: safeCount }, (_, index) => {
-    const uniformRadius = Math.sqrt((index + 0.5) / safeCount);
-    const uniformAngle = index * goldenAngle;
-    const randomRadius = Math.sqrt(Math.random());
-    const randomAngle = Math.random() * Math.PI * 2;
-    const x = Math.cos(uniformAngle) * uniformRadius * (1 - normalizedRandomness) + Math.cos(randomAngle) * randomRadius * normalizedRandomness;
-    const y = Math.sin(uniformAngle) * uniformRadius * (1 - normalizedRandomness) + Math.sin(randomAngle) * randomRadius * normalizedRandomness;
-    const length = Math.hypot(x, y);
-
-    if (length <= 1) {
-      return { x, y };
-    }
-
-    return {
-      x: x / length,
-      y: y / length
-    };
-  });
-}
-
-function projectWorldPointToClient(point: Vec3, camera: Camera, bounds: DOMRect) {
-  const projected = new Vector3(point.x, point.y, point.z).project(camera);
-
-  if (!Number.isFinite(projected.x) || !Number.isFinite(projected.y) || projected.z < -1 || projected.z > 1) {
-    return undefined;
-  }
-
-  return {
-    clientX: bounds.left + ((projected.x + 1) * 0.5) * bounds.width,
-    clientY: bounds.top + ((1 - projected.y) * 0.5) * bounds.height
-  };
-}
-
-function composeInstanceBrushRotation(normal: Vec3, baseRotation: Vec3) {
-  const alignedNormal = lengthVec3(normal) > 0.000001 ? normalizeVec3(normal) : vec3(0, 1, 0);
-  const alignment = new Quaternion().setFromUnitVectors(
-    new Vector3(0, 1, 0),
-    new Vector3(alignedNormal.x, alignedNormal.y, alignedNormal.z)
-  );
-  const base = new Quaternion().setFromEuler(new Euler(baseRotation.x, baseRotation.y, baseRotation.z, "XYZ"));
-  const rotation = alignment.multiply(base);
-  const euler = new Euler().setFromQuaternion(rotation, "XYZ");
-
-  return vec3(euler.x, euler.y, euler.z);
-}
-
-function createInstanceBrushTransformKey(position: Vec3, cellSize: number) {
-  return [
-    snapValue(position.x, cellSize),
-    snapValue(position.y, cellSize),
-    snapValue(position.z, cellSize)
-  ].join(":");
-}
-
-function resolveNodeIdFromIntersection(intersection: { instanceId?: number; object: Object3D }) {
-  return typeof intersection.instanceId === "number"
-    ? resolveInstancedNodeIdFromSceneObject(intersection.object, intersection.instanceId)
-    : resolveNodeIdFromSceneObject(intersection.object);
-}
-
-function resolveNodeIdFromSceneObject(object: Object3D | null) {
-  let current: Object3D | null = object;
-
-  while (current) {
-    if (current.name.startsWith("node:")) {
-      return current.name.slice(5);
-    }
-
-    current = current.parent;
-  }
-
-  return undefined;
-}
-
-function resolveInstancedNodeIdFromSceneObject(object: Object3D | null, instanceId: number) {
-  let current: Object3D | null = object;
-
-  while (current) {
-    const instanceNodeIds = (current.userData.webHammer as { instanceNodeIds?: string[] } | undefined)?.instanceNodeIds;
-
-    if (Array.isArray(instanceNodeIds)) {
-      return instanceNodeIds[instanceId];
-    }
-
-    current = current.parent;
-  }
-
-  return undefined;
-}
-
-function resolveExtrudeAnchor(
-  position: { x: number; y: number; z: number },
-  normal: { x: number; y: number; z: number },
-  kind: "edge" | "face"
-) {
-  const distance = kind === "face" ? 0.42 : 0.3;
-
-  return vec3(
-    position.x + normal.x * distance,
-    position.y + normal.y * distance,
-    position.z + normal.z * distance
-  );
-}
-
-/**
- * Builds a mapping from logical vertex ID to the list of render-vertex indices in the
- * scene's flat face-expanded position buffer. The face expansion order mirrors exactly
- * what `createEditableMeshSurface` / `buildDerivedSurface` produce, so the indices are
- * valid for the live scene `BufferGeometry`.
- */
-function buildSculptVertexRenderMap(mesh: EditableMesh): Map<string, number[]> {
-  const map = new Map<string, number[]>();
-  let renderOffset = 0;
-
-  mesh.faces.forEach((face) => {
-    const triangulated = triangulateMeshFace(mesh, face.id);
-    const vertexIds = getFaceVertexIds(mesh, face.id);
-
-    if (!triangulated || vertexIds.length === 0) {
-      return; // degenerate — same skip condition as createEditableMeshSurface
-    }
-
-    vertexIds.forEach((vid, i) => {
-      const existing = map.get(vid);
-      const idx = renderOffset + i;
-      if (existing) {
-        existing.push(idx);
-      } else {
-        map.set(vid, [idx]);
-      }
-    });
-
-    renderOffset += vertexIds.length;
-  });
-
-  return map;
-}
-
-/**
- * Patches the `position` attribute of the scene `BufferGeometry` for a sculpted node
- * in-place using the pre-built render-vertex map. Also calls `computeVertexNormals()` so
- * lighting updates correctly during the stroke.
- */
-function patchSculptScenePositions(
-  mesh: EditableMesh,
-  vertexMap: Map<string, number[]>,
-  sceneObject: Object3D | undefined
-) {
-  if (!sceneObject) return;
-
-  let geometry: BufferGeometry | null = null;
-  sceneObject.traverse((child) => {
-    if (!geometry && child instanceof Mesh) {
-      const attr = child.geometry.getAttribute("position");
-      if (attr) geometry = child.geometry as BufferGeometry;
-    }
-  });
-
-  if (!geometry) return;
-
-  const posAttr = (geometry as BufferGeometry).getAttribute("position") as Float32BufferAttribute | null;
-  if (!posAttr) return;
-
-  const arr = posAttr.array as Float32Array;
-
-  for (const vertex of mesh.vertices) {
-    const indices = vertexMap.get(vertex.id);
-    if (!indices) continue;
-    for (const idx of indices) {
-      const base = idx * 3;
-      if (base + 2 < arr.length) {
-        arr[base]     = vertex.position.x;
-        arr[base + 1] = vertex.position.y;
-        arr[base + 2] = vertex.position.z;
-      }
-    }
-  }
-
-  posAttr.needsUpdate = true;
-  (geometry as BufferGeometry).computeVertexNormals();
-}
-
-function resolveExtrudeInteractionNormal(
-  _camera: Camera,
-  normal: { x: number; y: number; z: number },
-  _kind: "edge" | "face"
-) {
-  return vec3(normal.x, normal.y, normal.z);
-}
-
-function resolveExtrudeAmountSign(
-  _interactionNormal: { x: number; y: number; z: number },
-  _handleNormal: { x: number; y: number; z: number },
-  _kind: "edge" | "face"
-): 1 | -1 {
-  return 1;
-}
-
-/**
- * Looks up the resolved display color of a material being painted by finding the corresponding
- * RenderMaterialLayer on the selected mesh's DerivedRenderMesh entry. Falls back to orange so
- * the overlay is always visible even if the material lookup fails.
- */
-function resolvePaintMaterialColor(
-  renderMeshes: import("@ggez/render-pipeline").DerivedRenderMesh[],
-  meshNode: Extract<import("@ggez/shared").GeometryNode, { kind: "mesh" }>,
-  materialId: string
-): string {
-  const renderMesh = renderMeshes.find((m) => m.nodeId === meshNode.id);
-
-  if (!renderMesh?.materialLayers) {
-    return "#f97316";
-  }
-
-  const normalizedLayers = normalizeEditableMeshMaterialLayers(
-    meshNode.data.materialLayers,
-    meshNode.data.vertices.length,
-    meshNode.data.materialBlend
-  );
-  const layerIndex = normalizedLayers?.findIndex((l) => l.materialId === materialId) ?? -1;
-
-  return renderMesh.materialLayers[layerIndex]?.material.color ?? "#f97316";
 }
