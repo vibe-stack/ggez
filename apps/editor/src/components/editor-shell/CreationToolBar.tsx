@@ -1,5 +1,6 @@
 import type { BrushShape, EntityType, LightType, PrimitiveShape } from "@ggez/shared";
 import type { ComponentType, ReactNode } from "react";
+import { ChevronDown } from "lucide-react";
 import { PackagePlus, Sparkles } from "lucide-react";
 import {
   AmbientLightIcon,
@@ -19,8 +20,9 @@ import {
 } from "@/components/editor-shell/icons";
 import { FloatingPanel } from "@/components/editor-shell/FloatingPanel";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { DragInput } from "@/components/ui/drag-input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { ToolId } from "@ggez/tool-system";
@@ -32,11 +34,17 @@ export function CreationToolBar({
   aiModelPlacementActive,
   activeToolId,
   disabled = false,
+  instanceBrushAlignToNormal,
+  instanceBrushAverageNormal,
   instanceBrushDensity,
   instanceBrushRandomness,
   instanceBrushSize,
-  instanceBrushSourceNodeId,
+  instanceBrushSourceNodeIds,
   instanceBrushSourceOptions,
+  instanceBrushYOffsetMin,
+  instanceBrushYOffsetMax,
+  instanceBrushScaleMin,
+  instanceBrushScaleMax,
   onImportGlb,
   onPlaceEntity,
   onPlaceLight,
@@ -48,21 +56,33 @@ export function CreationToolBar({
   onSelectInstanceBrush,
   onStartAiModelPlacement,
   onSelectBrushShape,
+  onSetInstanceBrushAlignToNormal,
+  onSetInstanceBrushAverageNormal,
   onSetInstanceBrushDensity,
   onSetInstanceBrushRandomness,
   onSetInstanceBrushSize,
-  onSetInstanceBrushSourceNodeId
+  onSetInstanceBrushSourceNodeIds,
+  onSetInstanceBrushYOffsetMin,
+  onSetInstanceBrushYOffsetMax,
+  onSetInstanceBrushScaleMin,
+  onSetInstanceBrushScaleMax
 }: {
   activeBrushShape: BrushShape;
   brushToolMode: BrushToolMode;
   aiModelPlacementActive: boolean;
   activeToolId: ToolId;
   disabled?: boolean;
+  instanceBrushAlignToNormal: boolean;
+  instanceBrushAverageNormal: boolean;
   instanceBrushDensity: number;
   instanceBrushRandomness: number;
   instanceBrushSize: number;
-  instanceBrushSourceNodeId: string;
+  instanceBrushSourceNodeIds: string[];
   instanceBrushSourceOptions: InstanceBrushSourceOption[];
+  instanceBrushYOffsetMin: number;
+  instanceBrushYOffsetMax: number;
+  instanceBrushScaleMin: number;
+  instanceBrushScaleMax: number;
   onImportGlb: () => void;
   onPlaceEntity: (type: EntityType) => void;
   onPlaceLight: (type: LightType) => void;
@@ -74,10 +94,16 @@ export function CreationToolBar({
   onSelectInstanceBrush: () => void;
   onStartAiModelPlacement: () => void;
   onSelectBrushShape: (shape: BrushShape) => void;
+  onSetInstanceBrushAlignToNormal: (value: boolean) => void;
+  onSetInstanceBrushAverageNormal: (value: boolean) => void;
   onSetInstanceBrushDensity: (value: number) => void;
   onSetInstanceBrushRandomness: (value: number) => void;
   onSetInstanceBrushSize: (value: number) => void;
-  onSetInstanceBrushSourceNodeId: (nodeId: string) => void;
+  onSetInstanceBrushSourceNodeIds: (nodeIds: string[]) => void;
+  onSetInstanceBrushYOffsetMin: (value: number) => void;
+  onSetInstanceBrushYOffsetMax: (value: number) => void;
+  onSetInstanceBrushScaleMin: (value: number) => void;
+  onSetInstanceBrushScaleMax: (value: number) => void;
 }) {
   return (
     <div className="flex flex-col items-center gap-2">
@@ -190,9 +216,9 @@ export function CreationToolBar({
       </div>
 
       {brushToolMode === "instance" ? (
-        <FloatingPanel className="flex min-w-105 items-center gap-3 p-2">
+        <FloatingPanel className="flex items-center gap-3 p-2">
           <DragInput
-            className="w-37.5"
+            className="w-32"
             compact
             disabled={disabled}
             label="Size"
@@ -203,7 +229,7 @@ export function CreationToolBar({
             value={instanceBrushSize}
           />
           <DragInput
-            className="w-37.5"
+            className="w-28"
             compact
             disabled={disabled}
             label="Density"
@@ -215,10 +241,10 @@ export function CreationToolBar({
             value={instanceBrushDensity}
           />
           <DragInput
-            className="w-37.5"
+            className="w-28"
             compact
             disabled={disabled}
-            label="Randomness"
+            label="Scatter"
             max={1}
             min={0}
             onChange={onSetInstanceBrushRandomness}
@@ -227,22 +253,137 @@ export function CreationToolBar({
             value={instanceBrushRandomness}
           />
           <div className="h-8 w-px bg-white/8" />
-          <div className="flex min-w-60 flex-col gap-1">
-            <span className="px-1 text-[10px] font-medium uppercase tracking-[0.16em] text-foreground/48">
-              Object To Instance
-            </span>
-            <Select onValueChange={(value) => onSetInstanceBrushSourceNodeId(value ?? "")} value={instanceBrushSourceNodeId}>
-              <SelectTrigger className="h-9 rounded-xl border-white/10 bg-white/5 text-sm">
-                <SelectValue placeholder={instanceBrushSourceOptions.length > 0 ? "Select source object" : "Place an object first"} />
-              </SelectTrigger>
-              <SelectContent>
-                {instanceBrushSourceOptions.map((option) => (
-                  <SelectItem key={option.id} value={option.id}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          {/* Y Offset range */}
+          <DragInput
+            className="w-28"
+            compact
+            disabled={disabled}
+            label="Y Off Min"
+            onChange={onSetInstanceBrushYOffsetMin}
+            precision={2}
+            step={0.05}
+            value={instanceBrushYOffsetMin}
+          />
+          <DragInput
+            className="w-28"
+            compact
+            disabled={disabled}
+            label="Y Off Max"
+            onChange={onSetInstanceBrushYOffsetMax}
+            precision={2}
+            step={0.05}
+            value={instanceBrushYOffsetMax}
+          />
+          <div className="h-8 w-px bg-white/8" />
+          {/* Scale range */}
+          <DragInput
+            className="w-28"
+            compact
+            disabled={disabled}
+            label="Scale Min"
+            min={0.01}
+            onChange={onSetInstanceBrushScaleMin}
+            precision={2}
+            step={0.05}
+            value={instanceBrushScaleMin}
+          />
+          <DragInput
+            className="w-28"
+            compact
+            disabled={disabled}
+            label="Scale Max"
+            min={0.01}
+            onChange={onSetInstanceBrushScaleMax}
+            precision={2}
+            step={0.05}
+            value={instanceBrushScaleMax}
+          />
+          <div className="h-8 w-px bg-white/8" />
+          {/* Align to normal */}
+          <label className="flex cursor-pointer items-center gap-1.5">
+            <Checkbox
+              checked={instanceBrushAlignToNormal}
+              disabled={disabled}
+              onCheckedChange={(v) => onSetInstanceBrushAlignToNormal(Boolean(v))}
+            />
+            <span className="whitespace-nowrap text-[11px] text-foreground/72">Align Normal</span>
+          </label>
+          {/* Average normal */}
+          <label className="flex cursor-pointer items-center gap-1.5">
+            <Checkbox
+              checked={instanceBrushAverageNormal}
+              disabled={disabled}
+              onCheckedChange={(v) => onSetInstanceBrushAverageNormal(Boolean(v))}
+            />
+            <span className="whitespace-nowrap text-[11px] text-foreground/72">Avg Normal</span>
+          </label>
+          <div className="h-8 w-px bg-white/8" />
+          {/* Multi-object picker */}
+          <div className="flex flex-col gap-1">
+            <span className="px-1 text-[10px] font-medium uppercase tracking-[0.16em] text-foreground/48">Objects</span>
+            <Popover>
+              <PopoverTrigger
+                render={
+                  <Button
+                    className="h-9 min-w-36 rounded-xl border border-white/10 bg-white/5 px-3 text-sm"
+                    disabled={disabled || instanceBrushSourceOptions.length === 0}
+                    variant="ghost"
+                  />
+                }
+              >
+                <span className="flex-1 truncate text-left">
+                  {instanceBrushSourceNodeIds.length === 0
+                    ? (instanceBrushSourceOptions.length > 0 ? "Select objects" : "Place an object first")
+                    : instanceBrushSourceNodeIds.length === 1
+                      ? (instanceBrushSourceOptions.find((o) => o.id === instanceBrushSourceNodeIds[0])?.label ?? "1 object")
+                      : `${instanceBrushSourceNodeIds.length} objects`
+                  }
+                </span>
+                <ChevronDown className="ml-1 size-3.5 shrink-0 text-foreground/45" />
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                className="z-50 w-64 rounded-xl border border-white/10 bg-[#0d1117] p-1 shadow-xl"
+                side="bottom"
+                sideOffset={6}
+              >
+                {instanceBrushSourceOptions.length === 0 ? (
+                  <p className="px-3 py-2 text-xs text-foreground/45">Place an object first</p>
+                ) : (
+                  <div className="flex flex-col gap-0.5">
+                    {instanceBrushSourceOptions.map((option) => {
+                      const selected = instanceBrushSourceNodeIds.includes(option.id);
+                      return (
+                        <button
+                          className={cn(
+                            "flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors hover:bg-white/6",
+                            selected && "bg-emerald-500/12 text-emerald-300"
+                          )}
+                          key={option.id}
+                          onClick={() => {
+                            const next = selected
+                              ? instanceBrushSourceNodeIds.filter((id) => id !== option.id)
+                              : [...instanceBrushSourceNodeIds, option.id];
+                            onSetInstanceBrushSourceNodeIds(next);
+                          }}
+                          type="button"
+                        >
+                          <span
+                            className={cn(
+                              "flex size-4 shrink-0 items-center justify-center rounded border border-white/20 text-xs",
+                              selected && "border-emerald-400 bg-emerald-500/20 text-emerald-400"
+                            )}
+                          >
+                            {selected ? "✓" : null}
+                          </span>
+                          <span className="flex-1 truncate">{option.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </PopoverContent>
+            </Popover>
           </div>
         </FloatingPanel>
       ) : null}

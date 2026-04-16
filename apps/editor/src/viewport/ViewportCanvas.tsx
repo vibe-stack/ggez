@@ -163,7 +163,8 @@ type InstanceBrushState = {
   dragging: boolean;
   hovered?: SculptBrushHit;
   lastStampedHit?: SculptBrushHit;
-  pendingTransforms: Transform[];
+  /** Each pending placement carries the resolved sourceNodeId alongside the transform. */
+  pendingPlacements: Array<{ sourceNodeId: string; transform: Transform }>;
 };
 
 const CLICK_SELECTION_THRESHOLD_PX = 4;
@@ -201,11 +202,18 @@ export function ViewportCanvas({
   activeToolId,
   dprScale,
   hiddenSceneItemIds = [],
+  instanceBrushAlignToNormal,
+  instanceBrushAverageNormal,
   instanceBrushDensity,
   instanceBrushRandomness,
   instanceBrushSize,
   instanceBrushSourceNodeId,
+  instanceBrushSourceNodeIds,
   instanceBrushSourceTransform,
+  instanceBrushYOffsetMin,
+  instanceBrushYOffsetMax,
+  instanceBrushScaleMin,
+  instanceBrushScaleMax,
   isActiveViewport,
   materialPaintBrushOpacity,
   meshEditMode,
@@ -222,6 +230,7 @@ export function ViewportCanvas({
   onPlaceAiModelPlaceholder,
   onPlaceBrush,
   onPlaceInstancingNodes,
+  onPlaceInstanceBrushNodes,
   onPlaceMeshNode,
   onPlacePrimitiveNode,
   onPreviewBrushData,
@@ -478,12 +487,13 @@ export function ViewportCanvas({
   }, [activeToolId, brushToolMode]);
 
   useEffect(() => {
-    if (activeToolId !== "brush" || brushToolMode !== "instance" || !instanceBrushSourceNodeId || !instanceBrushSourceTransform) {
+    const hasSource = instanceBrushSourceNodeIds.length > 0 || !!instanceBrushSourceNodeId;
+    if (activeToolId !== "brush" || brushToolMode !== "instance" || !hasSource || !instanceBrushSourceTransform) {
       instanceBrushStateRef.current = null;
       setInstanceBrushState(null);
       setTransformDragging(false);
     }
-  }, [activeToolId, brushToolMode, instanceBrushSourceNodeId, instanceBrushSourceTransform]);
+  }, [activeToolId, brushToolMode, instanceBrushSourceNodeId, instanceBrushSourceNodeIds, instanceBrushSourceTransform]);
 
   useEffect(() => {
     if (editorInteractionEnabled) {
@@ -1550,14 +1560,32 @@ export function ViewportCanvas({
     } satisfies SculptBrushHit;
   };
 
-  const createInstanceBrushStampTransforms = (centerHit: SculptBrushHit, bounds: DOMRect) => {
-    if (!cameraRef.current || !instanceBrushSourceTransform || !instanceBrushSourceNodeId) {
+  const createInstanceBrushStampPlacements = (
+    centerHit: SculptBrushHit,
+    bounds: DOMRect,
+    /** Per-placement seeded random [0,1) so multi-source selection is repeatable within a stroke. */
+    seededRng: () => number
+  ): Array<{ sourceNodeId: string; transform: Transform }> => {
+    if (!cameraRef.current || !instanceBrushSourceTransform) {
+      return [];
+    }
+
+    // Resolve the pool of source node IDs: prefer the multi-source list, fall back to single.
+    const sourcePool = instanceBrushSourceNodeIds.length > 0
+      ? instanceBrushSourceNodeIds
+      : instanceBrushSourceNodeId ? [instanceBrushSourceNodeId] : [];
+
+    if (sourcePool.length === 0) {
       return [];
     }
 
     const constructionPlane = resolveViewportConstructionPlane(viewportPlane, viewport);
-    const basis = createBrushRingBasis(centerHit.normal);
     const offsets = buildInstanceBrushSampleOffsets(Math.max(1, Math.round(instanceBrushDensity)), instanceBrushRandomness);
+
+    // Average normal: blend all sample-hit normals before composing rotation.
+    const hitNormal = instanceBrushAverageNormal ? centerHit.normal : undefined;
+
+    const basis = createBrushRingBasis(centerHit.normal);
     const surfaceOffset = Math.max(0.01, instanceBrushSize * 0.01);
 
     return offsets.flatMap((offset) => {
@@ -1586,49 +1614,75 @@ export function ViewportCanvas({
         return [];
       }
 
-      const position = addVec3(sampleHit.point, scaleVec3(sampleHit.normal, surfaceOffset));
+      const normalForRotation = hitNormal ?? sampleHit.normal;
+
+      // Y offset
+      const yOffset = instanceBrushYOffsetMin === instanceBrushYOffsetMax
+        ? instanceBrushYOffsetMin
+        : instanceBrushYOffsetMin + seededRng() * (instanceBrushYOffsetMax - instanceBrushYOffsetMin);
+
+      const position = addVec3(
+        addVec3(sampleHit.point, scaleVec3(sampleHit.normal, surfaceOffset)),
+        vec3(0, yOffset, 0)
+      );
+
+      // Scale
+      const uniformScale = instanceBrushScaleMin === instanceBrushScaleMax
+        ? instanceBrushScaleMin
+        : instanceBrushScaleMin + seededRng() * (instanceBrushScaleMax - instanceBrushScaleMin);
+      const baseScale = instanceBrushSourceTransform.scale;
+
+      const rotation = instanceBrushAlignToNormal
+        ? composeInstanceBrushRotation(normalForRotation, instanceBrushSourceTransform.rotation)
+        : instanceBrushSourceTransform.rotation;
+
+      // Pick a random source from the pool (randomness drives weighting).
+      const effectiveRandomness = Math.max(0, Math.min(1, instanceBrushRandomness));
+      const sourceIndex = effectiveRandomness > 0 && sourcePool.length > 1
+        ? Math.floor(seededRng() * sourcePool.length)
+        : 0;
+      const sourceNodeId = sourcePool[sourceIndex] ?? sourcePool[0]!;
 
       return [
         {
-          position,
-          rotation: composeInstanceBrushRotation(sampleHit.normal, instanceBrushSourceTransform.rotation),
-          scale: {
-            x: instanceBrushSourceTransform.scale.x,
-            y: instanceBrushSourceTransform.scale.y,
-            z: instanceBrushSourceTransform.scale.z
+          sourceNodeId,
+          transform: {
+            position,
+            rotation,
+            scale: { x: baseScale.x * uniformScale, y: baseScale.y * uniformScale, z: baseScale.z * uniformScale }
           }
-        } satisfies Transform
+        }
       ];
     });
   };
 
   const applyInstanceBrushHit = (state: InstanceBrushState, hit: SculptBrushHit, bounds: DOMRect) => {
-    if (!state.dragging || !instanceBrushSourceNodeId || !instanceBrushSourceTransform) {
-      return {
-        ...state,
-        hovered: hit
-      };
+    const hasSource = instanceBrushSourceNodeIds.length > 0 || !!instanceBrushSourceNodeId;
+
+    if (!state.dragging || !instanceBrushSourceTransform || !hasSource) {
+      return { ...state, hovered: hit };
     }
 
     const spacing = Math.max(0.2, instanceBrushSize * Math.max(0.18, 0.85 / Math.sqrt(Math.max(1, instanceBrushDensity))));
     const dedupeSize = Math.max(0.08, instanceBrushSize * 0.12);
-    const existingKeys = new Set(state.pendingTransforms.map((transform) => createInstanceBrushTransformKey(transform.position, dedupeSize)));
-    let nextPendingTransforms = state.pendingTransforms;
+    const existingKeys = new Set(
+      state.pendingPlacements.map((p) => createInstanceBrushTransformKey(p.transform.position, dedupeSize))
+    );
+    let nextPendingPlacements = state.pendingPlacements;
     let nextLastStampedHit = state.lastStampedHit;
 
+    // Simple seeded LCG so source selection is deterministic per stamp.
+    let rngSeed = Math.floor(hit.point.x * 1000 + hit.point.z * 997 + nextPendingPlacements.length * 31);
+    const rng = () => { rngSeed = (rngSeed * 1664525 + 1013904223) & 0xffffffff; return (rngSeed >>> 0) / 0x100000000; };
+
     if (!nextLastStampedHit) {
-      const stampedTransforms = createInstanceBrushStampTransforms(hit, bounds).filter((transform) => {
-        const key = createInstanceBrushTransformKey(transform.position, dedupeSize);
-
-        if (existingKeys.has(key)) {
-          return false;
-        }
-
+      const stamped = createInstanceBrushStampPlacements(hit, bounds, rng).filter((p) => {
+        const key = createInstanceBrushTransformKey(p.transform.position, dedupeSize);
+        if (existingKeys.has(key)) return false;
         existingKeys.add(key);
         return true;
       });
-
-      nextPendingTransforms = [...nextPendingTransforms, ...stampedTransforms];
+      nextPendingPlacements = [...nextPendingPlacements, ...stamped];
       nextLastStampedHit = hit;
     } else {
       const delta = subVec3(hit.point, nextLastStampedHit.point);
@@ -1654,21 +1708,17 @@ export function ViewportCanvas({
               startHit.point.z + delta.z * t
             )
           } satisfies SculptBrushHit;
-          const stampedTransforms = createInstanceBrushStampTransforms(stampedHit, bounds).filter((transform) => {
-            const key = createInstanceBrushTransformKey(transform.position, dedupeSize);
 
-            if (existingKeys.has(key)) {
-              return false;
-            }
-
+          const stamped = createInstanceBrushStampPlacements(stampedHit, bounds, rng).filter((p) => {
+            const key = createInstanceBrushTransformKey(p.transform.position, dedupeSize);
+            if (existingKeys.has(key)) return false;
             existingKeys.add(key);
             return true;
           });
 
-          if (stampedTransforms.length > 0) {
-            nextPendingTransforms = [...nextPendingTransforms, ...stampedTransforms];
+          if (stamped.length > 0) {
+            nextPendingPlacements = [...nextPendingPlacements, ...stamped];
           }
-
           latestStampedHit = stampedHit;
         }
 
@@ -1680,12 +1730,13 @@ export function ViewportCanvas({
       dragging: true,
       hovered: hit,
       lastStampedHit: nextLastStampedHit,
-      pendingTransforms: nextPendingTransforms
+      pendingPlacements: nextPendingPlacements
     } satisfies InstanceBrushState;
   };
 
   const beginInstanceBrushStroke = (bounds: DOMRect, clientX: number, clientY: number) => {
-    if (!instanceBrushSourceNodeId || !instanceBrushSourceTransform) {
+    const hasSource = instanceBrushSourceNodeIds.length > 0 || !!instanceBrushSourceNodeId;
+    if (!hasSource || !instanceBrushSourceTransform) {
       return false;
     }
 
@@ -1699,7 +1750,7 @@ export function ViewportCanvas({
       {
         dragging: true,
         hovered: hit,
-        pendingTransforms: []
+        pendingPlacements: []
       },
       hit,
       bounds
@@ -1713,7 +1764,8 @@ export function ViewportCanvas({
   };
 
   const updateInstanceBrushStroke = (bounds: DOMRect, clientX: number, clientY: number) => {
-    if (!instanceBrushSourceNodeId || !instanceBrushSourceTransform) {
+    const hasSource = instanceBrushSourceNodeIds.length > 0 || !!instanceBrushSourceNodeId;
+    if (!hasSource || !instanceBrushSourceTransform) {
       if (!instanceBrushStateRef.current?.dragging) {
         instanceBrushStateRef.current = null;
         setInstanceBrushState(null);
@@ -1737,7 +1789,7 @@ export function ViewportCanvas({
       : {
           dragging: false,
           hovered: hit,
-          pendingTransforms: []
+          pendingPlacements: []
         } satisfies InstanceBrushState;
 
     instanceBrushStateRef.current = nextState;
@@ -1756,7 +1808,7 @@ export function ViewportCanvas({
       : {
           dragging: false,
           hovered: currentState.hovered,
-          pendingTransforms: []
+          pendingPlacements: []
         } satisfies InstanceBrushState;
 
     instanceBrushStateRef.current = nextState;
@@ -1772,14 +1824,14 @@ export function ViewportCanvas({
       return;
     }
 
-    if (instanceBrushSourceNodeId && currentState.pendingTransforms.length > 0) {
-      onPlaceInstancingNodes(instanceBrushSourceNodeId, currentState.pendingTransforms);
+    if (currentState.pendingPlacements.length > 0) {
+      onPlaceInstanceBrushNodes(currentState.pendingPlacements);
     }
 
     const nextState = {
       dragging: false,
       hovered: currentState.hovered,
-      pendingTransforms: []
+      pendingPlacements: []
     } satisfies InstanceBrushState;
 
     instanceBrushStateRef.current = nextState;
@@ -4033,6 +4085,9 @@ export function ViewportCanvas({
         {editorInteractionEnabled && isActiveViewport && activeToolId === "brush" && brushToolMode === "instance" && instanceBrushState?.hovered ? (
           <SculptBrushOverlay hovered={instanceBrushState.hovered} radius={instanceBrushSize} />
         ) : null}
+        {editorInteractionEnabled && isActiveViewport && activeToolId === "brush" && brushToolMode === "instance" && instanceBrushState?.dragging && instanceBrushState.pendingPlacements.length > 0 ? (
+          <InstanceBrushPreview placements={instanceBrushState.pendingPlacements} />
+        ) : null}
         {editorInteractionEnabled && isActiveViewport && activeToolId === "brush" && brushCreateState ? (
           <BrushCreatePreview snapSize={snapSize} state={brushCreateState} />
         ) : null}
@@ -4663,6 +4718,77 @@ function vec3ApproximatelyEqual(left: Vec3, right: Vec3, epsilon = 0.0001) {
     Math.abs(left.x - right.x) <= epsilon &&
     Math.abs(left.y - right.y) <= epsilon &&
     Math.abs(left.z - right.z) <= epsilon
+  );
+}
+
+/**
+ * Shows a lightweight ghost preview (axis cross + tiny ring) for each pending placement
+ * during an instance brush drag. Uses a single combined line-segments geometry for all
+ * ghosts so it's one draw call regardless of density.
+ */
+function InstanceBrushPreview({
+  placements
+}: {
+  placements: Array<{ transform: Transform }>;
+}) {
+  const geometryRef = useRef<BufferGeometry>(new BufferGeometry());
+
+  useEffect(() => {
+    const geo = geometryRef.current;
+    const ARM = 0.25; // half-length of each axis arm
+    const RING_SEGS = 8;
+    const RING_R = 0.18;
+    const positions: number[] = [];
+
+    for (const { transform } of placements) {
+      const { position, rotation } = transform;
+      const q = new Quaternion().setFromEuler(new Euler(rotation.x, rotation.y, rotation.z, "XYZ"));
+      const up = new Vector3(0, 1, 0).applyQuaternion(q);
+      const fwd = new Vector3(0, 0, 1).applyQuaternion(q);
+      const right = new Vector3(1, 0, 0).applyQuaternion(q);
+
+      // Y axis line (up)
+      positions.push(
+        position.x - up.x * ARM, position.y - up.y * ARM, position.z - up.z * ARM,
+        position.x + up.x * ARM, position.y + up.y * ARM, position.z + up.z * ARM
+      );
+      // Ring in the XZ plane of the instance
+      for (let i = 0; i < RING_SEGS; i++) {
+        const a0 = (i / RING_SEGS) * Math.PI * 2;
+        const a1 = ((i + 1) / RING_SEGS) * Math.PI * 2;
+        const c0 = Math.cos(a0) * RING_R, s0 = Math.sin(a0) * RING_R;
+        const c1 = Math.cos(a1) * RING_R, s1 = Math.sin(a1) * RING_R;
+        positions.push(
+          position.x + right.x * c0 + fwd.x * s0,
+          position.y + right.y * c0 + fwd.y * s0,
+          position.z + right.z * c0 + fwd.z * s0,
+          position.x + right.x * c1 + fwd.x * s1,
+          position.y + right.y * c1 + fwd.y * s1,
+          position.z + right.z * c1 + fwd.z * s1,
+        );
+      }
+    }
+
+    const existing = geo.getAttribute("position") as Float32BufferAttribute | undefined;
+    if (existing && existing.array.length === positions.length) {
+      (existing.array as Float32Array).set(positions);
+      existing.needsUpdate = true;
+    } else {
+      geo.setAttribute("position", new Float32BufferAttribute(positions, 3));
+    }
+
+    geo.computeBoundingBox();
+    geo.computeBoundingSphere();
+  }, [placements]);
+
+  useEffect(() => () => { geometryRef.current.dispose(); }, []);
+
+  if (placements.length === 0) return null;
+
+  return (
+    <lineSegments frustumCulled={false} geometry={geometryRef.current} renderOrder={15}>
+      <lineBasicMaterial color="#4ade80" depthWrite={false} opacity={0.8} toneMapped={false} transparent />
+    </lineSegments>
   );
 }
 

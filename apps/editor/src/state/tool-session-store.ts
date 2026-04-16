@@ -18,10 +18,17 @@ type ToolSessionState = {
   aiModelDraft: AiModelDraft;
   aiModelPlacementArmed: boolean;
   brushToolMode: BrushToolMode;
+  instanceBrushAlignToNormal: boolean;
+  instanceBrushAverageNormal: boolean;
   instanceBrushDensity: number;
   instanceBrushRandomness: number;
   instanceBrushSize: number;
   instanceBrushSourceNodeId: string;
+  instanceBrushSourceNodeIds: string[];
+  instanceBrushYOffsetMin: number;
+  instanceBrushYOffsetMax: number;
+  instanceBrushScaleMin: number;
+  instanceBrushScaleMax: number;
   materialPaintBrushOpacity: number;
   materialPaintMode: "erase" | "paint" | null;
   meshEditMode: MeshEditMode;
@@ -41,10 +48,17 @@ function createInitialToolSessionState(): ToolSessionState {
     aiModelDraft: null,
     aiModelPlacementArmed: false,
     brushToolMode: "create",
+    instanceBrushAlignToNormal: true,
+    instanceBrushAverageNormal: false,
     instanceBrushDensity: 8,
     instanceBrushRandomness: 0.35,
     instanceBrushSize: 2.5,
     instanceBrushSourceNodeId: "",
+    instanceBrushSourceNodeIds: [],
+    instanceBrushYOffsetMin: 0,
+    instanceBrushYOffsetMax: 0,
+    instanceBrushScaleMin: 1,
+    instanceBrushScaleMax: 1,
     materialPaintBrushOpacity: 0.85,
     materialPaintMode: null,
     meshEditMode: "vertex",

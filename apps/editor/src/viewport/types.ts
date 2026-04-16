@@ -53,11 +53,18 @@ export type ViewportCanvasProps = {
   activeToolId: ToolId;
   dprScale: number;
   hiddenSceneItemIds?: string[];
+  instanceBrushAlignToNormal: boolean;
+  instanceBrushAverageNormal: boolean;
   instanceBrushDensity: number;
   instanceBrushRandomness: number;
   instanceBrushSize: number;
   instanceBrushSourceNodeId?: string;
+  instanceBrushSourceNodeIds: string[];
   instanceBrushSourceTransform?: Transform;
+  instanceBrushYOffsetMin: number;
+  instanceBrushYOffsetMax: number;
+  instanceBrushScaleMin: number;
+  instanceBrushScaleMax: number;
   isActiveViewport: boolean;
   meshEditMode: MeshEditMode;
   meshEditToolbarAction?: MeshEditToolbarActionRequest;
@@ -74,6 +81,7 @@ export type ViewportCanvasProps = {
   onPlaceAiModelPlaceholder: (position: Vec3) => void;
   onPlaceBrush: (brush: Brush, transform: Transform) => void;
   onPlaceInstancingNodes: (sourceNodeId: string, transforms: Transform[]) => void;
+  onPlaceInstanceBrushNodes: (placements: Array<{ sourceNodeId: string; transform: Transform }>) => void;
   onPlaceMeshNode: (mesh: EditableMesh, transform: Transform, name: string) => void;
   onPlacePrimitiveNode: (data: PrimitiveNodeData, transform: Transform, name: string) => void;
   onPreviewBrushData: (nodeId: string, brush: Brush) => void;

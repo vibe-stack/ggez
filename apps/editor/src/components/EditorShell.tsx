@@ -4,6 +4,7 @@ import { isInstancingSourceNode } from "@ggez/shared";
 import type {
   SceneSettings,
   TextureRecord,
+  Transform,
 } from "@ggez/shared";
 import { defaultTools } from "@ggez/tool-system";
 import type { WorkerJob } from "@ggez/workers";
@@ -168,10 +169,17 @@ export function EditorShell({
     aiModelDraft,
     aiModelPlacementArmed,
     brushToolMode,
+    instanceBrushAlignToNormal,
+    instanceBrushAverageNormal,
     instanceBrushDensity,
     instanceBrushRandomness,
     instanceBrushSize,
     instanceBrushSourceNodeId,
+    instanceBrushSourceNodeIds,
+    instanceBrushYOffsetMin,
+    instanceBrushYOffsetMax,
+    instanceBrushScaleMin,
+    instanceBrushScaleMax,
     materialPaintBrushOpacity,
     materialPaintMode,
     meshEditMode,
@@ -286,6 +294,19 @@ export function EditorShell({
     onPlaceAiModelPlaceholder,
     onPlaceBrush,
     onPlaceInstancingNodes,
+    onPlaceInstanceBrushNodes: (placements: Array<{ sourceNodeId: string; transform: Transform }>) => {
+      if (placements.length === 0) return;
+      // Group by sourceNodeId and make one call per unique source.
+      const grouped = new Map<string, Transform[]>();
+      for (const { sourceNodeId, transform } of placements) {
+        const existing = grouped.get(sourceNodeId);
+        if (existing) existing.push(transform);
+        else grouped.set(sourceNodeId, [transform]);
+      }
+      grouped.forEach((transforms, sourceNodeId) => {
+        onPlaceInstancingNodes(sourceNodeId, transforms);
+      });
+    },
     onPlaceMeshNode,
     onPlacePrimitiveNode,
     onPreviewBrushData,
@@ -361,11 +382,18 @@ export function EditorShell({
           activeToolId={activeToolId}
           dprScale={resolveViewportDprScale(viewportQuality)}
           hiddenSceneItemIds={effectiveHiddenSceneItemIds}
+          instanceBrushAlignToNormal={instanceBrushAlignToNormal}
+          instanceBrushAverageNormal={instanceBrushAverageNormal}
           instanceBrushDensity={instanceBrushDensity}
           instanceBrushRandomness={instanceBrushRandomness}
           instanceBrushSize={instanceBrushSize}
           instanceBrushSourceNodeId={instanceBrushSourceNodeId}
+          instanceBrushSourceNodeIds={[...instanceBrushSourceNodeIds]}
           instanceBrushSourceTransform={instanceBrushSourceTransform}
+          instanceBrushYOffsetMin={instanceBrushYOffsetMin}
+          instanceBrushYOffsetMax={instanceBrushYOffsetMax}
+          instanceBrushScaleMin={instanceBrushScaleMin}
+          instanceBrushScaleMax={instanceBrushScaleMax}
           isActiveViewport={activeViewportId === viewportId}
           materialPaintBrushOpacity={materialPaintBrushOpacity}
           meshEditMode={meshEditMode}

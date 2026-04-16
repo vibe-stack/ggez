@@ -63,13 +63,16 @@ export const ToolPaletteContainer = memo(function ToolPaletteContainer({
   }, [editor]);
 
   useEffect(() => {
-    const currentIsValid = sceneState.instanceBrushSourceOptions.some(
-      (option) => option.id === toolSession.instanceBrushSourceNodeId
-    );
+    const validIds = new Set(sceneState.instanceBrushSourceOptions.map((o) => o.id));
 
-    if (currentIsValid) {
-      return;
+    // Prune stale ids from the multi-source list.
+    const nextIds = toolSession.instanceBrushSourceNodeIds.filter((id) => validIds.has(id));
+    if (nextIds.length !== toolSession.instanceBrushSourceNodeIds.length) {
+      toolSessionStore.instanceBrushSourceNodeIds = nextIds;
     }
+
+    const currentIsValid = validIds.has(toolSession.instanceBrushSourceNodeId);
+    if (currentIsValid) return;
 
     const selectedNodeId = editor.selection.ids[0];
     const selectedNode = selectedNodeId ? editor.scene.getNode(selectedNodeId) : undefined;
@@ -77,7 +80,7 @@ export const ToolPaletteContainer = memo(function ToolPaletteContainer({
 
     toolSessionStore.instanceBrushSourceNodeId =
       selectedSourceId ?? sceneState.instanceBrushSourceOptions[0]?.id ?? "";
-  }, [editor, sceneState.instanceBrushSourceOptions, toolSession.instanceBrushSourceNodeId]);
+  }, [editor, sceneState.instanceBrushSourceOptions, toolSession.instanceBrushSourceNodeId, toolSession.instanceBrushSourceNodeIds]);
 
   const onImportGlb = useEventCallback(fileActions.importGlb);
   const onInvertSelectionNormals = useEventCallback(selectionActions.invertSelectionNormals);
@@ -150,14 +153,33 @@ export const ToolPaletteContainer = memo(function ToolPaletteContainer({
   const onSetInstanceBrushDensity = useEventCallback((value: number) => {
     toolSessionStore.instanceBrushDensity = value;
   });
+  const onSetInstanceBrushAlignToNormal = useEventCallback((value: boolean) => {
+    toolSessionStore.instanceBrushAlignToNormal = value;
+  });
+  const onSetInstanceBrushAverageNormal = useEventCallback((value: boolean) => {
+    toolSessionStore.instanceBrushAverageNormal = value;
+  });
   const onSetInstanceBrushRandomness = useEventCallback((value: number) => {
     toolSessionStore.instanceBrushRandomness = value;
   });
   const onSetInstanceBrushSize = useEventCallback((value: number) => {
     toolSessionStore.instanceBrushSize = value;
   });
-  const onSetInstanceBrushSourceNodeId = useEventCallback((nodeId: string) => {
-    toolSessionStore.instanceBrushSourceNodeId = nodeId;
+  const onSetInstanceBrushSourceNodeIds = useEventCallback((nodeIds: string[]) => {
+    toolSessionStore.instanceBrushSourceNodeIds = nodeIds;
+    toolSessionStore.instanceBrushSourceNodeId = nodeIds[0] ?? "";
+  });
+  const onSetInstanceBrushYOffsetMin = useEventCallback((value: number) => {
+    toolSessionStore.instanceBrushYOffsetMin = value;
+  });
+  const onSetInstanceBrushYOffsetMax = useEventCallback((value: number) => {
+    toolSessionStore.instanceBrushYOffsetMax = value;
+  });
+  const onSetInstanceBrushScaleMin = useEventCallback((value: number) => {
+    toolSessionStore.instanceBrushScaleMin = value;
+  });
+  const onSetInstanceBrushScaleMax = useEventCallback((value: number) => {
+    toolSessionStore.instanceBrushScaleMax = value;
   });
   const onSetSculptBrushRadius = useEventCallback((value: number) => {
     toolSessionStore.sculptBrushRadius = value;
@@ -188,11 +210,17 @@ export const ToolPaletteContainer = memo(function ToolPaletteContainer({
       activeToolId={toolSession.activeToolId}
       currentSnapSize={activeViewport.grid.snapSize}
       gridSnapValues={gridSnapValues}
+      instanceBrushAlignToNormal={toolSession.instanceBrushAlignToNormal}
+      instanceBrushAverageNormal={toolSession.instanceBrushAverageNormal}
       instanceBrushDensity={toolSession.instanceBrushDensity}
       instanceBrushRandomness={toolSession.instanceBrushRandomness}
       instanceBrushSize={toolSession.instanceBrushSize}
-      instanceBrushSourceNodeId={toolSession.instanceBrushSourceNodeId}
+      instanceBrushSourceNodeIds={toolSession.instanceBrushSourceNodeIds}
       instanceBrushSourceOptions={sceneState.instanceBrushSourceOptions}
+      instanceBrushYOffsetMin={toolSession.instanceBrushYOffsetMin}
+      instanceBrushYOffsetMax={toolSession.instanceBrushYOffsetMax}
+      instanceBrushScaleMin={toolSession.instanceBrushScaleMin}
+      instanceBrushScaleMax={toolSession.instanceBrushScaleMax}
       materialPaintBrushOpacity={toolSession.materialPaintBrushOpacity}
       materialPaintMode={toolSession.materialPaintMode}
       materials={sceneState.materials}
@@ -214,10 +242,16 @@ export const ToolPaletteContainer = memo(function ToolPaletteContainer({
       onSelectBrushShape={onSelectBrushShape}
       onSelectInstanceBrush={onSelectInstanceBrush}
       onSelectMaterial={onSelectMaterial}
+      onSetInstanceBrushAlignToNormal={onSetInstanceBrushAlignToNormal}
+      onSetInstanceBrushAverageNormal={onSetInstanceBrushAverageNormal}
       onSetInstanceBrushDensity={onSetInstanceBrushDensity}
       onSetInstanceBrushRandomness={onSetInstanceBrushRandomness}
       onSetInstanceBrushSize={onSetInstanceBrushSize}
-      onSetInstanceBrushSourceNodeId={onSetInstanceBrushSourceNodeId}
+      onSetInstanceBrushSourceNodeIds={onSetInstanceBrushSourceNodeIds}
+      onSetInstanceBrushYOffsetMin={onSetInstanceBrushYOffsetMin}
+      onSetInstanceBrushYOffsetMax={onSetInstanceBrushYOffsetMax}
+      onSetInstanceBrushScaleMin={onSetInstanceBrushScaleMin}
+      onSetInstanceBrushScaleMax={onSetInstanceBrushScaleMax}
       onSetMaterialPaintBrushOpacity={onSetMaterialPaintBrushOpacity}
       onSetMeshEditMode={onSetMeshEditMode}
       onSetRenderMode={onSetRenderMode}

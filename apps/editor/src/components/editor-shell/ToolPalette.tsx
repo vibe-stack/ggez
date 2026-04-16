@@ -21,11 +21,17 @@ type ToolPaletteProps = {
   activeToolId: ToolId;
   currentSnapSize: GridSnapValue;
   gridSnapValues: readonly GridSnapValue[];
+  instanceBrushAlignToNormal: boolean;
+  instanceBrushAverageNormal: boolean;
   instanceBrushDensity: number;
   instanceBrushRandomness: number;
   instanceBrushSize: number;
-  instanceBrushSourceNodeId: string;
+  instanceBrushSourceNodeIds: string[];
   instanceBrushSourceOptions: InstanceBrushSourceOption[];
+  instanceBrushYOffsetMin: number;
+  instanceBrushYOffsetMax: number;
+  instanceBrushScaleMin: number;
+  instanceBrushScaleMax: number;
   materialPaintBrushOpacity: number;
   materialPaintMode?: "erase" | "paint" | null;
   materials: Material[];
@@ -47,9 +53,15 @@ type ToolPaletteProps = {
   onSelectMaterial: (materialId: string) => void;
   onSelectInstanceBrush: () => void;
   onSetInstanceBrushDensity: (value: number) => void;
+  onSetInstanceBrushAlignToNormal: (value: boolean) => void;
+  onSetInstanceBrushAverageNormal: (value: boolean) => void;
   onSetInstanceBrushRandomness: (value: number) => void;
   onSetInstanceBrushSize: (value: number) => void;
-  onSetInstanceBrushSourceNodeId: (nodeId: string) => void;
+  onSetInstanceBrushSourceNodeIds: (nodeIds: string[]) => void;
+  onSetInstanceBrushYOffsetMin: (value: number) => void;
+  onSetInstanceBrushYOffsetMax: (value: number) => void;
+  onSetInstanceBrushScaleMin: (value: number) => void;
+  onSetInstanceBrushScaleMax: (value: number) => void;
   onSetMaterialPaintBrushOpacity: (value: number) => void;
   onSetSculptBrushRadius: (value: number) => void;
   onSetSculptBrushStrength: (value: number) => void;
@@ -84,11 +96,17 @@ function ToolPaletteInner({
   activeToolId,
   currentSnapSize,
   gridSnapValues,
+  instanceBrushAlignToNormal,
+  instanceBrushAverageNormal,
   instanceBrushDensity,
   instanceBrushRandomness,
   instanceBrushSize,
-  instanceBrushSourceNodeId,
+  instanceBrushSourceNodeIds,
   instanceBrushSourceOptions,
+  instanceBrushYOffsetMin,
+  instanceBrushYOffsetMax,
+  instanceBrushScaleMin,
+  instanceBrushScaleMax,
   materialPaintBrushOpacity,
   materialPaintMode,
   materials,
@@ -109,10 +127,16 @@ function ToolPaletteInner({
   onRaiseTop,
   onSelectMaterial,
   onSelectInstanceBrush,
+  onSetInstanceBrushAlignToNormal,
+  onSetInstanceBrushAverageNormal,
   onSetInstanceBrushDensity,
   onSetInstanceBrushRandomness,
   onSetInstanceBrushSize,
-  onSetInstanceBrushSourceNodeId,
+  onSetInstanceBrushSourceNodeIds,
+  onSetInstanceBrushYOffsetMin,
+  onSetInstanceBrushYOffsetMax,
+  onSetInstanceBrushScaleMin,
+  onSetInstanceBrushScaleMax,
   onSetMaterialPaintBrushOpacity,
   onSetSculptBrushRadius,
   onSetSculptBrushStrength,
@@ -162,11 +186,17 @@ function ToolPaletteInner({
               aiModelPlacementActive={aiModelPlacementActive}
               activeToolId={activeToolId}
               disabled={physicsPlayback !== "stopped"}
+              instanceBrushAlignToNormal={instanceBrushAlignToNormal}
+              instanceBrushAverageNormal={instanceBrushAverageNormal}
               instanceBrushDensity={instanceBrushDensity}
               instanceBrushRandomness={instanceBrushRandomness}
               instanceBrushSize={instanceBrushSize}
-              instanceBrushSourceNodeId={instanceBrushSourceNodeId}
+              instanceBrushSourceNodeIds={instanceBrushSourceNodeIds}
               instanceBrushSourceOptions={instanceBrushSourceOptions}
+              instanceBrushYOffsetMin={instanceBrushYOffsetMin}
+              instanceBrushYOffsetMax={instanceBrushYOffsetMax}
+              instanceBrushScaleMin={instanceBrushScaleMin}
+              instanceBrushScaleMax={instanceBrushScaleMax}
               onImportGlb={onImportGlb}
               onPlaceEntity={onPlaceEntity}
               onPlaceLight={onPlaceLight}
@@ -178,10 +208,16 @@ function ToolPaletteInner({
               onSelectInstanceBrush={onSelectInstanceBrush}
               onStartAiModelPlacement={onStartAiModelPlacement}
               onSelectBrushShape={onSelectBrushShape}
+              onSetInstanceBrushAlignToNormal={onSetInstanceBrushAlignToNormal}
+              onSetInstanceBrushAverageNormal={onSetInstanceBrushAverageNormal}
               onSetInstanceBrushDensity={onSetInstanceBrushDensity}
               onSetInstanceBrushRandomness={onSetInstanceBrushRandomness}
               onSetInstanceBrushSize={onSetInstanceBrushSize}
-              onSetInstanceBrushSourceNodeId={onSetInstanceBrushSourceNodeId}
+              onSetInstanceBrushSourceNodeIds={onSetInstanceBrushSourceNodeIds}
+              onSetInstanceBrushYOffsetMin={onSetInstanceBrushYOffsetMin}
+              onSetInstanceBrushYOffsetMax={onSetInstanceBrushYOffsetMax}
+              onSetInstanceBrushScaleMin={onSetInstanceBrushScaleMin}
+              onSetInstanceBrushScaleMax={onSetInstanceBrushScaleMax}
             />
           </motion.div>
         ) : null}
@@ -246,11 +282,17 @@ function areToolPalettePropsEqual(previous: ToolPaletteProps, next: ToolPaletteP
     previous.activeToolId === next.activeToolId &&
     previous.currentSnapSize === next.currentSnapSize &&
     previous.gridSnapValues === next.gridSnapValues &&
+    previous.instanceBrushAlignToNormal === next.instanceBrushAlignToNormal &&
+    previous.instanceBrushAverageNormal === next.instanceBrushAverageNormal &&
     previous.instanceBrushDensity === next.instanceBrushDensity &&
     previous.instanceBrushRandomness === next.instanceBrushRandomness &&
     previous.instanceBrushSize === next.instanceBrushSize &&
-    previous.instanceBrushSourceNodeId === next.instanceBrushSourceNodeId &&
+    previous.instanceBrushSourceNodeIds === next.instanceBrushSourceNodeIds &&
     previous.instanceBrushSourceOptions === next.instanceBrushSourceOptions &&
+    previous.instanceBrushYOffsetMin === next.instanceBrushYOffsetMin &&
+    previous.instanceBrushYOffsetMax === next.instanceBrushYOffsetMax &&
+    previous.instanceBrushScaleMin === next.instanceBrushScaleMin &&
+    previous.instanceBrushScaleMax === next.instanceBrushScaleMax &&
     previous.materialPaintBrushOpacity === next.materialPaintBrushOpacity &&
     previous.materialPaintMode === next.materialPaintMode &&
     previous.materials === next.materials &&
