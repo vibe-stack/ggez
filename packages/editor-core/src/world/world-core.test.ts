@@ -5,6 +5,7 @@ import { makeTransform, vec3 } from "@ggez/shared";
 import { createMoveNodeToDocumentCommand } from "./world-commands";
 import { parseWorldPersistenceBundle, serializeWorldPersistenceBundle } from "./persistence";
 import {
+  createSceneEditorAdapter,
   createWorldBundleFromLegacyScene,
   createWorldEditorCore,
   flattenWorldBundle,
@@ -128,6 +129,52 @@ describe("world authoring core", () => {
     expect(flattened.textures.find((texture) => texture.id === "document:a::texture:wall")?.dataUrl).toBe(
       "data:image/png;base64,AAAA"
     );
+  });
+
+  test("reuses untouched node snapshots and live nodes on committed edits", () => {
+    const scene = createSeedSceneDocument();
+    scene.addNode({
+      data: {},
+      id: "node:a",
+      kind: "group",
+      name: "Node A",
+      transform: makeTransform(vec3(1, 0, 0))
+    });
+    scene.addNode({
+      data: {},
+      id: "node:b",
+      kind: "group",
+      name: "Node B",
+      transform: makeTransform(vec3(2, 0, 0))
+    });
+
+    const world = createWorldEditorCore(createWorldBundleFromLegacyScene(createSceneDocumentSnapshot(scene)));
+    const adapter = createSceneEditorAdapter(world);
+    const beforeSnapshot = world.getDocumentSnapshotRef("document:main");
+    const beforeLiveDocument = world.getDocument("document:main");
+
+    adapter.execute({
+      execute(nextScene) {
+        const node = nextScene.getNode("node:a");
+
+        if (!node) {
+          return;
+        }
+
+        node.transform = makeTransform(vec3(8, 0, 0));
+        nextScene.touch();
+      },
+      label: "transform node",
+      undo() {}
+    });
+
+    const afterSnapshot = world.getDocumentSnapshotRef("document:main");
+    const afterLiveDocument = world.getDocument("document:main");
+
+    expect(afterSnapshot?.nodes.find((node) => node.id === "node:b")).toBe(beforeSnapshot?.nodes.find((node) => node.id === "node:b"));
+    expect(afterLiveDocument?.nodes.get("node:b")).toBe(beforeLiveDocument?.nodes.get("node:b"));
+    expect(afterSnapshot?.nodes.find((node) => node.id === "node:a")).not.toBe(beforeSnapshot?.nodes.find((node) => node.id === "node:a"));
+    expect(afterLiveDocument?.nodes.get("node:a")?.transform.position).toEqual(vec3(8, 0, 0));
   });
 });
 

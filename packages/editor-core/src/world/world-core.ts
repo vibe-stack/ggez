@@ -81,6 +81,10 @@ type WorldHistory = {
   undone: WorldTransaction[];
 };
 
+function haveSameReferences(previous: unknown[], next: unknown[]) {
+  return previous.length === next.length && previous.every((value, index) => value === next[index]);
+}
+
 export type WorldEditorCore = {
   events: EventBus<WorldEvents>;
   execute: (command: WorldCommand) => void;
@@ -833,6 +837,12 @@ export function createSceneEditorAdapter(world: WorldEditorCore): SceneEditorAda
   const scene = createSceneDocument();
   const selection = createSelectionState();
   const events = createEventBus<SceneEditorAdapter["events"] extends EventBus<infer TEvents> ? TEvents : never>();
+  type SnapshotReuseEntry<TLive extends { id: string }, TSnapshot extends { id: string }> = {
+    refs: unknown[];
+    signature: string;
+    snapshot: TSnapshot;
+    sourceRef: TLive;
+  };
   const emitSceneChanged = (reason: string) => {
     events.emit("scene:changed", {
       entityIds: Array.from(scene.entities.keys()),
@@ -908,6 +918,8 @@ export function createSceneEditorAdapter(world: WorldEditorCore): SceneEditorAda
 
   const syncScene = (reason = "world:sync") => {
     const activeDocument = world.getActiveDocument();
+    const activeDocumentId = world.world.workingSet.activeDocumentId;
+    const activeSnapshot = activeDocumentId ? world.getDocumentSnapshotRef(activeDocumentId) : undefined;
 
     if (activeDocument) {
       loadSceneDocumentSnapshot(scene, createSceneDocumentSnapshot(activeDocument));
@@ -918,10 +930,127 @@ export function createSceneEditorAdapter(world: WorldEditorCore): SceneEditorAda
       );
     }
 
+    if (activeSnapshot) {
+      resolveNodeSnapshots.prime(scene.nodes.values(), activeSnapshot.nodes);
+      resolveEntitySnapshots.prime(scene.entities.values(), activeSnapshot.entities);
+      resolveMaterialSnapshots.prime(scene.materials.values(), activeSnapshot.materials);
+      resolveTextureSnapshots.prime(scene.textures.values(), activeSnapshot.textures);
+      resolveAssetSnapshots.prime(scene.assets.values(), activeSnapshot.assets);
+      resolveLayerSnapshots.prime(scene.layers.values(), activeSnapshot.layers);
+      cachedSettingsSourceRef = scene.settings;
+      cachedSettingsSnapshot = activeSnapshot.settings;
+    }
+
     syncHistory();
     syncSelection();
     emitSceneChanged(reason);
   };
+
+  const createSnapshotReuseResolver = <TLive extends { id: string }, TSnapshot extends { id: string }>(
+    getRefs: (value: TLive) => unknown[],
+    getSignature: (value: TLive) => string
+  ) => {
+    let cache = new Map<string, SnapshotReuseEntry<TLive, TSnapshot>>();
+
+    return {
+      prime(liveValues: Iterable<TLive>, snapshotValues: Iterable<TSnapshot>) {
+        const snapshotById = new Map(Array.from(snapshotValues, (value) => [value.id, value] as const));
+        const nextCache = new Map<string, SnapshotReuseEntry<TLive, TSnapshot>>();
+
+        for (const liveValue of liveValues) {
+          const snapshot = snapshotById.get(liveValue.id);
+
+          if (!snapshot) {
+            continue;
+          }
+
+          nextCache.set(liveValue.id, {
+            refs: getRefs(liveValue),
+            signature: getSignature(liveValue),
+            snapshot,
+            sourceRef: liveValue
+          });
+        }
+
+        cache = nextCache;
+      },
+      resolve(values: Iterable<TLive>) {
+        const nextCache = new Map<string, SnapshotReuseEntry<TLive, TSnapshot>>();
+        const snapshots: TSnapshot[] = [];
+
+        for (const value of values) {
+          const refs = getRefs(value);
+          const signature = getSignature(value);
+          const cached = cache.get(value.id);
+          const snapshot =
+            cached &&
+            cached.sourceRef === value &&
+            cached.signature === signature &&
+            haveSameReferences(cached.refs, refs)
+              ? cached.snapshot
+              : structuredClone(value);
+
+          snapshots.push(snapshot);
+          nextCache.set(value.id, {
+            refs,
+            signature,
+            snapshot,
+            sourceRef: value
+          });
+        }
+
+        cache = nextCache;
+        return snapshots;
+      }
+    };
+  };
+
+  const resolveNodeSnapshots = createSnapshotReuseResolver<GeometryNode, GeometryNode>(
+    (node) => {
+      const candidate = node as GeometryNode & {
+        hooks?: unknown;
+        layerId?: string;
+        metadata?: unknown;
+        tags?: unknown;
+      };
+
+      return [candidate.transform, candidate.data, candidate.hooks, candidate.metadata, candidate.tags];
+    },
+    (node) => {
+      const candidate = node as GeometryNode & { layerId?: string };
+      return [node.kind, node.name, node.parentId ?? "", candidate.layerId ?? ""].join("|");
+    }
+  );
+  const resolveEntitySnapshots = createSnapshotReuseResolver<Entity, Entity>(
+    (entity) => {
+      const candidate = entity as Entity & {
+        hooks?: unknown;
+        metadata?: unknown;
+        tags?: unknown;
+      };
+
+      return [candidate.transform, candidate.properties, candidate.hooks, candidate.metadata, candidate.tags];
+    },
+    (entity) => [entity.type, entity.name, entity.parentId ?? ""].join("|")
+  );
+  const resolveMaterialSnapshots = createSnapshotReuseResolver<Material, Material>(
+    (material) => [material],
+    () => ""
+  );
+  const resolveTextureSnapshots = createSnapshotReuseResolver<TextureRecord, TextureRecord>(
+    (texture) => [texture],
+    () => ""
+  );
+  const resolveAssetSnapshots = createSnapshotReuseResolver<Asset, Asset>(
+    (asset) => [asset],
+    () => ""
+  );
+  const resolveLayerSnapshots = createSnapshotReuseResolver<SceneDocumentSnapshot["layers"][number], SceneDocumentSnapshot["layers"][number]>(
+    (layer) => [layer],
+    () => ""
+  );
+  let cachedSettingsSourceRef: SceneDocument["settings"] | undefined;
+  let cachedSettingsSnapshot: SceneDocumentSnapshot["settings"] | undefined;
 
   const shouldCloneMaterials = (label: string) => label.includes("material");
   const shouldCloneTextures = (label: string) => label.includes("texture");
@@ -944,22 +1073,31 @@ export function createSceneEditorAdapter(world: WorldEditorCore): SceneEditorAda
 
     return {
       assets: shouldCloneAssets(label)
-        ? Array.from(scene.assets.values(), (asset) => structuredClone(asset))
+        ? resolveAssetSnapshots.resolve(scene.assets.values())
         : before.assets,
       crossDocumentRefs: before.crossDocumentRefs,
       documentId: before.documentId,
-      entities: Array.from(scene.entities.values(), (entity) => structuredClone(entity)),
+      entities: resolveEntitySnapshots.resolve(scene.entities.values()),
       layers: shouldCloneLayers(label)
-        ? Array.from(scene.layers.values(), (layer) => structuredClone(layer))
+        ? resolveLayerSnapshots.resolve(scene.layers.values())
         : before.layers,
       materials: shouldCloneMaterials(label)
-        ? Array.from(scene.materials.values(), (material) => structuredClone(material))
+        ? resolveMaterialSnapshots.resolve(scene.materials.values())
         : before.materials,
       metadata: before.metadata,
-      nodes: Array.from(scene.nodes.values(), (node) => structuredClone(node)),
-      settings: shouldCloneSettings(label) ? structuredClone(scene.settings) : before.settings,
+      nodes: resolveNodeSnapshots.resolve(scene.nodes.values()),
+      settings: shouldCloneSettings(label)
+        ? cachedSettingsSourceRef === scene.settings && cachedSettingsSnapshot
+          ? cachedSettingsSnapshot
+          : (() => {
+              const snapshot = structuredClone(scene.settings);
+              cachedSettingsSourceRef = scene.settings;
+              cachedSettingsSnapshot = snapshot;
+              return snapshot;
+            })()
+        : before.settings,
       textures: shouldCloneTextures(label)
-        ? Array.from(scene.textures.values(), (texture) => structuredClone(texture))
+        ? resolveTextureSnapshots.resolve(scene.textures.values())
         : before.textures,
       version: 1
     };

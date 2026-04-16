@@ -61,6 +61,24 @@ export type SceneDocumentSnapshot = {
   textures: TextureRecord[];
 };
 
+type SnapshotCollectionReuseCache<T extends { id: string }> = {
+  liveById: Map<string, T>;
+  snapshotById: Map<string, T>;
+};
+
+type SceneDocumentSnapshotLoadCache = {
+  assets: SnapshotCollectionReuseCache<Asset>;
+  entities: SnapshotCollectionReuseCache<Entity>;
+  layers: SnapshotCollectionReuseCache<Layer>;
+  materials: SnapshotCollectionReuseCache<Material>;
+  nodes: SnapshotCollectionReuseCache<GeometryNode>;
+  settingsClone?: SceneSettings;
+  settingsSource?: SceneDocumentSnapshot["settings"];
+  textures: SnapshotCollectionReuseCache<TextureRecord>;
+};
+
+const sceneDocumentSnapshotLoadCache = new WeakMap<SceneDocument, SceneDocumentSnapshotLoadCache>();
+
 export function createSceneDocument(): SceneDocument {
   const nodes = new Map<NodeID, GeometryNode>();
   const entities = new Map<EntityID, Entity>();
@@ -264,35 +282,75 @@ export function normalizeSceneDocumentSnapshot(snapshot: SceneDocumentSnapshot):
 }
 
 export function loadSceneDocumentSnapshot(scene: SceneDocument, snapshot: SceneDocumentSnapshot) {
-  scene.nodes.clear();
-  scene.entities.clear();
-  scene.materials.clear();
-  scene.textures.clear();
-  scene.assets.clear();
-  scene.layers.clear();
+  const cache = getSceneDocumentSnapshotLoadCache(scene);
 
-  snapshot.nodes.forEach((node) => {
-    scene.nodes.set(node.id, structuredClone(node));
-  });
-  snapshot.entities.forEach((entity) => {
-    scene.entities.set(entity.id, structuredClone(entity));
-  });
-  snapshot.materials.forEach((material) => {
-    scene.materials.set(material.id, structuredClone(material));
-  });
-  snapshot.textures?.forEach((texture) => {
-    scene.textures.set(texture.id, structuredClone(texture));
-  });
-  snapshot.assets.forEach((asset) => {
-    scene.assets.set(asset.id, structuredClone(asset));
-  });
-  snapshot.layers.forEach((layer) => {
-    scene.layers.set(layer.id, structuredClone(layer));
-  });
-  scene.settings = structuredClone(normalizeSceneSettings(snapshot.settings ?? createDefaultSceneSettings()));
+  syncSnapshotCollection(scene.nodes, snapshot.nodes, cache.nodes);
+  syncSnapshotCollection(scene.entities, snapshot.entities, cache.entities);
+  syncSnapshotCollection(scene.materials, snapshot.materials, cache.materials);
+  syncSnapshotCollection(scene.textures, snapshot.textures ?? [], cache.textures);
+  syncSnapshotCollection(scene.assets, snapshot.assets, cache.assets);
+  syncSnapshotCollection(scene.layers, snapshot.layers, cache.layers);
+  scene.settings =
+    cache.settingsSource === snapshot.settings && cache.settingsClone
+      ? cache.settingsClone
+      : structuredClone(normalizeSceneSettings(snapshot.settings ?? createDefaultSceneSettings()));
+  cache.settingsSource = snapshot.settings;
+  cache.settingsClone = scene.settings;
   ensureSceneTextureLibrary(scene);
 
   scene.touch();
+}
+
+function createSnapshotCollectionReuseCache<T extends { id: string }>(): SnapshotCollectionReuseCache<T> {
+  return {
+    liveById: new Map(),
+    snapshotById: new Map()
+  };
+}
+
+function getSceneDocumentSnapshotLoadCache(scene: SceneDocument): SceneDocumentSnapshotLoadCache {
+  const cached = sceneDocumentSnapshotLoadCache.get(scene);
+
+  if (cached) {
+    return cached;
+  }
+
+  const nextCache: SceneDocumentSnapshotLoadCache = {
+    assets: createSnapshotCollectionReuseCache(),
+    entities: createSnapshotCollectionReuseCache(),
+    layers: createSnapshotCollectionReuseCache(),
+    materials: createSnapshotCollectionReuseCache(),
+    nodes: createSnapshotCollectionReuseCache(),
+    textures: createSnapshotCollectionReuseCache()
+  };
+
+  sceneDocumentSnapshotLoadCache.set(scene, nextCache);
+  return nextCache;
+}
+
+function syncSnapshotCollection<T extends { id: string }>(
+  target: Map<string, T>,
+  snapshotValues: T[],
+  cache: SnapshotCollectionReuseCache<T>
+) {
+  const nextLiveById = new Map<string, T>();
+  const nextSnapshotById = new Map<string, T>();
+
+  target.clear();
+
+  snapshotValues.forEach((snapshotValue) => {
+    const nextValue =
+      cache.snapshotById.get(snapshotValue.id) === snapshotValue
+        ? cache.liveById.get(snapshotValue.id) ?? structuredClone(snapshotValue)
+        : structuredClone(snapshotValue);
+
+    target.set(snapshotValue.id, nextValue);
+    nextLiveById.set(snapshotValue.id, nextValue);
+    nextSnapshotById.set(snapshotValue.id, snapshotValue);
+  });
+
+  cache.liveById = nextLiveById;
+  cache.snapshotById = nextSnapshotById;
 }
 
 export function createSeedSceneDocument(): SceneDocument {

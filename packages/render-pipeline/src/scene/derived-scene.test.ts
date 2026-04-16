@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { deriveRenderScene } from "./derived-scene";
+import { createDerivedRenderSceneCache, deriveRenderScene, deriveRenderSceneCached } from "./derived-scene";
 import { makeTransform, vec3, type Entity, type GeometryNode, type Material } from "@ggez/shared";
 
 describe("deriveRenderScene", () => {
@@ -181,5 +181,37 @@ describe("deriveRenderScene", () => {
     ]);
 
     expect(scene.meshes[0]?.material.colorTexture).toBe("data:image/png;base64,AAAA");
+  });
+
+  test("reuses cached derived mesh geometry for transform-only updates", () => {
+    const cache = createDerivedRenderSceneCache();
+    const baseNode: GeometryNode = {
+      data: {
+        role: "prop",
+        shape: "cube",
+        size: vec3(1, 1, 1)
+      },
+      id: "node:cube",
+      kind: "primitive",
+      name: "Cube",
+      transform: makeTransform(vec3(0, 0, 0))
+    };
+
+    const firstScene = deriveRenderSceneCached([baseNode], [], [], [], cache);
+    const movedScene = deriveRenderSceneCached(
+      [
+        {
+          ...baseNode,
+          transform: makeTransform(vec3(4, 2, -1))
+        }
+      ],
+      [],
+      [],
+      [],
+      cache
+    );
+
+    expect(movedScene.meshes[0]?.primitive).toBe(firstScene.meshes[0]?.primitive);
+    expect(movedScene.meshes[0]?.position).toEqual(vec3(4, 2, -1));
   });
 });

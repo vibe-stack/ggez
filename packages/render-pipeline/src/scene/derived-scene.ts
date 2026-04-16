@@ -187,6 +187,8 @@ export function deriveRenderSceneCached(
     const meshEntry =
       !isStale
         ? cached!
+        : !shouldRebuildAllMeshes && cached && isTransformOnlyChange(node, worldTransform, cached)
+          ? patchCachedMeshEntryTransform(cached, worldTransform)
         : !shouldRebuildAllMeshes && cached && isMaterialLayersOnlyChange(node, worldTransform, cached)
           ? patchCachedMeshEntryBlendWeights(cached, node, materialsById)
           : createCachedMeshEntry(node, worldTransform, materialsById, assetsById);
@@ -401,6 +403,46 @@ function isMaterialLayersOnlyChange(
     cached.physics === ("physics" in node.data ? node.data.physics : undefined) &&
     cached.previewSize === ("previewSize" in node.data ? node.data.previewSize : undefined)
   );
+}
+
+function isTransformOnlyChange(
+  node: Exclude<GeometryNode, { kind: "group" | "light" }>,
+  worldTransform: Transform,
+  cached: CachedDerivedRenderMeshEntry
+) {
+  return (
+    cached.sourceKind === node.kind &&
+    cached.name === node.name &&
+    cached.data === node.data &&
+    cached.faces === ("faces" in node.data ? node.data.faces : undefined) &&
+    cached.halfEdges === ("halfEdges" in node.data ? node.data.halfEdges : undefined) &&
+    cached.physics === ("physics" in node.data ? node.data.physics : undefined) &&
+    cached.planes === ("planes" in node.data ? node.data.planes : undefined) &&
+    cached.previewSize === ("previewSize" in node.data ? node.data.previewSize : undefined) &&
+    cached.vertices === ("vertices" in node.data ? node.data.vertices : undefined) &&
+    hasTransformValuesChanged(worldTransform, cached)
+  );
+}
+
+function patchCachedMeshEntryTransform(
+  cached: CachedDerivedRenderMeshEntry,
+  worldTransform: Transform
+): CachedDerivedRenderMeshEntry {
+  return {
+    ...cached,
+    mesh: {
+      ...cached.mesh,
+      pivot: worldTransform.pivot,
+      position: worldTransform.position,
+      rotation: worldTransform.rotation,
+      scale: worldTransform.scale
+    },
+    pivot: worldTransform.pivot,
+    position: structuredClone(worldTransform.position),
+    rotation: structuredClone(worldTransform.rotation),
+    scale: structuredClone(worldTransform.scale),
+    transform: structuredClone(worldTransform)
+  };
 }
 
 /**
