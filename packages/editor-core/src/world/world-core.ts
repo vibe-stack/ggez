@@ -85,6 +85,162 @@ function haveSameReferences(previous: unknown[], next: unknown[]) {
   return previous.length === next.length && previous.every((value, index) => value === next[index]);
 }
 
+type FlattenCollectionCacheEntry<TSource extends { id: string }, TTarget extends { id: string }> = {
+  contextKey: string;
+  output: TTarget;
+  refs: unknown[];
+  signature: string;
+  sourceRef: TSource;
+};
+
+type FlattenCollectionResolver<TSource extends { id: string }, TTarget extends { id: string }, TContext> = {
+  resolve: (values: Iterable<TSource>, context: TContext) => TTarget[];
+};
+
+type FlattenDocumentContext = {
+  documentId: DocumentID;
+  mountTransform: Transform;
+};
+
+type FlattenedWorldDocumentCache = {
+  assets: FlattenCollectionResolver<Asset, Asset, FlattenDocumentContext>;
+  entities: FlattenCollectionResolver<Entity, Entity, FlattenDocumentContext>;
+  layers: FlattenCollectionResolver<SceneDocumentSnapshot["layers"][number], SceneDocumentSnapshot["layers"][number], FlattenDocumentContext>;
+  materials: FlattenCollectionResolver<Material, Material, FlattenDocumentContext>;
+  nodes: FlattenCollectionResolver<GeometryNode, GeometryNode, FlattenDocumentContext>;
+  textures: FlattenCollectionResolver<TextureRecord, TextureRecord, FlattenDocumentContext>;
+};
+
+function createFlattenCollectionResolver<TSource extends { id: string }, TTarget extends { id: string }, TContext>(
+  getRefs: (value: TSource) => unknown[],
+  getSignature: (value: TSource) => string,
+  getContextKey: (context: TContext) => string,
+  remap: (value: TSource, context: TContext) => TTarget
+): FlattenCollectionResolver<TSource, TTarget, TContext> {
+  let cache = new Map<string, FlattenCollectionCacheEntry<TSource, TTarget>>();
+
+  return {
+    resolve(values, context) {
+      const contextKey = getContextKey(context);
+      const nextCache = new Map<string, FlattenCollectionCacheEntry<TSource, TTarget>>();
+      const outputs: TTarget[] = [];
+
+      for (const value of values) {
+        const refs = getRefs(value);
+        const signature = getSignature(value);
+        const cached = cache.get(value.id);
+        const output =
+          cached &&
+          cached.sourceRef === value &&
+          cached.signature === signature &&
+          cached.contextKey === contextKey &&
+          haveSameReferences(cached.refs, refs)
+            ? cached.output
+            : remap(value, context);
+
+        outputs.push(output);
+        nextCache.set(value.id, {
+          contextKey,
+          output,
+          refs,
+          signature,
+          sourceRef: value
+        });
+      }
+
+      cache = nextCache;
+      return outputs;
+    }
+  };
+}
+
+function createFlattenedWorldDocumentCache(): FlattenedWorldDocumentCache {
+  return {
+    assets: createFlattenCollectionResolver<Asset, Asset, FlattenDocumentContext>(
+      (asset) => [asset],
+      () => "",
+      (context) => context.documentId,
+      (asset, context) => ({
+        ...structuredClone(asset),
+        id: namespaceId(context.documentId, asset.id)
+      })
+    ),
+    entities: createFlattenCollectionResolver<Entity, Entity, FlattenDocumentContext>(
+      (entity) => {
+        const candidate = entity as Entity & { hooks?: unknown; metadata?: unknown; tags?: unknown };
+        return [candidate.transform, candidate.properties, candidate.hooks, candidate.metadata, candidate.tags];
+      },
+      (entity) => [entity.type, entity.name, entity.parentId ?? ""].join("|"),
+      (context) => getFlattenDocumentContextKey(context),
+      (entity, context) => ({
+        ...structuredClone(entity),
+        id: namespaceId(context.documentId, entity.id),
+        parentId: entity.parentId ? namespaceId(context.documentId, entity.parentId) : undefined,
+        transform: entity.parentId ? structuredClone(entity.transform) : composeTransforms(context.mountTransform, entity.transform)
+      })
+    ),
+    layers: createFlattenCollectionResolver<SceneDocumentSnapshot["layers"][number], SceneDocumentSnapshot["layers"][number], FlattenDocumentContext>(
+      (layer) => [layer],
+      () => "",
+      (context) => context.documentId,
+      (layer, context) => ({
+        ...structuredClone(layer),
+        id: namespaceId(context.documentId, layer.id)
+      })
+    ),
+    materials: createFlattenCollectionResolver<Material, Material, FlattenDocumentContext>(
+      (material) => [material],
+      () => "",
+      (context) => context.documentId,
+      (material, context) =>
+        remapMaterialForWorld(
+          {
+            ...structuredClone(material),
+            id: namespaceId(context.documentId, material.id)
+          },
+          (textureId) => namespaceId(context.documentId, textureId)
+        )
+    ),
+    nodes: createFlattenCollectionResolver<GeometryNode, GeometryNode, FlattenDocumentContext>(
+      (node) => {
+        const candidate = node as GeometryNode & { hooks?: unknown; metadata?: unknown; tags?: unknown };
+        return [candidate.transform, candidate.data, candidate.hooks, candidate.metadata, candidate.tags];
+      },
+      (node) => [node.kind, node.name, node.parentId ?? ""].join("|"),
+      (context) => getFlattenDocumentContextKey(context),
+      (node, context) => remapNodeForFlattenedWorld(context.documentId, node, context.mountTransform)
+    ),
+    textures: createFlattenCollectionResolver<TextureRecord, TextureRecord, FlattenDocumentContext>(
+      (texture) => [texture],
+      () => "",
+      (context) => context.documentId,
+      (texture, context) => ({
+        ...structuredClone(texture),
+        id: namespaceId(context.documentId, texture.id)
+      })
+    )
+  };
+}
+
+function getFlattenDocumentContextKey(context: FlattenDocumentContext) {
+  return [
+    context.documentId,
+    context.mountTransform.position.x,
+    context.mountTransform.position.y,
+    context.mountTransform.position.z,
+    context.mountTransform.rotation.x,
+    context.mountTransform.rotation.y,
+    context.mountTransform.rotation.z,
+    context.mountTransform.scale.x,
+    context.mountTransform.scale.y,
+    context.mountTransform.scale.z,
+    context.mountTransform.pivot?.x ?? 0,
+    context.mountTransform.pivot?.y ?? 0,
+    context.mountTransform.pivot?.z ?? 0,
+    context.mountTransform.pivot ? 1 : 0
+  ].join("|");
+}
+
 export type WorldEditorCore = {
   events: EventBus<WorldEvents>;
   execute: (command: WorldCommand) => void;
@@ -182,10 +338,23 @@ export function createWorldEditorCore(
   };
   const events = createEventBus<WorldEvents>();
   const documentSpatialIndexes = new Map<DocumentID, DocumentSpatialIndex>();
+  const flattenedDocumentCaches = new Map<DocumentID, FlattenedWorldDocumentCache>();
   let worldSpatialIndex = createWorldSpatialIndex({
     documents: [],
     partitions: []
   });
+
+  const getFlattenedDocumentCache = (documentId: DocumentID) => {
+    const cached = flattenedDocumentCaches.get(documentId);
+
+    if (cached) {
+      return cached;
+    }
+
+    const nextCache = createFlattenedWorldDocumentCache();
+    flattenedDocumentCaches.set(documentId, nextCache);
+    return nextCache;
+  };
 
   const loadLoadedDocument = (documentId: DocumentID, existingDocument?: AuthoringDocument) => {
     const snapshot = storageBundle.documents[documentId];
@@ -443,13 +612,100 @@ export function createWorldEditorCore(
       }));
     },
     getFlattenedSceneSnapshot(options = {}) {
-      return flattenWorldBundle(storageBundle, {
-        activeDocumentId: world.workingSet.activeDocumentId,
-        activeDocumentOverride: options.activeDocumentOverride,
-        includeDocumentIds: options.includeLoadedOnly
-          ? world.workingSet.loadedDocumentIds
-          : Object.keys(storageBundle.documents)
+      const includeDocumentIds = options.includeLoadedOnly
+        ? world.workingSet.loadedDocumentIds
+        : Object.keys(storageBundle.documents);
+      const nodes: GeometryNode[] = [];
+      const entities: Entity[] = [];
+      const materials: Material[] = [];
+      const textures: TextureRecord[] = [];
+      const assets: Asset[] = [];
+      const layers: SceneDocumentSnapshot["layers"] = [];
+      const seenMaterialIds = new Set<string>();
+      const seenTextureIds = new Set<string>();
+      const seenAssetIds = new Set<string>();
+      const seenLayerIds = new Set<string>();
+
+      includeDocumentIds.forEach((documentId) => {
+        const sourceDocument =
+          options.activeDocumentOverride && (options.activeDocumentId ?? world.workingSet.activeDocumentId) === documentId
+            ? options.activeDocumentOverride
+            : storageBundle.documents[documentId];
+
+        if (!sourceDocument) {
+          return;
+        }
+
+        const flattenContext: FlattenDocumentContext = {
+          documentId,
+          mountTransform: resolveDocumentMountTransform(storageBundle, documentId)
+        };
+        const documentCache = getFlattenedDocumentCache(documentId);
+        const documentNodes = "nodes" in sourceDocument && sourceDocument.nodes instanceof Map
+          ? sourceDocument.nodes.values()
+          : sourceDocument.nodes;
+        const documentEntities = "entities" in sourceDocument && sourceDocument.entities instanceof Map
+          ? sourceDocument.entities.values()
+          : sourceDocument.entities;
+        const documentMaterials = "materials" in sourceDocument && sourceDocument.materials instanceof Map
+          ? sourceDocument.materials.values()
+          : sourceDocument.materials;
+        const documentTextures = "textures" in sourceDocument && sourceDocument.textures instanceof Map
+          ? sourceDocument.textures.values()
+          : sourceDocument.textures;
+        const documentAssets = "assets" in sourceDocument && sourceDocument.assets instanceof Map
+          ? sourceDocument.assets.values()
+          : sourceDocument.assets;
+        const documentLayers = "layers" in sourceDocument && sourceDocument.layers instanceof Map
+          ? sourceDocument.layers.values()
+          : sourceDocument.layers;
+
+        nodes.push(...documentCache.nodes.resolve(documentNodes, flattenContext));
+        entities.push(...documentCache.entities.resolve(documentEntities, flattenContext));
+        documentCache.materials.resolve(documentMaterials, flattenContext).forEach((material) => {
+          if (!seenMaterialIds.has(material.id)) {
+            seenMaterialIds.add(material.id);
+            materials.push(material);
+          }
+        });
+        documentCache.textures.resolve(documentTextures, flattenContext).forEach((texture) => {
+          if (!seenTextureIds.has(texture.id)) {
+            seenTextureIds.add(texture.id);
+            textures.push(texture);
+          }
+        });
+        documentCache.assets.resolve(documentAssets, flattenContext).forEach((asset) => {
+          if (!seenAssetIds.has(asset.id)) {
+            seenAssetIds.add(asset.id);
+            assets.push(asset);
+          }
+        });
+        documentCache.layers.resolve(documentLayers, flattenContext).forEach((layer) => {
+          if (!seenLayerIds.has(layer.id)) {
+            seenLayerIds.add(layer.id);
+            layers.push(layer);
+          }
+        });
       });
+
+      return {
+        assets: [...assets, ...storageBundle.sharedAssets.assets.map((asset) => ({ ...structuredClone(asset), id: namespaceSharedId(asset.id) }))],
+        entities,
+        layers,
+        materials: [
+          ...materials,
+          ...storageBundle.sharedAssets.materials.map((material) =>
+            remapMaterialForWorld(
+              { ...structuredClone(material), id: namespaceSharedId(material.id) },
+              namespaceSharedId
+            )
+          )
+        ],
+        metadata: structuredClone(storageBundle.manifest.metadata),
+        nodes,
+        settings: resolveFlattenedWorldSettings(storageBundle, includeDocumentIds[0]),
+        textures: [...textures, ...storageBundle.sharedAssets.textures.map((texture) => ({ ...structuredClone(texture), id: namespaceSharedId(texture.id) }))]
+      };
     },
     getPartitionSummaries() {
       return Object.values(storageBundle.partitions).map((partition) => ({
@@ -1829,9 +2085,18 @@ function remapNodeForWorld(
   nodeIdMap: Map<string, string>,
   documentTransform: Transform
 ): GeometryNode {
+  return remapNodeForFlattenedWorld(documentId, node, documentTransform, nodeIdMap);
+}
+
+function remapNodeForFlattenedWorld(
+  documentId: DocumentID,
+  node: GeometryNode,
+  documentTransform: Transform,
+  nodeIdMap?: Map<string, string>
+): GeometryNode {
   const remappedNode = structuredClone(node);
-  remappedNode.id = nodeIdMap.get(node.id) ?? namespaceId(documentId, node.id);
-  remappedNode.parentId = node.parentId ? nodeIdMap.get(node.parentId) : undefined;
+  remappedNode.id = nodeIdMap?.get(node.id) ?? namespaceId(documentId, node.id);
+  remappedNode.parentId = node.parentId ? (nodeIdMap?.get(node.parentId) ?? namespaceId(documentId, node.parentId)) : undefined;
 
   if (!node.parentId) {
     remappedNode.transform = composeTransforms(documentTransform, node.transform);
@@ -1861,7 +2126,7 @@ function remapNodeForWorld(
 
   if (isInstancingNode(remappedNode)) {
     remappedNode.data.sourceNodeId =
-      nodeIdMap.get(remappedNode.data.sourceNodeId) ?? namespaceId(documentId, remappedNode.data.sourceNodeId);
+      nodeIdMap?.get(remappedNode.data.sourceNodeId) ?? namespaceId(documentId, remappedNode.data.sourceNodeId);
   }
 
   return remappedNode;

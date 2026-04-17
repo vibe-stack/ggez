@@ -176,6 +176,60 @@ describe("world authoring core", () => {
     expect(afterSnapshot?.nodes.find((node) => node.id === "node:a")).not.toBe(beforeSnapshot?.nodes.find((node) => node.id === "node:a"));
     expect(afterLiveDocument?.nodes.get("node:a")?.transform.position).toEqual(vec3(8, 0, 0));
   });
+
+  test("reuses untouched flattened world nodes on active document transform edits", () => {
+    const scene = createSeedSceneDocument();
+    scene.addNode({
+      data: {},
+      id: "node:a",
+      kind: "group",
+      name: "Node A",
+      transform: makeTransform(vec3(1, 0, 0))
+    });
+    scene.addNode({
+      data: {},
+      id: "node:b",
+      kind: "group",
+      name: "Node B",
+      transform: makeTransform(vec3(2, 0, 0))
+    });
+
+    const world = createWorldEditorCore(createWorldBundleFromLegacyScene(createSceneDocumentSnapshot(scene)));
+    const adapter = createSceneEditorAdapter(world);
+    const beforeFlattened = world.getFlattenedSceneSnapshot({
+      activeDocumentId: "document:main",
+      activeDocumentOverride: adapter.scene,
+      includeLoadedOnly: true
+    });
+
+    adapter.execute({
+      execute(nextScene) {
+        const node = nextScene.getNode("node:a");
+
+        if (!node) {
+          return;
+        }
+
+        node.transform = makeTransform(vec3(5, 0, 0));
+        nextScene.touch();
+      },
+      label: "transform node",
+      undo() {}
+    });
+
+    const afterFlattened = world.getFlattenedSceneSnapshot({
+      activeDocumentId: "document:main",
+      activeDocumentOverride: adapter.scene,
+      includeLoadedOnly: true
+    });
+
+    expect(afterFlattened.nodes.find((node) => node.id === "document:main::node:b")).toBe(
+      beforeFlattened.nodes.find((node) => node.id === "document:main::node:b")
+    );
+    expect(afterFlattened.nodes.find((node) => node.id === "document:main::node:a")).not.toBe(
+      beforeFlattened.nodes.find((node) => node.id === "document:main::node:a")
+    );
+  });
 });
 
 function createTwoDocumentWorldBundle(): WorldPersistenceBundle {

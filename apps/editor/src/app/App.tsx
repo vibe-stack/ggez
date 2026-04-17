@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSnapshot } from "valtio";
 import {
-  analyzeSceneSpatialLayout,
   createReplaceNodesCommand,
   createSceneEditorAdapter,
   createSceneDocumentSnapshot,
   createSeedSceneDocument,
   createWorldEditorCore,
+  type SceneSpatialAnalysis,
   type WorldPersistenceBundle
 } from "@ggez/editor-core";
 import { createDerivedRenderSceneCache, deriveRenderSceneCached } from "@ggez/render-pipeline";
@@ -37,6 +37,15 @@ import { uiStore } from "@/state/ui-store";
 import { projectSessionStore } from "@/state/project-session-store";
 import { sceneSessionStore } from "@/state/scene-session-store";
 import { toolSessionStore } from "@/state/tool-session-store";
+
+const EMPTY_SCENE_SPATIAL_ANALYSIS: SceneSpatialAnalysis = {
+  connectorValidations: [],
+  elevationBands: [],
+  groups: [],
+  issues: [],
+  nodes: [],
+  walkableSurfaces: []
+};
 
 export function App() {
   const [worldEditor] = useState(() => createWorldEditorCore(createSceneDocumentSnapshot(createSeedSceneDocument())));
@@ -101,10 +110,7 @@ export function App() {
       ),
     [editor, flattenedWorldSnapshot, sceneRevision, workingSet.mode]
   );
-  const spatialAnalysis = useMemo(
-    () => analyzeSceneSpatialLayout(workingSet.mode === "world" && flattenedWorldSnapshot ? flattenedWorldSnapshot : editor.scene),
-    [committedSceneRevision, editor, flattenedWorldSnapshot, workingSet.mode]
-  );
+  const spatialAnalysis = EMPTY_SCENE_SPATIAL_ANALYSIS;
   const sceneNodes = useMemo(() => Array.from(editor.scene.nodes.values()), [editor, committedSceneRevision]);
   const sceneEntities = useMemo(() => Array.from(editor.scene.entities.values()), [editor, committedSceneRevision]);
   const modelAssets = useMemo(
