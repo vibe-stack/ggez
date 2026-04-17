@@ -1015,6 +1015,9 @@ export function RenderLightNode({
       light.data.shadowRadius,
       {
         shadowBias: light.data.shadowBias,
+        shadowBlurRadius: light.data.shadowBlurRadius,
+        shadowBlurSamples: light.data.shadowBlurSamples,
+        shadowMapSize: light.data.shadowMapSize,
         shadowNormalBias: light.data.shadowNormalBias
       }
     );
@@ -1028,6 +1031,9 @@ export function RenderLightNode({
     if (light.data.type === "spot") {
       applySoftVsmShadowConfig(lightRef.current as SpotLight, SPOT_LIGHT_SHADOW_MAP_SIZE, {
         shadowBias: light.data.shadowBias,
+        shadowBlurRadius: light.data.shadowBlurRadius,
+        shadowBlurSamples: light.data.shadowBlurSamples,
+        shadowMapSize: light.data.shadowMapSize,
         shadowNormalBias: light.data.shadowNormalBias
       });
       return;
@@ -1036,10 +1042,13 @@ export function RenderLightNode({
     if (light.data.type === "point") {
       applySoftVsmShadowConfig(lightRef.current as PointLight, POINT_LIGHT_SHADOW_MAP_SIZE, {
         shadowBias: light.data.shadowBias,
+        shadowBlurRadius: light.data.shadowBlurRadius,
+        shadowBlurSamples: light.data.shadowBlurSamples,
+        shadowMapSize: light.data.shadowMapSize,
         shadowNormalBias: light.data.shadowNormalBias
       });
     }
-  }, [light.data.castShadow, light.data.shadowBias, light.data.shadowNormalBias, light.data.type]);
+  }, [light.data.castShadow, light.data.shadowBias, light.data.shadowBlurRadius, light.data.shadowBlurSamples, light.data.shadowMapSize, light.data.shadowNormalBias, light.data.type]);
 
   const markerColor = selected ? "#ffb35a" : hovered ? "#d8f4f0" : light.color;
   const showTargetGuide = (light.data.type === "directional" || light.data.type === "spot") && (selected || hovered);

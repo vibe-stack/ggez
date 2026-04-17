@@ -74,6 +74,8 @@ export async function createInstancedGeometryObject(
     });
 
     mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingBox();
+    mesh.computeBoundingSphere();
     group.add(mesh);
   }
 

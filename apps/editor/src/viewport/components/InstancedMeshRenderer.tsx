@@ -88,6 +88,22 @@ export function RenderInstancedMeshBatch({
       tempInstanceObject.updateMatrix();
       tempInstanceMatrix.copy(tempInstanceObject.matrix).multiply(tempPivotMatrix);
       meshObject.setMatrixAt(index, tempInstanceMatrix);
+    });
+
+    meshObject.count = batch.instances.length;
+    meshObject.instanceMatrix.needsUpdate = true;
+
+    updateInstancedMeshBounds(meshObject);
+  }, [batch.instances, geometry, pivot.x, pivot.y, pivot.z, previewMaterials]);
+
+  useEffect(() => {
+    const meshObject = meshRef.current;
+
+    if (!meshObject || !geometry || previewMaterials.length === 0) {
+      return;
+    }
+
+    batch.instances.forEach((instance, index) => {
       meshObject.setColorAt(
         index,
         tempInstanceColor.set(
@@ -100,13 +116,10 @@ export function RenderInstancedMeshBatch({
       );
     });
 
-    meshObject.count = batch.instances.length;
-    meshObject.instanceMatrix.needsUpdate = true;
-
     if (meshObject.instanceColor) {
       meshObject.instanceColor.needsUpdate = true;
     }
-  }, [batch.instances, geometry, hoveredNodeId, pivot.x, pivot.y, pivot.z, previewMaterials, selectedNodeIds]);
+  }, [batch.instances, geometry, hoveredNodeId, previewMaterials, selectedNodeIds]);
 
   useEffect(() => {
     return () => {
@@ -388,6 +401,22 @@ export function RenderInstancedModelPart({
       tempInstanceObject.updateMatrix();
       tempInstanceMatrix.copy(tempInstanceObject.matrix).multiply(localMatrix);
       meshObject.setMatrixAt(index, tempInstanceMatrix);
+    });
+
+    meshObject.count = batch.instances.length;
+    meshObject.instanceMatrix.needsUpdate = true;
+
+    updateInstancedMeshBounds(meshObject);
+  }, [batch.instances, localMatrix]);
+
+  useEffect(() => {
+    const meshObject = meshRef.current;
+
+    if (!meshObject) {
+      return;
+    }
+
+    batch.instances.forEach((instance, index) => {
       meshObject.setColorAt(
         index,
         tempInstanceColor.set(
@@ -400,13 +429,10 @@ export function RenderInstancedModelPart({
       );
     });
 
-    meshObject.count = batch.instances.length;
-    meshObject.instanceMatrix.needsUpdate = true;
-
     if (meshObject.instanceColor) {
       meshObject.instanceColor.needsUpdate = true;
     }
-  }, [batch.instances, hoveredNodeId, localMatrix, selectedNodeIds]);
+  }, [batch.instances, hoveredNodeId, selectedNodeIds]);
 
   return (
     <instancedMesh
@@ -532,6 +558,22 @@ export function RenderInstancedModelBoundsBatch({
       tempInstanceObject.scale.set(instance.scale.x, instance.scale.y, instance.scale.z);
       tempInstanceObject.updateMatrix();
       meshObject.setMatrixAt(index, tempInstanceObject.matrix);
+    });
+
+    meshObject.count = batch.instances.length;
+    meshObject.instanceMatrix.needsUpdate = true;
+
+    updateInstancedMeshBounds(meshObject);
+  }, [batch.instances]);
+
+  useEffect(() => {
+    const meshObject = meshRef.current;
+
+    if (!meshObject) {
+      return;
+    }
+
+    batch.instances.forEach((instance, index) => {
       meshObject.setColorAt(
         index,
         tempInstanceColor.set(
@@ -543,9 +585,6 @@ export function RenderInstancedModelBoundsBatch({
         )
       );
     });
-
-    meshObject.count = batch.instances.length;
-    meshObject.instanceMatrix.needsUpdate = true;
 
     if (meshObject.instanceColor) {
       meshObject.instanceColor.needsUpdate = true;
@@ -636,4 +675,9 @@ function haveSameNodeOrder(left: string[], right: string[]) {
   }
 
   return left.every((value, index) => value === right[index]);
+}
+
+function updateInstancedMeshBounds(mesh: InstancedMesh) {
+  mesh.computeBoundingBox();
+  mesh.computeBoundingSphere();
 }

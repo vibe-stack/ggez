@@ -658,6 +658,9 @@ function createLightObject(light: DerivedLight): RuntimeNodeObject | undefined {
     const point = new PointLight(light.data.color, light.data.intensity, light.data.distance, light.data.decay);
     point.castShadow = light.data.castShadow;
     point.shadow.bias = light.data.shadowBias ?? -0.00015;
+    point.shadow.radius = light.data.shadowBlurRadius ?? 4;
+    point.shadow.blurSamples = Math.max(1, Math.round(light.data.shadowBlurSamples ?? 8));
+    point.shadow.mapSize.set(light.data.shadowMapSize ?? 256, light.data.shadowMapSize ?? 256);
     point.shadow.normalBias = light.data.shadowNormalBias ?? 0.03;
     group.add(point);
   }
@@ -666,6 +669,9 @@ function createLightObject(light: DerivedLight): RuntimeNodeObject | undefined {
     const directional = new DirectionalLight(light.data.color, light.data.intensity);
     directional.castShadow = light.data.castShadow;
     directional.shadow.bias = light.data.shadowBias ?? -0.00015;
+    directional.shadow.radius = light.data.shadowBlurRadius ?? 1.25;
+    directional.shadow.blurSamples = Math.max(1, Math.round(light.data.shadowBlurSamples ?? 4));
+    directional.shadow.mapSize.set(light.data.shadowMapSize ?? 1536, light.data.shadowMapSize ?? 1536);
     directional.shadow.normalBias = light.data.shadowNormalBias ?? 0.03;
     target = new Object3D();
     target.position.set(
@@ -689,6 +695,9 @@ function createLightObject(light: DerivedLight): RuntimeNodeObject | undefined {
     );
     spot.castShadow = light.data.castShadow;
     spot.shadow.bias = light.data.shadowBias ?? -0.00015;
+    spot.shadow.radius = light.data.shadowBlurRadius ?? 4;
+    spot.shadow.blurSamples = Math.max(1, Math.round(light.data.shadowBlurSamples ?? 8));
+    spot.shadow.mapSize.set(light.data.shadowMapSize ?? 512, light.data.shadowMapSize ?? 512);
     spot.shadow.normalBias = light.data.shadowNormalBias ?? 0.03;
     target = new Object3D();
     target.position.set(

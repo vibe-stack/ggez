@@ -45,15 +45,24 @@ function resolveLocalLightTarget(node: Extract<WebHammerEngineNode, { kind: "lig
 
 export function applyDefaultShadowSettings(
   light: DirectionalLight | PointLight | SpotLight,
-  shadow: { shadowBias?: number; shadowNormalBias?: number } = {}
+  shadow: {
+    shadowBias?: number;
+    shadowBlurRadius?: number;
+    shadowBlurSamples?: number;
+    shadowMapSize?: number;
+    shadowNormalBias?: number;
+  } = {}
 ) {
   if (!light.castShadow) {
     return;
   }
 
-  light.shadow.mapSize.width = DEFAULT_DIRECTIONAL_SHADOW_MAP_SIZE;
-  light.shadow.mapSize.height = DEFAULT_DIRECTIONAL_SHADOW_MAP_SIZE;
+  const resolvedMapSize = Math.max(128, Math.round((shadow.shadowMapSize ?? DEFAULT_DIRECTIONAL_SHADOW_MAP_SIZE) / 128) * 128);
+  light.shadow.mapSize.width = resolvedMapSize;
+  light.shadow.mapSize.height = resolvedMapSize;
   light.shadow.bias = shadow.shadowBias ?? DEFAULT_DIRECTIONAL_SHADOW_BIAS;
+  light.shadow.radius = shadow.shadowBlurRadius ?? 4;
+  light.shadow.blurSamples = Math.max(1, Math.round(shadow.shadowBlurSamples ?? 8));
 
   if ("normalBias" in light.shadow) {
     light.shadow.normalBias = shadow.shadowNormalBias ?? DEFAULT_DIRECTIONAL_SHADOW_NORMAL_BIAS;
@@ -86,6 +95,9 @@ export function createThreeLight(node: Extract<WebHammerEngineNode, { kind: "lig
       applyDefaultShadowSettings(light, node.data);
       light.userData.webHammerShadow = {
         bias: node.data.shadowBias,
+        blurRadius: node.data.shadowBlurRadius,
+        blurSamples: node.data.shadowBlurSamples,
+        mapSize: node.data.shadowMapSize,
         normalBias: node.data.shadowNormalBias
       };
       target.position.copy(resolveLocalLightTarget(node));

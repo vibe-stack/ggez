@@ -57,6 +57,8 @@ export async function createInstancedModelObject(
     });
 
     instancedMesh.instanceMatrix.needsUpdate = true;
+    instancedMesh.computeBoundingBox();
+    instancedMesh.computeBoundingSphere();
     group.add(instancedMesh);
     modelMeshIndex += 1;
   });

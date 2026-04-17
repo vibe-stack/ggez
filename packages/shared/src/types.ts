@@ -160,6 +160,9 @@ export type LightNodeData = {
   intensity: number;
   penumbra?: number;
   shadowBias?: number;
+  shadowBlurRadius?: number;
+  shadowBlurSamples?: number;
+  shadowMapSize?: number;
   shadowNormalBias?: number;
   shadowRadius?: number;
   target?: Vec3;

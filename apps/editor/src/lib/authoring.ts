@@ -130,6 +130,9 @@ export function createDefaultLightData(type: LightType): LightNodeData {
         enabled: true,
         intensity: 1.25,
         shadowBias: -0.00015,
+        shadowBlurRadius: 1.25,
+        shadowBlurSamples: 4,
+        shadowMapSize: 1536,
         shadowNormalBias: 0.03,
         shadowRadius: 64,
         type
@@ -154,6 +157,9 @@ export function createDefaultLightData(type: LightType): LightNodeData {
         intensity: 28,
         penumbra: 0.35,
         shadowBias: -0.00015,
+        shadowBlurRadius: 4,
+        shadowBlurSamples: 8,
+        shadowMapSize: 512,
         shadowNormalBias: 0.03,
         type
       };
@@ -167,6 +173,9 @@ export function createDefaultLightData(type: LightType): LightNodeData {
         enabled: true,
         intensity: 18,
         shadowBias: -0.00015,
+        shadowBlurRadius: 4,
+        shadowBlurSamples: 8,
+        shadowMapSize: 256,
         shadowNormalBias: 0.03,
         type
       };

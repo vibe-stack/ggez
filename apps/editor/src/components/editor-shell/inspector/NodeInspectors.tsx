@@ -394,7 +394,7 @@ export function LightInspector({
       ) : null}
       {node.data.type === "directional" ? (
         <NumberField
-          label="Shadow Radius"
+          label="Shadow Coverage Radius"
           onChange={(value) => updateData({ ...node.data, shadowRadius: Math.max(8, value) })}
           value={node.data.shadowRadius ?? 64}
         />
@@ -430,19 +430,33 @@ export function LightInspector({
       {node.data.castShadow && (node.data.type === "directional" || node.data.type === "point" || node.data.type === "spot") ? (
         <>
           <NumberField
+            label="Shadow Map Size"
+            onChange={(value) => updateData({ ...node.data, shadowMapSize: Math.max(128, Math.round(value / 128) * 128) })}
+            value={node.data.shadowMapSize ?? (node.data.type === "point" ? 256 : node.data.type === "spot" ? 512 : 1536)}
+          />
+          <NumberField
+            label="Shadow Blur Radius"
+            onChange={(value) => updateData({ ...node.data, shadowBlurRadius: Math.max(0, value) })}
+            value={node.data.shadowBlurRadius ?? (node.data.type === "directional" ? 1.25 : 4)}
+          />
+          <NumberField
+            label="Shadow Blur Samples"
+            onChange={(value) => updateData({ ...node.data, shadowBlurSamples: Math.max(1, Math.round(value)) })}
+            value={node.data.shadowBlurSamples ?? (node.data.type === "directional" ? 4 : 8)}
+          />
+          <NumberField
             label="Shadow Bias"
             onChange={(value) => updateData({ ...node.data, shadowBias: value })}
             value={node.data.shadowBias ?? -0.00015}
-            step={0.00001}
-
             precision={5}
+            step={0.00005}
           />
           <NumberField
             label="Normal Bias"
             onChange={(value) => updateData({ ...node.data, shadowNormalBias: value })}
             value={node.data.shadowNormalBias ?? 0.03}
-            step={0.001}
             precision={3}
+            step={0.01}
           />
         </>
       ) : null}

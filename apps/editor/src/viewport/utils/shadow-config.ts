@@ -53,6 +53,9 @@ export type DirectionalShadowConfig = {
 
 export type ShadowBiasConfig = {
   shadowBias?: number;
+  shadowBlurRadius?: number;
+  shadowBlurSamples?: number;
+  shadowMapSize?: number;
   shadowNormalBias?: number;
 };
 
@@ -115,14 +118,16 @@ export function areDirectionalShadowConfigsEqual(a: DirectionalShadowConfig, b: 
 }
 
 export function applySoftVsmShadowConfig(light: ShadowCastingLight, mapSize: number, config: ShadowBiasConfig = {}) {
-  if (light.shadow.mapSize.x !== mapSize || light.shadow.mapSize.y !== mapSize) {
-    light.shadow.mapSize.set(mapSize, mapSize);
+  const resolvedMapSize = Math.max(128, Math.round((config.shadowMapSize ?? mapSize) / 128) * 128);
+
+  if (light.shadow.mapSize.x !== resolvedMapSize || light.shadow.mapSize.y !== resolvedMapSize) {
+    light.shadow.mapSize.set(resolvedMapSize, resolvedMapSize);
   }
 
   light.shadow.bias = config.shadowBias ?? DIRECTIONAL_SHADOW_BIAS;
   light.shadow.normalBias = config.shadowNormalBias ?? DIRECTIONAL_SHADOW_NORMAL_BIAS;
-  light.shadow.radius = VSM_SHADOW_RADIUS;
-  light.shadow.blurSamples = VSM_SHADOW_BLUR_SAMPLES;
+  light.shadow.radius = config.shadowBlurRadius ?? VSM_SHADOW_RADIUS;
+  light.shadow.blurSamples = Math.max(1, Math.round(config.shadowBlurSamples ?? VSM_SHADOW_BLUR_SAMPLES));
   light.shadow.needsUpdate = true;
 }
 
@@ -164,7 +169,10 @@ export function applyDirectionalShadowConfig(light: DirectionalLight, config: Di
 
   light.shadow.bias = config.bias;
   light.shadow.normalBias = config.normalBias;
-  applySoftVsmShadowConfig(light, config.mapSize);
+  applySoftVsmShadowConfig(light, config.mapSize, {
+    shadowBias: config.bias,
+    shadowNormalBias: config.normalBias
+  });
 }
 
 export function fitDirectionalShadowToScene(
@@ -246,8 +254,9 @@ export function fitDirectionalShadowToScene(
 
   light.shadow.bias = config.shadowBias ?? DIRECTIONAL_SHADOW_BIAS * biasScale;
   light.shadow.normalBias = config.shadowNormalBias ?? DIRECTIONAL_SHADOW_NORMAL_BIAS * biasScale;
-  light.shadow.radius = DIRECTIONAL_VSM_SHADOW_RADIUS;
-  light.shadow.blurSamples = DIRECTIONAL_VSM_SHADOW_BLUR_SAMPLES;
-  light.shadow.mapSize.set(fallbackConfig.mapSize, fallbackConfig.mapSize);
+  light.shadow.radius = config.shadowBlurRadius ?? DIRECTIONAL_VSM_SHADOW_RADIUS;
+  light.shadow.blurSamples = Math.max(1, Math.round(config.shadowBlurSamples ?? DIRECTIONAL_VSM_SHADOW_BLUR_SAMPLES));
+  const resolvedMapSize = Math.max(128, Math.round((config.shadowMapSize ?? fallbackConfig.mapSize) / 128) * 128);
+  light.shadow.mapSize.set(resolvedMapSize, resolvedMapSize);
   light.shadow.needsUpdate = true;
 }
