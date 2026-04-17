@@ -378,6 +378,15 @@ function executeToolInner(editor: EditorCore, name: string, args: Args, context:
       }
 
       const transform = makeTransform(vec3(num(args, "x"), num(args, "y"), num(args, "z")));
+
+      if (lightType === "directional" || lightType === "spot") {
+        data.target = vec3(
+          num(args, "targetX", transform.position.x),
+          num(args, "targetY", 0),
+          num(args, "targetZ", transform.position.z)
+        );
+      }
+
       const label = str(args, "name") || createLightNodeLabel(lightType);
       const { command, nodeId } = createPlaceLightNodeCommand(scene, transform, { data, name: label });
       editor.execute(command);

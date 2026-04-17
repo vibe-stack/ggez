@@ -734,8 +734,14 @@ export function useSceneMutationActions({
     const activeViewportState = resolveActiveViewportState();
     const snappedTarget = snapVec3(activeViewportState.camera.target, resolveViewportSnapSize(activeViewportState));
     const position = { x: snappedTarget.x, y: type === "ambient" ? 0 : 3, z: snappedTarget.z };
+    const data = createDefaultLightData(type);
+
+    if (type === "directional" || type === "spot") {
+      data.target = { x: snappedTarget.x, y: snappedTarget.y, z: snappedTarget.z };
+    }
+
     const { command, nodeId } = createPlaceLightNodeCommand(editor.scene, makeTransform(position), {
-      data: createDefaultLightData(type),
+      data,
       name: createLightNodeLabel(type)
     });
 

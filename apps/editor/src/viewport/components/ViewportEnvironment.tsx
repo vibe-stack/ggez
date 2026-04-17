@@ -2,8 +2,9 @@ import { useEffect, useRef } from "react";
 import { useThree } from "@react-three/fiber";
 import { applyWebHammerWorldSettings, clearWebHammerWorldSettings } from "@ggez/three-runtime";
 import { type SceneSettings, type Vec3 } from "@ggez/shared";
-import { Color, Object3D } from "three";
-import { renderModeUsesFullLighting, type ViewportRenderMode } from "@/viewport/viewports";
+import { Color, Object3D, VSMShadowMap } from "three";
+import { renderModeUsesFullLighting, renderModeUsesShadows, type ViewportRenderMode } from "@/viewport/viewports";
+import { VSM_SHADOW_BLUR_SAMPLES, VSM_SHADOW_RADIUS } from "@/viewport/utils/shadow-config";
 
 export function ViewportWorldSettings({ renderMode, sceneSettings }: { renderMode: ViewportRenderMode; sceneSettings: SceneSettings }) {
   const { scene } = useThree();
@@ -26,6 +27,17 @@ export function ViewportWorldSettings({ renderMode, sceneSettings }: { renderMod
       scene.environment = null;
     };
   }, [renderMode, scene, sceneSettings]);
+
+  return null;
+}
+
+export function ViewportShadowMapSettings({ renderMode }: { renderMode: ViewportRenderMode }) {
+  const { gl } = useThree();
+
+  useEffect(() => {
+    gl.shadowMap.enabled = renderModeUsesShadows(renderMode);
+    gl.shadowMap.type = VSMShadowMap;
+  }, [gl, renderMode]);
 
   return null;
 }
@@ -56,9 +68,11 @@ export function DefaultViewportSun({ center }: { center: Vec3 }) {
         shadow-camera-left={-72}
         shadow-camera-right={72}
         shadow-camera-top={72}
+        shadow-blurSamples={VSM_SHADOW_BLUR_SAMPLES}
         shadow-mapSize-height={2048}
         shadow-mapSize-width={2048}
         shadow-normalBias={0.03}
+        shadow-radius={VSM_SHADOW_RADIUS}
       />
       <object3D position={[center.x, center.y, center.z]} ref={targetRef} />
     </>

@@ -159,6 +159,9 @@ export type LightNodeData = {
   groundColor?: string;
   intensity: number;
   penumbra?: number;
+  shadowBias?: number;
+  shadowNormalBias?: number;
+  shadowRadius?: number;
   target?: Vec3;
   type: LightType;
 };

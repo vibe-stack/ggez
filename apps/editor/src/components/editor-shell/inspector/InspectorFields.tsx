@@ -120,11 +120,15 @@ export function BooleanField({
 export function NumberField({
   label,
   onChange,
-  value
+  value,
+  precision = 2,
+  step = 0.01
 }: {
   label: string;
   onChange: (value: number) => void;
   value: number;
+  precision?: number;
+  step?: number;
 }) {
   return (
     <DragInput
@@ -133,8 +137,8 @@ export function NumberField({
       label={label}
       onChange={onChange}
       onValueCommit={() => undefined}
-      precision={2}
-      step={0.05}
+      precision={precision}
+      step={step}
       value={value}
     />
   );

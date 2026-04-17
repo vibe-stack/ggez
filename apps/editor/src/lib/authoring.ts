@@ -129,6 +129,9 @@ export function createDefaultLightData(type: LightType): LightNodeData {
         color: "#fff3cf",
         enabled: true,
         intensity: 1.25,
+        shadowBias: -0.00015,
+        shadowNormalBias: 0.03,
+        shadowRadius: 64,
         type
       };
     case "hemisphere":
@@ -150,6 +153,8 @@ export function createDefaultLightData(type: LightType): LightNodeData {
         enabled: true,
         intensity: 28,
         penumbra: 0.35,
+        shadowBias: -0.00015,
+        shadowNormalBias: 0.03,
         type
       };
     case "point":
@@ -161,6 +166,8 @@ export function createDefaultLightData(type: LightType): LightNodeData {
         distance: 18,
         enabled: true,
         intensity: 18,
+        shadowBias: -0.00015,
+        shadowNormalBias: 0.03,
         type
       };
   }

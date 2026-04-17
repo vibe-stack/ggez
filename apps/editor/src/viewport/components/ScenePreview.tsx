@@ -1,5 +1,5 @@
 import { Physics } from "@react-three/rapier";
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import {
   Object3D
 } from "three";
@@ -55,6 +55,7 @@ export function ScenePreview({
   selectedPathId?: string;
   selectedNodeIds: string[];
 }) {
+  const contentRef = useRef<Object3D | null>(null);
   const hiddenIds = useMemo(() => new Set(hiddenSceneItemIds), [hiddenSceneItemIds]);
   const selectedIdSet = useMemo(() => new Set(selectedNodeIds), [selectedNodeIds]);
   const physicsActive = renderModeUsesRenderableSurfaces(renderMode) && physicsPlayback !== "stopped" && sceneSettings.world.physicsEnabled;
@@ -98,7 +99,7 @@ export function ScenePreview({
   }, [hiddenIds, physicsActive, renderScene]);
 
   return (
-    <>
+    <group ref={contentRef}>
       <PathGuides pathDefinitions={pathDefinitions ?? sceneSettings.paths ?? []} selectedPathId={selectedPathId} />
       <TriggerHookGuides nodeTransforms={renderScene.nodeTransforms} nodes={selectedHookNodes} />
 
@@ -284,10 +285,11 @@ export function ScenePreview({
           onHoverStart={NOOP_HOVER_START}
           onSelectNodes={onSelectNode}
           renderMode={renderMode}
+          sceneRootRef={contentRef}
           selected={selectedIdSet.has(light.nodeId)}
         />
       ))}
-    </>
+    </group>
   );
 }
 

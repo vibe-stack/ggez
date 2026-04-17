@@ -642,6 +642,7 @@ function createLightObject(light: DerivedLight): RuntimeNodeObject | undefined {
 
   const group = new Group();
   let target: Object3D | undefined;
+  const targetPosition = resolveLightTargetPosition(light.position, light.rotation, light.data.target);
   group.position.set(light.position.x, light.position.y, light.position.z);
   group.rotation.set(light.rotation.x, light.rotation.y, light.rotation.z);
 
@@ -656,14 +657,22 @@ function createLightObject(light: DerivedLight): RuntimeNodeObject | undefined {
   if (light.data.type === "point") {
     const point = new PointLight(light.data.color, light.data.intensity, light.data.distance, light.data.decay);
     point.castShadow = light.data.castShadow;
+    point.shadow.bias = light.data.shadowBias ?? -0.00015;
+    point.shadow.normalBias = light.data.shadowNormalBias ?? 0.03;
     group.add(point);
   }
 
   if (light.data.type === "directional") {
     const directional = new DirectionalLight(light.data.color, light.data.intensity);
     directional.castShadow = light.data.castShadow;
+    directional.shadow.bias = light.data.shadowBias ?? -0.00015;
+    directional.shadow.normalBias = light.data.shadowNormalBias ?? 0.03;
     target = new Object3D();
-    target.position.set(0, 0, -6);
+    target.position.set(
+      targetPosition.x - light.position.x,
+      targetPosition.y - light.position.y,
+      targetPosition.z - light.position.z
+    );
     group.add(target);
     group.add(directional);
     directional.target = target;
@@ -679,8 +688,14 @@ function createLightObject(light: DerivedLight): RuntimeNodeObject | undefined {
       light.data.decay
     );
     spot.castShadow = light.data.castShadow;
+    spot.shadow.bias = light.data.shadowBias ?? -0.00015;
+    spot.shadow.normalBias = light.data.shadowNormalBias ?? 0.03;
     target = new Object3D();
-    target.position.set(0, 0, -6);
+    target.position.set(
+      targetPosition.x - light.position.x,
+      targetPosition.y - light.position.y,
+      targetPosition.z - light.position.z
+    );
     group.add(target);
     group.add(spot);
     spot.target = target;

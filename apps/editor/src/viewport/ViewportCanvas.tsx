@@ -66,7 +66,7 @@ import { MeshSubdivideOverlay } from "@/viewport/components/MeshSubdivideOverlay
 import { NodeTransformGroup } from "@/viewport/components/NodeTransformGroup";
 import { ObjectTransformGizmo } from "@/viewport/components/ObjectTransformGizmo";
 import { ScenePreview } from "@/viewport/components/ScenePreview";
-import { DefaultViewportSun, ViewportWorldSettings } from "@/viewport/components/ViewportEnvironment";
+import { DefaultViewportSun, ViewportShadowMapSettings, ViewportWorldSettings } from "@/viewport/components/ViewportEnvironment";
 import { useEventCallback } from "@/viewport/hooks/useEventCallback";
 import { useViewportBrushInteractions } from "@/viewport/hooks/useViewportBrushInteractions";
 import { useViewportMeshEditOperations } from "@/viewport/hooks/useViewportMeshEditOperations";
@@ -1291,6 +1291,7 @@ export function ViewportCanvas({
         }}
         shadows={renderModeUsesShadows(renderMode)}
       >
+        <ViewportShadowMapSettings renderMode={renderMode} />
         <ViewportWorldSettings renderMode={renderMode} sceneSettings={sceneSettings} />
         {renderModeUsesEditorLighting(renderMode) ? (
           <ambientLight color={sceneSettings.world.ambientColor} intensity={sceneSettings.world.ambientIntensity} />

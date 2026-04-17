@@ -1,11 +1,14 @@
 import { useFrame, useThree } from "@react-three/fiber";
 import { BallCollider, CapsuleCollider, ConeCollider, ConvexHullCollider, CuboidCollider, CylinderCollider, RigidBody, TrimeshCollider } from "@react-three/rapier";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
   Object3D,
+  type DirectionalLight,
+  type PointLight,
+  type SpotLight,
   Vector3
 } from "three";
 import { HIGH_MODEL_LOD_LEVEL, resolvePropColliderDefinition, type ModelAssetFile, type ModelLodLevel, type Vec3, type WorldLodSettings } from "@ggez/shared";
@@ -25,6 +28,7 @@ import {
     type ViewportRenderMode
 } from "@/viewport/viewports";
 import type { SceneSettings } from "@ggez/shared";
+  import { applySoftVsmShadowConfig, fitDirectionalShadowToScene, POINT_LIGHT_SHADOW_MAP_SIZE, resolveLightTargetPosition, SPOT_LIGHT_SHADOW_MAP_SIZE } from "@/viewport/utils/shadow-config";
 import { cloneModelSceneGraph, computeModelBounds, createPrimaryModelFile, createSolidModelMaterial, disposeOwnedSceneMaterials, disposePreviewMaterial, gltfLoader, loadModelTexture, modelDistanceVector, modelSceneCache, mtlLoader, patchMtlTextureReferences, resolveEditorModelLodLevel, resolveIntersectedIds, resolveMeshPivot, resolvePhysicsColliderProps, usePreviewMaterials, useRenderableGeometry } from "../utils/preview-utils";
 
 const MAX_MODEL_COLLIDER_HULL_POINTS = 512;
@@ -955,6 +959,7 @@ export function RenderLightNode({
   onHoverStart,
   onSelectNodes,
   renderMode,
+  sceneRootRef,
   selected
 }: {
   hovered: boolean;
@@ -965,66 +970,147 @@ export function RenderLightNode({
   onHoverStart: (nodeId: string) => void;
   onSelectNodes: (nodeIds: string[]) => void;
   renderMode: ViewportRenderMode;
+  sceneRootRef: RefObject<Object3D | null>;
   selected: boolean;
 }) {
   const targetRef = useRef<Object3D | null>(null);
   const lightRef = useRef<any>(null);
+  const targetPosition = useMemo(
+    () => resolveLightTargetPosition(light.position, light.rotation, light.data.target),
+    [
+      light.data.target?.x,
+      light.data.target?.y,
+      light.data.target?.z,
+      light.position.x,
+      light.position.y,
+      light.position.z,
+      light.rotation.x,
+      light.rotation.y,
+      light.rotation.z
+    ]
+  );
 
   useEffect(() => {
     if (lightRef.current && targetRef.current) {
       lightRef.current.target = targetRef.current;
-      targetRef.current.updateMatrixWorld();
+      lightRef.current.updateMatrixWorld(true);
+      targetRef.current.updateMatrixWorld(true);
     }
-  }, [light.nodeId, light.rotation.x, light.rotation.y, light.rotation.z]);
+  }, [light.nodeId, targetPosition.x, targetPosition.y, targetPosition.z, light.position.x, light.position.y, light.position.z]);
+
+  useFrame(() => {
+    if (!lightRef.current || !light.data.castShadow || light.data.type !== "directional") {
+      return;
+    }
+
+    if (targetRef.current) {
+      lightRef.current.target = targetRef.current;
+      targetRef.current.updateMatrixWorld(true);
+    }
+
+    fitDirectionalShadowToScene(
+      lightRef.current as DirectionalLight,
+      sceneRootRef.current,
+      targetPosition,
+      light.data.shadowRadius,
+      {
+        shadowBias: light.data.shadowBias,
+        shadowNormalBias: light.data.shadowNormalBias
+      }
+    );
+  });
+
+  useEffect(() => {
+    if (!lightRef.current || !light.data.castShadow) {
+      return;
+    }
+
+    if (light.data.type === "spot") {
+      applySoftVsmShadowConfig(lightRef.current as SpotLight, SPOT_LIGHT_SHADOW_MAP_SIZE, {
+        shadowBias: light.data.shadowBias,
+        shadowNormalBias: light.data.shadowNormalBias
+      });
+      return;
+    }
+
+    if (light.data.type === "point") {
+      applySoftVsmShadowConfig(lightRef.current as PointLight, POINT_LIGHT_SHADOW_MAP_SIZE, {
+        shadowBias: light.data.shadowBias,
+        shadowNormalBias: light.data.shadowNormalBias
+      });
+    }
+  }, [light.data.castShadow, light.data.shadowBias, light.data.shadowNormalBias, light.data.type]);
 
   const markerColor = selected ? "#ffb35a" : hovered ? "#d8f4f0" : light.color;
+  const showTargetGuide = (light.data.type === "directional" || light.data.type === "spot") && (selected || hovered);
+  const guidePositions = useMemo(
+    () => new Float32Array([light.position.x, light.position.y, light.position.z, targetPosition.x, targetPosition.y, targetPosition.z]),
+    [light.position.x, light.position.y, light.position.z, targetPosition.x, targetPosition.y, targetPosition.z]
+  );
 
   return (
-    <group
-      name={`node:${light.nodeId}`}
-      onClick={(event) => {
-        if (!interactive) {
-          return;
-        }
+    <>
+      <group
+        name={`node:${light.nodeId}`}
+        onClick={(event) => {
+          if (!interactive) {
+            return;
+          }
 
-        event.stopPropagation();
-        onSelectNodes([light.nodeId]);
-      }}
-      onDoubleClick={(event) => {
-        if (!interactive) {
-          return;
-        }
+          event.stopPropagation();
+          onSelectNodes([light.nodeId]);
+        }}
+        onDoubleClick={(event) => {
+          if (!interactive) {
+            return;
+          }
 
-        event.stopPropagation();
-        onFocusNode(light.nodeId);
-      }}
-      onPointerOut={(event) => {
-        if (!interactive) {
-          return;
-        }
+          event.stopPropagation();
+          onFocusNode(light.nodeId);
+        }}
+        onPointerOut={(event) => {
+          if (!interactive) {
+            return;
+          }
 
-        event.stopPropagation();
-        onHoverEnd();
-      }}
-      onPointerOver={(event) => {
-        if (!interactive) {
-          return;
-        }
+          event.stopPropagation();
+          onHoverEnd();
+        }}
+        onPointerOver={(event) => {
+          if (!interactive) {
+            return;
+          }
 
-        event.stopPropagation();
-        onHoverStart(light.nodeId);
-      }}
-      position={toTuple(light.position)}
-      rotation={toTuple(light.rotation)}
-    >
-      <mesh>
-        <sphereGeometry args={[0.22, 16, 16]} />
-        <meshStandardMaterial color={markerColor} emissive={markerColor} emissiveIntensity={0.35} />
-      </mesh>
-      <mesh position={[0, -0.4, 0]}>
-        <cylinderGeometry args={[0.05, 0.05, 0.45, 8]} />
-        <meshStandardMaterial color="#d8e0ea" metalness={0.1} roughness={0.55} />
-      </mesh>
+          event.stopPropagation();
+          onHoverStart(light.nodeId);
+        }}
+        position={toTuple(light.position)}
+        rotation={toTuple(light.rotation)}
+      >
+        <mesh>
+          <sphereGeometry args={[0.22, 16, 16]} />
+          <meshStandardMaterial color={markerColor} emissive={markerColor} emissiveIntensity={0.35} />
+        </mesh>
+        <mesh position={[0, -0.4, 0]}>
+          <cylinderGeometry args={[0.05, 0.05, 0.45, 8]} />
+          <meshStandardMaterial color="#d8e0ea" metalness={0.1} roughness={0.55} />
+        </mesh>
+      </group>
+
+      {showTargetGuide ? (
+        <>
+          <line>
+            <bufferGeometry>
+              <bufferAttribute args={[guidePositions, 3]} attach="attributes-position" count={2} itemSize={3} />
+            </bufferGeometry>
+            <lineBasicMaterial color={selected ? "#fdba74" : markerColor} transparent opacity={0.8} />
+          </line>
+          <mesh position={[targetPosition.x, targetPosition.y, targetPosition.z]} raycast={() => null}>
+            <sphereGeometry args={[0.16, 14, 14]} />
+            <meshBasicMaterial color={selected ? "#fdba74" : markerColor} />
+          </mesh>
+        </>
+      ) : null}
 
       {renderModeUsesSceneLights(renderMode) && light.data.enabled ? (
         <>
@@ -1043,6 +1129,8 @@ export function RenderLightNode({
               decay={light.data.decay}
               distance={light.data.distance}
               intensity={light.data.intensity}
+              position={toTuple(light.position)}
+              ref={lightRef}
             />
           ) : null}
           {light.data.type === "directional" ? (
@@ -1051,9 +1139,10 @@ export function RenderLightNode({
                 castShadow={light.data.castShadow}
                 color={light.data.color}
                 intensity={light.data.intensity}
+                position={toTuple(light.position)}
                 ref={lightRef}
               />
-              <object3D ref={targetRef} position={[0, 0, -6]} />
+              <object3D ref={targetRef} position={[targetPosition.x, targetPosition.y, targetPosition.z]} />
             </>
           ) : null}
           {light.data.type === "spot" ? (
@@ -1066,14 +1155,15 @@ export function RenderLightNode({
                 distance={light.data.distance}
                 intensity={light.data.intensity}
                 penumbra={light.data.penumbra}
+                position={toTuple(light.position)}
                 ref={lightRef}
               />
-              <object3D ref={targetRef} position={[0, 0, -6]} />
+              <object3D ref={targetRef} position={[targetPosition.x, targetPosition.y, targetPosition.z]} />
             </>
           ) : null}
         </>
       ) : null}
-    </group>
+    </>
   );
 }
 

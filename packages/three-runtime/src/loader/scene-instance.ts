@@ -234,8 +234,9 @@ function configureRuntimeLightShadows(root: Object3D, lights: Object3D[]) {
     shadowCamera.updateProjectionMatrix();
 
     const biasScale = shadowRadius / DEFAULT_DIRECTIONAL_SHADOW_RADIUS;
-    object.shadow.bias = -0.00015 * biasScale;
-    object.shadow.normalBias = 0.03 * biasScale;
+    const configuredShadow = object.userData.webHammerShadow as { bias?: number; normalBias?: number } | undefined;
+    object.shadow.bias = configuredShadow?.bias ?? -0.00015 * biasScale;
+    object.shadow.normalBias = configuredShadow?.normalBias ?? 0.03 * biasScale;
     const mapSize = Math.min(4096, Math.ceil(2048 * biasScale / 512) * 512);
     object.shadow.mapSize.width = mapSize;
     object.shadow.mapSize.height = mapSize;

@@ -392,6 +392,29 @@ export function LightInspector({
           />
         </>
       ) : null}
+      {node.data.type === "directional" ? (
+        <NumberField
+          label="Shadow Radius"
+          onChange={(value) => updateData({ ...node.data, shadowRadius: Math.max(8, value) })}
+          value={node.data.shadowRadius ?? 64}
+        />
+      ) : null}
+      {node.data.type === "directional" || node.data.type === "spot" ? (
+        <TransformGroup
+          label="Target"
+          onCommit={() => undefined}
+          onUpdate={(axis, value) => updateData({
+            ...node.data,
+            target: {
+              ...(node.data.target ?? node.transform.position),
+              [axis]: value
+            }
+          })}
+          precision={2}
+          step={0.05}
+          values={node.data.target ?? node.transform.position}
+        />
+      ) : null}
       {node.data.type === "hemisphere" ? (
         <ColorField
           label="Ground Color"
@@ -404,6 +427,25 @@ export function LightInspector({
         label="Cast Shadow"
         onCheckedChange={(checked) => updateData({ ...node.data, castShadow: checked })}
       />
+      {node.data.castShadow && (node.data.type === "directional" || node.data.type === "point" || node.data.type === "spot") ? (
+        <>
+          <NumberField
+            label="Shadow Bias"
+            onChange={(value) => updateData({ ...node.data, shadowBias: value })}
+            value={node.data.shadowBias ?? -0.00015}
+            step={0.00001}
+
+            precision={5}
+          />
+          <NumberField
+            label="Normal Bias"
+            onChange={(value) => updateData({ ...node.data, shadowNormalBias: value })}
+            value={node.data.shadowNormalBias ?? 0.03}
+            step={0.001}
+            precision={3}
+          />
+        </>
+      ) : null}
     </ToolSection>
   );
 }
