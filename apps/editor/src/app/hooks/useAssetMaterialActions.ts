@@ -1,4 +1,5 @@
 import { type ChangeEvent, type RefObject } from "react";
+import { Plane, PerspectiveCamera, Raycaster, Vector2, Vector3 } from "three";
 import {
   createAssignMaterialCommand,
   createDeleteAssetCommand,
@@ -116,6 +117,64 @@ export function useAssetMaterialActions({
 
   const handleImportGlb = () => {
     glbImportInputRef.current?.click();
+  };
+
+  const handleDropGlbFiles = async (files: File[], clientX: number, clientY: number, canvasRect: DOMRect) => {
+    if (files.length === 0) {
+      return;
+    }
+
+    try {
+      const resolvedFiles = await resolveImportedModelFiles(files, editor.scene.settings.world.lod.levels);
+      const primaryFile = resolvedFiles.find((entry) => entry.level === HIGH_MODEL_LOD_LEVEL) ?? resolvedFiles[0];
+
+      if (!primaryFile) {
+        return;
+      }
+
+      const bounds = await analyzeModelSource({
+        format: primaryFile.format,
+        path: primaryFile.path
+      });
+      const name = resolveImportedModelAssetName(files);
+      const asset = createModelAsset({
+        center: bounds.center,
+        files: resolvedFiles,
+        format: primaryFile.format,
+        name,
+        path: primaryFile.path,
+        size: bounds.size,
+        source: "import"
+      });
+
+      const activeViewport = uiStore.viewports[uiStore.activeViewportId];
+      const dropPosition = unprojectDropToGroundPlane(clientX, clientY, canvasRect, activeViewport);
+      const snappedPosition = snapVec3(dropPosition, resolveViewportSnapSize(activeViewport));
+      const { command, nodeId } = createPlaceModelNodeCommand(
+        editor.scene,
+        {
+          position: vec3(snappedPosition.x, snappedPosition.y, snappedPosition.z),
+          rotation: vec3(0, 0, 0),
+          scale: vec3(1, 1, 1)
+        },
+        {
+          data: {
+            assetId: asset.id,
+            path: asset.path
+          },
+          name
+        }
+      );
+
+      editor.execute(createUpsertAssetCommand(editor.scene, asset));
+      editor.execute(command);
+      editor.select([nodeId], "object");
+      uiStore.selectedAssetId = asset.id;
+      uiStore.rightPanel = "assets";
+      enqueueWorkerJob("GLB drop import", { task: "triangulation", worker: "geometryWorker" }, 650);
+    } catch {
+      // silently ignore drop errors
+    }
   };
 
   const handleGlbFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -520,6 +579,7 @@ export function useAssetMaterialActions({
       deleteAsset: handleDeleteAsset,
       deleteMaterial: handleDeleteMaterial,
       deleteTexture: handleDeleteTexture,
+      dropImportGlb: handleDropGlbFiles,
       focusAssetNodes: handleFocusAssetNodes,
       importAsset: handleImportGlb,
       insertAsset: handleInsertAsset,
@@ -625,4 +685,45 @@ function updateModelAssetFiles(
     },
     path: primaryFile.path
   };
+}
+
+function unprojectDropToGroundPlane(
+  clientX: number,
+  clientY: number,
+  canvasRect: DOMRect,
+  viewport: import("@ggez/render-pipeline").ViewportState
+): import("@ggez/shared").Vec3 {
+  const elevation = viewport.grid.elevation;
+
+  if (viewport.projection === "perspective") {
+    const camera = new PerspectiveCamera(
+      viewport.camera.fov,
+      canvasRect.width / canvasRect.height,
+      viewport.camera.near,
+      viewport.camera.far
+    );
+
+    camera.position.set(viewport.camera.position.x, viewport.camera.position.y, viewport.camera.position.z);
+    camera.lookAt(viewport.camera.target.x, viewport.camera.target.y, viewport.camera.target.z);
+    camera.updateMatrixWorld();
+
+    const ndc = new Vector2(
+      ((clientX - canvasRect.left) / canvasRect.width) * 2 - 1,
+      -(((clientY - canvasRect.top) / canvasRect.height) * 2 - 1)
+    );
+
+    const raycaster = new Raycaster();
+    raycaster.setFromCamera(ndc, camera);
+
+    const groundPlane = new Plane(new Vector3(0, 1, 0), -elevation);
+    const hitPoint = new Vector3();
+    const hit = raycaster.ray.intersectPlane(groundPlane, hitPoint);
+
+    if (hit) {
+      return vec3(hitPoint.x, elevation, hitPoint.z);
+    }
+  }
+
+  // Fallback: use camera target XZ
+  return vec3(viewport.camera.target.x, elevation, viewport.camera.target.z);
 }

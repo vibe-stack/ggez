@@ -7,7 +7,7 @@ import type {
 } from "@ggez/shared";
 import { defaultTools } from "@ggez/tool-system";
 import type { WorkerJob } from "@ggez/workers";
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from "react";
 import { useSnapshot } from "valtio";
 import type { CopilotSession } from "@/lib/copilot/types";
 import { useEditorActionDomains } from "@/app/editor-action-domains";
@@ -97,6 +97,7 @@ export function EditorShell({
     deleteAsset: onDeleteAsset,
     deleteMaterial: onDeleteMaterial,
     deleteTexture: onDeleteTexture,
+    dropImportGlb: onDropImportGlb,
     focusAssetNodes: onFocusAssetNodes,
     importAsset: onImportAsset,
     insertAsset: onInsertAsset,
@@ -224,6 +225,53 @@ export function EditorShell({
     );
   }, [instanceBrushSourceNode, renderScene.nodeTransforms, workingSet.activeDocumentId, workingSet.mode]);
 
+  const viewportAreaRef = useRef<HTMLDivElement | null>(null);
+  const [glbDragOver, setGlbDragOver] = useState(false);
+
+  const handleViewportDragOver = (event: DragEvent<HTMLDivElement>) => {
+    const hasGlb = Array.from(event.dataTransfer.items).some(
+      (item) =>
+        item.kind === "file" &&
+        (item.type === "model/gltf-binary" ||
+          item.type === "model/gltf+json" ||
+          item.type === "") // browsers often report empty type for binary files
+    );
+
+    if (hasGlb || event.dataTransfer.types.includes("Files")) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      setGlbDragOver(true);
+    }
+  };
+
+  const handleViewportDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    if (!viewportAreaRef.current?.contains(event.relatedTarget as Node)) {
+      setGlbDragOver(false);
+    }
+  };
+
+  const handleViewportDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setGlbDragOver(false);
+
+    const files = Array.from(event.dataTransfer.files).filter((file) => {
+      const lower = file.name.toLowerCase();
+      return lower.endsWith(".glb") || lower.endsWith(".gltf") || lower.endsWith(".obj");
+    });
+
+    if (files.length === 0) {
+      return;
+    }
+
+    const canvasRect = viewportAreaRef.current?.getBoundingClientRect();
+
+    if (!canvasRect) {
+      return;
+    }
+
+    void onDropImportGlb(files, event.clientX, event.clientY, canvasRect);
+  };
+
   const handleToggleViewportQuality = () => {
     uiStore.viewportQuality =
       uiStore.viewportQuality === 0.5
@@ -350,10 +398,25 @@ export function EditorShell({
       </header>
 
       <main className="relative min-h-0 flex-1 flex">
-        <div className="relative min-w-0 flex-1">
+        <div
+          className="relative min-w-0 flex-1"
+          onDragLeave={handleViewportDragLeave}
+          onDragOver={handleViewportDragOver}
+          onDrop={handleViewportDrop}
+          ref={viewportAreaRef}
+        >
           <div className="absolute inset-0">
             <ViewportLayout renderViewportPane={renderViewportPane} viewMode={viewMode} />
           </div>
+
+          {glbDragOver && (
+            <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-sm border-2 border-dashed border-emerald-400/60 bg-emerald-500/8">
+              <div className="rounded-2xl bg-black/60 px-6 py-4 text-center backdrop-blur-sm">
+                <div className="text-sm font-medium text-emerald-200">Drop GLB to place in scene</div>
+                <div className="mt-1 text-xs text-emerald-300/60">Natural scale — placed at cursor position</div>
+              </div>
+            </div>
+          )}
 
         <ToolPaletteContainer editor={editor} />
 

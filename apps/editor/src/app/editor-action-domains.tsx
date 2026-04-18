@@ -42,6 +42,7 @@ export type EditorActionDomains = {
     deleteAsset: (assetId: string) => void;
     deleteMaterial: (materialId: string) => void;
     deleteTexture: (textureId: string) => void;
+    dropImportGlb: (files: File[], clientX: number, clientY: number, canvasRect: DOMRect) => void;
     focusAssetNodes: (assetId: string) => void;
     importAsset: () => void;
     insertAsset: (assetId: string) => void;

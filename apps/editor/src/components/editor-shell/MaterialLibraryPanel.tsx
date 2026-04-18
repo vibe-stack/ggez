@@ -5,6 +5,7 @@ import {
   Cuboid,
   FolderOpen,
   Image,
+  Images,
   Lock,
   Mountain,
   Pencil,
@@ -162,6 +163,7 @@ export function MaterialLibraryPanel({
     label: string;
     mode: "generate" | "library";
   } | null>(null);
+  const [standaloneTextureBrowserOpen, setStandaloneTextureBrowserOpen] = useState(false);
   const materialFaces =
     selectedNode &&
     (selectedNode.kind === "brush" || selectedNode.kind === "mesh")
@@ -406,7 +408,21 @@ export function MaterialLibraryPanel({
   return (
     <>
       <div className="flex h-full w-full min-h-0 flex-col overflow-hidden">
-        <div className="sticky top-0 z-10 flex items-center justify-between gap-2 px-1 pb-3 backdrop-blur-xl">
+        <div className="sticky top-0 z-10 flex flex-col gap-2 px-1 pb-3 backdrop-blur-xl">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-medium tracking-[0.18em] text-foreground/42 uppercase">
+              Materials
+            </span>
+            <Button
+              aria-label="Texture library"
+              onClick={() => setStandaloneTextureBrowserOpen(true)}
+              size="icon-xs"
+              title="Texture library"
+              variant="ghost"
+            >
+              <Images />
+            </Button>
+          </div>
           <div className="grid w-full grid-cols-2 items-center justify-center gap-1 rounded-2xl bg-white/5 p-1">
             <button
               className={cn(
@@ -719,6 +735,20 @@ export function MaterialLibraryPanel({
         open={Boolean(textureBrowserState)}
         targetKind={textureBrowserState?.kind ?? "color"}
         targetLabel={textureBrowserState?.label ?? "Texture"}
+        textures={textures}
+      />
+
+      <TextureBrowserOverlay
+        initialMode="library"
+        onApplyGeneratedTextures={() => {}}
+        onClose={() => setStandaloneTextureBrowserOpen(false)}
+        onCreateTexture={onUpsertTexture}
+        onDeleteTexture={handleDeleteTexture}
+        onSelectTexture={() => {}}
+        open={standaloneTextureBrowserOpen}
+        standalone
+        targetKind="color"
+        targetLabel="Texture Library"
         textures={textures}
       />
 
