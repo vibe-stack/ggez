@@ -244,7 +244,7 @@ const sceneManifestModules = import.meta.glob(${JSON.stringify(`${sceneRootPatte
 });
 const sceneAssetModules = import.meta.glob(${JSON.stringify(`${sceneRootPattern}/assets/**/*`)}, {
   import: "default",
-  query: "?url"
+  query: "?url&no-inline"
 });
 const sceneMetaModules = import.meta.glob(${JSON.stringify(`${sceneRootPattern}/scene.meta.json`)}, {
   eager: true,
@@ -423,7 +423,7 @@ const animationArtifactModules = import.meta.glob(${JSON.stringify(`${animationR
 });
 const animationAssetModules = import.meta.glob(${JSON.stringify(`${animationRootPattern}/assets/**/*`)}, {
   import: "default",
-  query: "?url"
+  query: "?url&no-inline"
 });
 const animationMetaModules = import.meta.glob(${JSON.stringify(`${animationRootPattern}/animation.meta.json`)}, {
   eager: true,

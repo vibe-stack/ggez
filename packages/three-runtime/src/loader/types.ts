@@ -1,5 +1,6 @@
 import type { SceneSkyboxSettings } from "@ggez/shared";
 import type { Scene } from "three";
+import type { ToneMapping } from "three";
 import type { WebHammerExportMaterial, WebHammerEngineNode } from "../types";
 import type { Asset } from "@ggez/shared";
 
@@ -27,6 +28,9 @@ export type WebHammerAssetResolverContext =
 
 export type WebHammerSceneLoaderOptions = {
   applyToScene?: Scene;
+  applyToRenderer?: {
+    toneMapping: ToneMapping;
+  };
   castShadow?: boolean;
   lod?: WebHammerSceneLodOptions;
   receiveShadow?: boolean;

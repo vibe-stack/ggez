@@ -179,7 +179,7 @@ async function loadBundledAssetUrls(assetUrlLoaders: Record<string, RuntimeModul
   const entries = await Promise.all(
     Object.entries(assetUrlLoaders).map(async ([path, load]) => [
       path,
-      expectString(await load(), `asset url for ${path}`)
+      normalizeImportedAssetUrl(expectString(await load(), `asset url for ${path}`))
     ] as const)
   );
 
@@ -376,6 +376,10 @@ function rewriteRuntimeAnimationBundleAssetUrls(
     rewritten.characterAsset = resolveRuntimeAssetPath(rewritten.characterAsset, resolveAssetUrl);
   }
 
+  if (rewritten.clipData) {
+    rewritten.clipData = resolveRuntimeAssetPath(rewritten.clipData, resolveAssetUrl);
+  }
+
   if (rewritten.equipment) {
     rewritten.equipment = {
       ...rewritten.equipment,
@@ -411,6 +415,26 @@ function isAbsoluteRuntimeUrl(path: string) {
 
 function normalizeRelativeRuntimePath(path: string) {
   return path.replace(/^\.\//, "");
+}
+
+function normalizeImportedAssetUrl(url: string) {
+  if (!url || url.startsWith("data:")) {
+    return url;
+  }
+
+  const parsed = new URL(url, typeof window !== "undefined" ? window.location.href : "http://localhost");
+  const searchParams = parsed.searchParams;
+  const hadImportQuery = searchParams.has("import") || searchParams.has("url");
+
+  searchParams.delete("import");
+  searchParams.delete("url");
+
+  if (!hadImportQuery) {
+    return url;
+  }
+
+  const normalizedSearch = parsed.searchParams.toString();
+  return `${parsed.pathname}${normalizedSearch ? `?${normalizedSearch}` : ""}${parsed.hash}`;
 }
 
 function getFileExtensionFromUrl(url: string) {

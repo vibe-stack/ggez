@@ -9,6 +9,7 @@ import {
   type WebHammerEngineBundle,
   type WebHammerEngineScene
 } from "./types";
+import { normalizeSceneSettings } from "@ggez/shared";
 
 export type RuntimeValidationResult<T> =
   | {
@@ -90,6 +91,7 @@ export function migrateRuntimeScene(scene: RuntimeScene): RuntimeScene {
     format: RUNTIME_SCENE_FORMAT,
     version: CURRENT_RUNTIME_SCENE_VERSION
   };
+  migrated.settings = normalizeSceneSettings(migrated.settings);
 
   return migrated;
 }

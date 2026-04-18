@@ -196,9 +196,10 @@ export async function createGameApp(options: GameAppOptions) {
 
       // Build scene-level objects
       const runtimeScene = await createThreeRuntimeSceneInstance(runtimeManifest, {
+        applyToRenderer: renderer,
         applyToScene: scene,
-        resolveAssetUrl: ({ path }) => path
-      });
+        resolveAssetUrl: ({ path }: { path: string }) => path
+      } as any);
       const sceneVfx = await createSceneVfxRuntime({
         camera,
         entities: runtimeScene.entities,

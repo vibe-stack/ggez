@@ -5,7 +5,7 @@ import {
 
 const assetUrlLoaders = import.meta.glob("./assets/**/*", {
   import: "default",
-  query: "?url"
+  query: "?url&no-inline"
 }) as Record<string, () => Promise<string>>;
 
 export const mainScene = defineGameScene({

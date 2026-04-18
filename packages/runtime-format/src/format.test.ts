@@ -90,6 +90,59 @@ describe("runtime-format", () => {
     expect(parsed.nodes[0]?.id).toBe("node:test");
   });
 
+  test("normalizes runtime scene settings during parse", () => {
+    const parsed = parseRuntimeScene(
+      JSON.stringify({
+        ...createScene(),
+        settings: {
+          player: {
+            cameraMode: "fps",
+            canCrouch: true,
+            canJump: true,
+            canRun: true,
+            crouchHeight: 1.2,
+            height: 1.8,
+            jumpHeight: 1,
+            movementSpeed: 4,
+            runningSpeed: 6
+          },
+          world: {
+            ambientColor: "#ffffff",
+            ambientIntensity: 0,
+            fogColor: "#000000",
+            fogFar: 0,
+            fogNear: 0,
+            gravity: vec3(0, -9.81, 0),
+            lod: {
+              enabled: true,
+              lowDetailRatio: 0.2,
+              midDetailRatio: 0.5
+            },
+            physicsEnabled: true,
+            skybox: {
+              affectsLighting: false,
+              blur: 0,
+              enabled: false,
+              format: "image",
+              intensity: 1,
+              lightingIntensity: 1,
+              name: "",
+              source: ""
+            }
+          }
+        }
+      })
+    );
+
+    expect(parsed.settings.events).toEqual([]);
+    expect(parsed.settings.paths).toEqual([]);
+    expect(parsed.settings.player.canInteract).toBe(true);
+    expect(parsed.settings.player.interactKey).toBe("KeyE");
+    expect(parsed.settings.world.toneMapping).toBe("aces");
+    expect(parsed.settings.world.lod.enabled).toBe(true);
+    expect(parsed.settings.world.lod.levels.map((level) => level.id)).toEqual(["mid", "low"]);
+  });
+
   test("validates missing runtime scene structure", () => {
     const result = validateRuntimeScene({
       metadata: {

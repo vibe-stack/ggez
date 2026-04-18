@@ -60,6 +60,7 @@ export async function createInstancedGeometryObject(
     const mesh = new InstancedMesh(primitiveGeometry, material, instances.length);
     mesh.castShadow = options.castShadow ?? true;
     mesh.receiveShadow = options.receiveShadow ?? true;
+    mesh.frustumCulled = false;
     mesh.name = `${sourceNode.name}:${lodLevel?.level ?? "high"}:${primitive.material.name}:instanced`;
     mesh.userData.webHammer = {
       instanceNodeIds: instances.map((instance) => instance.id),

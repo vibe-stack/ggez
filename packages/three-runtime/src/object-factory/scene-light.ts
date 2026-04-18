@@ -85,6 +85,13 @@ export function createThreeLight(node: Extract<WebHammerEngineNode, { kind: "lig
       const light = new PointLight(node.data.color, node.data.intensity, node.data.distance ?? 0, node.data.decay ?? 2);
       light.castShadow = node.data.castShadow;
       applyDefaultShadowSettings(light, node.data);
+      light.userData.webHammerShadow = {
+        bias: node.data.shadowBias,
+        blurRadius: node.data.shadowBlurRadius,
+        blurSamples: node.data.shadowBlurSamples,
+        mapSize: node.data.shadowMapSize,
+        normalBias: node.data.shadowNormalBias
+      };
       return light;
     }
     case "directional": {
@@ -119,6 +126,13 @@ export function createThreeLight(node: Extract<WebHammerEngineNode, { kind: "lig
       const target = new Object3D();
       light.castShadow = node.data.castShadow;
       applyDefaultShadowSettings(light, node.data);
+      light.userData.webHammerShadow = {
+        bias: node.data.shadowBias,
+        blurRadius: node.data.shadowBlurRadius,
+        blurSamples: node.data.shadowBlurSamples,
+        mapSize: node.data.shadowMapSize,
+        normalBias: node.data.shadowNormalBias
+      };
       target.position.copy(resolveLocalLightTarget(node));
       group.add(target);
       group.add(light);

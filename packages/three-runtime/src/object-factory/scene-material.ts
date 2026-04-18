@@ -186,7 +186,12 @@ export async function loadTexture(
     return cached;
   }
 
-  const pendingTexture = textureLoader.loadAsync(resolvedPath);
+  const pendingTexture = textureLoader.loadAsync(resolvedPath).catch((error) => {
+    throw new Error(
+      `Failed to load texture for material "${material.id}" (${slot}) from ${resolvedPath}.`,
+      { cause: error }
+    );
+  });
   const configuredTexture = pendingTexture.then((texture) => {
     texture.wrapS = RepeatWrapping;
     texture.wrapT = RepeatWrapping;

@@ -40,6 +40,7 @@ export async function createInstancedModelObject(
     const instancedMesh = new InstancedMesh(child.geometry, child.material, instances.length);
     instancedMesh.castShadow = options.castShadow ?? true;
     instancedMesh.receiveShadow = options.receiveShadow ?? true;
+    instancedMesh.frustumCulled = false;
     instancedMesh.name = `${sourceNode.name}:${lodLevel?.level ?? "high"}:${child.name || modelMeshIndex}:instanced`;
     instancedMesh.userData.webHammer = {
       instanceNodeIds: templateInstanceNodeIds,

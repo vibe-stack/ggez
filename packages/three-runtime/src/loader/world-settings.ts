@@ -51,11 +51,15 @@ export function resolveWebHammerToneMapping(mode: SceneToneMapping | undefined):
 export async function applyWebHammerWorldSettings(
   target: Scene,
   engineScene: Pick<WebHammerEngineScene, "settings">,
-  options: Pick<WebHammerSceneLoaderOptions, "resolveAssetUrl"> = {}
+  options: Pick<WebHammerSceneLoaderOptions, "applyToRenderer" | "resolveAssetUrl"> = {}
 ) {
   const state = getAppliedWorldSettingsState(target);
   state.requestId += 1;
   disposeAppliedSkybox(target, state);
+
+  if (options.applyToRenderer) {
+    options.applyToRenderer.toneMapping = resolveWebHammerToneMapping(engineScene.settings.world.toneMapping);
+  }
 
   const { fogColor, fogFar, fogNear } = engineScene.settings.world;
   target.fog = fogFar > fogNear ? new Fog(new Color(fogColor), fogNear, fogFar) : null;
@@ -158,8 +162,12 @@ function disposeAppliedSkybox(target: Scene, state: AppliedWorldSettingsState) {
 
 async function loadSkyboxTexture(path: string, skybox: SceneSkyboxSettings) {
   const texture = skybox.format === "hdr"
-    ? await hdrLoader.loadAsync(path)
-    : await textureLoader.loadAsync(path);
+    ? await hdrLoader.loadAsync(path).catch((error) => {
+        throw new Error(`Failed to load HDR skybox from ${path}.`, { cause: error });
+      })
+    : await textureLoader.loadAsync(path).catch((error) => {
+        throw new Error(`Failed to load skybox image from ${path}.`, { cause: error });
+      });
 
   texture.mapping = EquirectangularReflectionMapping;
 
