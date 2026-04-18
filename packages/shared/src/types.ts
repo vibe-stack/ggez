@@ -17,6 +17,7 @@ export type PropColliderDefinitionShape = "ball" | "capsule" | "cone" | "cuboid"
 export type LightType = "ambient" | "directional" | "hemisphere" | "point" | "spot";
 export type EntityType = "npc-spawn" | "player-spawn" | "smart-object" | "vfx-object";
 export type PlayerCameraMode = "fps" | "third-person" | "top-down";
+export type SceneToneMapping = "aces" | "cineon" | "linear" | "neutral" | "none" | "reinhard";
 
 export type Vec3 = {
   x: number;
@@ -359,6 +360,7 @@ export type WorldSettings = {
   lod: WorldLodSettings;
   physicsEnabled: boolean;
   skybox: SceneSkyboxSettings;
+  toneMapping: SceneToneMapping;
 };
 
 export type SceneSettings = {

@@ -592,6 +592,7 @@ function executeToolInner(editor: EditorCore, name: string, args: Args, context:
       if (typeof args.fogColor === "string") next.world.fogColor = args.fogColor as string;
       if (typeof args.fogNear === "number") next.world.fogNear = args.fogNear;
       if (typeof args.fogFar === "number") next.world.fogFar = args.fogFar;
+      if (typeof args.toneMapping === "string") next.world.toneMapping = args.toneMapping as SceneSettings["world"]["toneMapping"];
       if (typeof args.cameraMode === "string") next.player.cameraMode = args.cameraMode as "fps" | "third-person" | "top-down";
       if (typeof args.playerHeight === "number") next.player.height = args.playerHeight;
       if (typeof args.movementSpeed === "number") next.player.movementSpeed = args.movementSpeed;

@@ -9,7 +9,16 @@ import { DragInput } from "@/components/ui/drag-input";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { readFileAsDataUrl } from "@/lib/model-assets";
-import { BooleanField, ColorField, SectionTitle, ToolSection, TransformGroup } from "./InspectorFields";
+import { BooleanField, ColorField, EnumGrid, SectionTitle, ToolSection, TransformGroup } from "./InspectorFields";
+
+const TONE_MAPPING_OPTIONS: Array<{ label: string; value: SceneSettings["world"]["toneMapping"] }> = [
+  { label: "None", value: "none" },
+  { label: "Linear", value: "linear" },
+  { label: "Reinhard", value: "reinhard" },
+  { label: "Cineon", value: "cineon" },
+  { label: "ACES", value: "aces" },
+  { label: "Neutral", value: "neutral" }
+];
 
 function inferSkyboxFormat(file: File): SceneSettings["world"]["skybox"]["format"] {
   return file.name.toLowerCase().endsWith(".hdr") ? "hdr" : "image";
@@ -157,6 +166,19 @@ export function WorldSettingsPanel({
             precision={2}
             step={0.05}
             value={draftWorldSettings.ambientIntensity}
+          />
+        </ToolSection>
+
+        <ToolSection title="Rendering">
+          <EnumGrid
+            activeValue={draftWorldSettings.toneMapping}
+            entries={TONE_MAPPING_OPTIONS}
+            onSelect={(value) =>
+              commitWorldSettingsDraft({
+                ...draftWorldSettingsRef.current,
+                toneMapping: value as SceneSettings["world"]["toneMapping"]
+              })
+            }
           />
         </ToolSection>
 

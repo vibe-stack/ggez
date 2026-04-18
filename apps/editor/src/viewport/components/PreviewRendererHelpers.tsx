@@ -29,7 +29,7 @@ import {
 } from "@/viewport/viewports";
 import type { SceneSettings } from "@ggez/shared";
   import { applySoftVsmShadowConfig, fitDirectionalShadowToScene, POINT_LIGHT_SHADOW_MAP_SIZE, resolveLightTargetPosition, SPOT_LIGHT_SHADOW_MAP_SIZE } from "@/viewport/utils/shadow-config";
-import { cloneModelSceneGraph, computeModelBounds, createPrimaryModelFile, createSolidModelMaterial, disposeOwnedSceneMaterials, disposePreviewMaterial, gltfLoader, loadModelTexture, modelDistanceVector, modelSceneCache, mtlLoader, patchMtlTextureReferences, resolveEditorModelLodLevel, resolveIntersectedIds, resolveMeshPivot, resolvePhysicsColliderProps, usePreviewMaterials, useRenderableGeometry } from "../utils/preview-utils";
+import { applyShadowCastingSide, cloneModelSceneGraph, computeModelBounds, createPrimaryModelFile, createSolidModelMaterial, disposeOwnedSceneMaterials, disposePreviewMaterial, gltfLoader, loadModelTexture, modelDistanceVector, modelSceneCache, mtlLoader, patchMtlTextureReferences, resolveEditorModelLodLevel, resolveIntersectedIds, resolveMeshPivot, resolvePhysicsColliderProps, usePreviewMaterials, useRenderableGeometry } from "../utils/preview-utils";
 
 const MAX_MODEL_COLLIDER_HULL_POINTS = 512;
 const modelColliderHullCache = new WeakMap<Object3D, Float32Array>();
@@ -661,6 +661,7 @@ export function RenderModelBody({
       if (child instanceof Mesh) {
         child.castShadow = renderModeUsesShadows(renderMode);
         child.receiveShadow = renderModeUsesShadows(renderMode);
+        applyShadowCastingSide(child.material);
       }
     });
     return clone;

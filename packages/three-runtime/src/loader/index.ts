@@ -18,7 +18,8 @@ export {
   applyWebHammerWorldSettings,
   clearWebHammerWorldSettings,
   applyRuntimeWorldSettingsToThreeScene,
-  clearRuntimeWorldSettingsFromThreeScene
+  clearRuntimeWorldSettingsFromThreeScene,
+  resolveWebHammerToneMapping
 } from "./world-settings";
 
 // Legacy type aliases

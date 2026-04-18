@@ -30,6 +30,48 @@ import {
 
 type InspectableNodeData = PrimitiveNodeData | LightNodeData | ModelReference;
 
+type LightShadowPresetId = "balanced" | "cheap" | "crisp" | "soft";
+
+const LIGHT_SHADOW_PRESETS: Array<{ id: LightShadowPresetId; label: string }> = [
+  { id: "cheap", label: "Cheap" },
+  { id: "balanced", label: "Balanced" },
+  { id: "soft", label: "Soft" },
+  { id: "crisp", label: "Crisp" }
+];
+
+function applyLightShadowPreset(data: LightNodeData, presetId: LightShadowPresetId): LightNodeData {
+  if (data.type !== "directional" && data.type !== "point" && data.type !== "spot") {
+    return data;
+  }
+
+  const presetByType: Record<LightShadowPresetId, Partial<LightNodeData>> =
+    data.type === "directional"
+      ? {
+          cheap: { shadowBlurRadius: 0.75, shadowBlurSamples: 2, shadowMapSize: 1024, shadowRadius: 48 },
+          balanced: { shadowBlurRadius: 1.25, shadowBlurSamples: 4, shadowMapSize: 1536, shadowRadius: 64 },
+          soft: { shadowBlurRadius: 2.25, shadowBlurSamples: 6, shadowMapSize: 2048, shadowRadius: 80 },
+          crisp: { shadowBlurRadius: 0.2, shadowBlurSamples: 1, shadowMapSize: 2048, shadowRadius: 56 }
+        }
+      : data.type === "spot"
+        ? {
+            cheap: { shadowBlurRadius: 2, shadowBlurSamples: 4, shadowMapSize: 256 },
+            balanced: { shadowBlurRadius: 4, shadowBlurSamples: 8, shadowMapSize: 512 },
+            soft: { shadowBlurRadius: 7, shadowBlurSamples: 12, shadowMapSize: 1024 },
+            crisp: { shadowBlurRadius: 0.5, shadowBlurSamples: 2, shadowMapSize: 1024 }
+          }
+        : {
+            cheap: { shadowBlurRadius: 2, shadowBlurSamples: 4, shadowMapSize: 256 },
+            balanced: { shadowBlurRadius: 4, shadowBlurSamples: 8, shadowMapSize: 256 },
+            soft: { shadowBlurRadius: 6, shadowBlurSamples: 12, shadowMapSize: 512 },
+            crisp: { shadowBlurRadius: 0.5, shadowBlurSamples: 2, shadowMapSize: 512 }
+          };
+
+  return {
+    ...data,
+    ...presetByType[presetId]
+  };
+}
+
 export function PrimitiveInspector({
   node,
   onUpdateNodeData
@@ -429,6 +471,21 @@ export function LightInspector({
       />
       {node.data.castShadow && (node.data.type === "directional" || node.data.type === "point" || node.data.type === "spot") ? (
         <>
+          <div className="space-y-2">
+            <SectionTitle>Shadow Presets</SectionTitle>
+            <div className="grid grid-cols-2 gap-1.5">
+              {LIGHT_SHADOW_PRESETS.map((preset) => (
+                <Button
+                  key={preset.id}
+                  onClick={() => updateData(applyLightShadowPreset(node.data, preset.id))}
+                  size="xs"
+                  variant="ghost"
+                >
+                  {preset.label}
+                </Button>
+              ))}
+            </div>
+          </div>
           <NumberField
             label="Shadow Map Size"
             onChange={(value) => updateData({ ...node.data, shadowMapSize: Math.max(128, Math.round(value / 128) * 128) })}

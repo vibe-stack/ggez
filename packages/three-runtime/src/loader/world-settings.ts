@@ -1,14 +1,21 @@
-import type { SceneSkyboxSettings } from "@ggez/shared";
+import type { SceneSkyboxSettings, SceneToneMapping } from "@ggez/shared";
 import {
+  ACESFilmicToneMapping,
   AmbientLight,
+  CineonToneMapping,
   Color,
   EquirectangularReflectionMapping,
   Fog,
+  LinearToneMapping,
+  NeutralToneMapping,
+  NoToneMapping,
+  ReinhardToneMapping,
   Scene,
   SRGBColorSpace,
   Texture,
   TextureLoader
 } from "three";
+import type { ToneMapping } from "three";
 import { HDRLoader } from "three/examples/jsm/loaders/HDRLoader.js";
 import type { WebHammerEngineScene } from "../types";
 import type { WebHammerSceneLoaderOptions } from "./types";
@@ -22,6 +29,24 @@ type AppliedWorldSettingsState = {
 };
 
 const APPLIED_WORLD_SETTINGS_KEY = "__webHammerWorldSettings";
+
+export function resolveWebHammerToneMapping(mode: SceneToneMapping | undefined): ToneMapping {
+  switch (mode) {
+    case "none":
+      return NoToneMapping;
+    case "linear":
+      return LinearToneMapping;
+    case "reinhard":
+      return ReinhardToneMapping;
+    case "cineon":
+      return CineonToneMapping;
+    case "neutral":
+      return NeutralToneMapping;
+    case "aces":
+    default:
+      return ACESFilmicToneMapping;
+  }
+}
 
 export async function applyWebHammerWorldSettings(
   target: Scene,

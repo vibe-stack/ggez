@@ -1,23 +1,25 @@
 import { useEffect, useRef } from "react";
 import { useThree } from "@react-three/fiber";
-import { applyWebHammerWorldSettings, clearWebHammerWorldSettings } from "@ggez/three-runtime";
+import { applyWebHammerWorldSettings, clearWebHammerWorldSettings, resolveWebHammerToneMapping } from "@ggez/three-runtime";
 import { type SceneSettings, type Vec3 } from "@ggez/shared";
-import { Color, Object3D, VSMShadowMap } from "three";
+import { Color, NoToneMapping, Object3D, VSMShadowMap } from "three";
 import { renderModeUsesFullLighting, renderModeUsesShadows, type ViewportRenderMode } from "@/viewport/viewports";
 import { VSM_SHADOW_BLUR_SAMPLES, VSM_SHADOW_RADIUS } from "@/viewport/utils/shadow-config";
 
 export function ViewportWorldSettings({ renderMode, sceneSettings }: { renderMode: ViewportRenderMode; sceneSettings: SceneSettings }) {
-  const { scene } = useThree();
+  const { gl, scene } = useThree();
 
   useEffect(() => {
     if (!renderModeUsesFullLighting(renderMode)) {
       clearWebHammerWorldSettings(scene);
       scene.background = new Color(renderMode === "wireframe" ? "#091018" : "#0b1016");
       scene.environment = null;
+      gl.toneMapping = NoToneMapping;
       return;
     }
 
     scene.background = new Color(sceneSettings.world.fogColor);
+    gl.toneMapping = resolveWebHammerToneMapping(sceneSettings.world.toneMapping);
 
     void applyWebHammerWorldSettings(scene, { settings: sceneSettings });
 
@@ -25,8 +27,9 @@ export function ViewportWorldSettings({ renderMode, sceneSettings }: { renderMod
       clearWebHammerWorldSettings(scene);
       scene.background = null;
       scene.environment = null;
+      gl.toneMapping = NoToneMapping;
     };
-  }, [renderMode, scene, sceneSettings]);
+  }, [gl, renderMode, scene, sceneSettings]);
 
   return null;
 }

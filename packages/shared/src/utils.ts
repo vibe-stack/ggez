@@ -399,7 +399,8 @@ export function createDefaultSceneSettings(): SceneSettings {
         lightingIntensity: 1,
         name: "",
         source: ""
-      }
+      },
+      toneMapping: "aces"
     }
   };
 }

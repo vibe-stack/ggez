@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import {
   Box3,
   BoxGeometry, Color, Float32BufferAttribute, Matrix4,
+  Material,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
@@ -48,6 +49,21 @@ export const tempInstanceColor = new Color();
 export const modelDistanceVector = new Vector3();
 export const NOOP_HOVER_END = () => {};
 export const NOOP_HOVER_START = (_nodeId: string) => {};
+
+export function applyShadowCastingSide(material: Material | Material[]) {
+  if (Array.isArray(material)) {
+    material.forEach((entry) => applyShadowCastingSide(entry));
+    return material;
+  }
+
+  if ("side" in material && material.side === DoubleSide) {
+    material.shadowSide = FrontSide;
+  } else {
+    material.shadowSide = null;
+  }
+
+  return material;
+}
 
 export function resolvePhysicsColliderProps(physics: DerivedRenderMesh["physics"]) {
   if (!physics) {
@@ -254,6 +270,7 @@ export function createPreviewMaterial(
     roughnessMap: layer.material.roughnessTexture ? loadTexture(layer.material.roughnessTexture, false) : undefined,
   })));
   applyTextureVariationToStandardMaterial(material, spec.textureVariation);
+  applyShadowCastingSide(material);
   return material;
 }
 
@@ -278,7 +295,7 @@ export function createSolidSurfaceMaterial(
   hovered: boolean,
   useInstanceColors = false
 ) {
-  return new MeshStandardMaterial({
+  const material = new MeshStandardMaterial({
     color: useInstanceColors ? "#ffffff" : hovered && !selected ? "#d8f4f0" : "#d9e1e8",
     emissive: selected ? "#f69036" : hovered ? "#2a7f74" : "#000000",
     emissiveIntensity: selected ? 0.08 : hovered ? 0.08 : 0,
@@ -287,6 +304,9 @@ export function createSolidSurfaceMaterial(
     roughness: 0.88,
     side: resolvePreviewMaterialSide(spec.side)
   });
+
+  applyShadowCastingSide(material);
+  return material;
 }
 
 export function createSolidModelMaterial(material: Mesh["material"], selected: boolean, hovered: boolean) {
@@ -298,7 +318,7 @@ export function createSolidModelMaterial(material: Mesh["material"], selected: b
 }
 
 export function createSolidSingleModelMaterial(material: Mesh["material"], selected: boolean, hovered: boolean) {
-  return new MeshStandardMaterial({
+  const nextMaterial = new MeshStandardMaterial({
     color: hovered && !selected ? "#d8f4f0" : "#d9e1e8",
     emissive: selected ? "#f69036" : hovered ? "#2a7f74" : "#000000",
     emissiveIntensity: selected ? 0.08 : hovered ? 0.08 : 0,
@@ -306,6 +326,9 @@ export function createSolidSingleModelMaterial(material: Mesh["material"], selec
     roughness: 0.88,
     side: material instanceof MeshBasicMaterial || material instanceof MeshStandardMaterial ? material.side : DoubleSide
   });
+
+  applyShadowCastingSide(nextMaterial);
+  return nextMaterial;
 }
 
 export function resolvePreviewMaterialSide(side?: MaterialRenderSide): Side {

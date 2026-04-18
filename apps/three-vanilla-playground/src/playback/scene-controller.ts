@@ -51,6 +51,7 @@ import {
   applyWebHammerWorldSettings,
   clearWebHammerWorldSettings,
   createWebHammerSceneObjectFactory,
+  resolveWebHammerToneMapping,
   type WebHammerEngineModelNode,
   type WebHammerEngineGeometryNode,
   type WebHammerEngineNode,
@@ -349,6 +350,7 @@ export class PlaybackSceneController {
 
   private async applyWorldSettings(config: SceneRuntimeConfig) {
     this.scene.background = new Color(config.sceneSettings.world.fogColor);
+    this.renderer.toneMapping = resolveWebHammerToneMapping(config.sceneSettings.world.toneMapping);
 
     try {
       await applyWebHammerWorldSettings(
