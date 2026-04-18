@@ -15,6 +15,9 @@ const MODEL_ASSET_FILES_METADATA_KEY = "modelFiles";
 export const HIGH_MODEL_LOD_LEVEL = "high" as const;
 export const DEFAULT_MODEL_LOD_LEVEL_ORDER: ModelLodLevel[] = [HIGH_MODEL_LOD_LEVEL, "mid", "low"];
 
+const parsedModelAssetFilesCache = new Map<string, ModelAssetFile[]>();
+const resolvedModelAssetFilesCache = new WeakMap<Asset, { files: ModelAssetFile[]; signature: string }>();
+
 export function createSerializedModelAssetFiles(files: ModelAssetFile[]): string {
   return JSON.stringify(sortModelAssetFiles(files));
 }
@@ -27,6 +30,19 @@ export function resolveModelAssetFile(asset: Asset | undefined, level: ModelLodL
 export function resolveModelAssetFiles(asset: Asset | undefined): ModelAssetFile[] {
   if (!asset || asset.type !== "model") {
     return [];
+  }
+
+  const signature = [
+    asset.path,
+    typeof asset.metadata[MODEL_ASSET_FILES_METADATA_KEY] === "string" ? asset.metadata[MODEL_ASSET_FILES_METADATA_KEY] : "",
+    typeof asset.metadata.modelFormat === "string" ? asset.metadata.modelFormat : "",
+    readModelMetadataString(asset, "materialMtlText") ?? "",
+    readModelMetadataString(asset, "texturePath") ?? ""
+  ].join("\u0001");
+  const cached = resolvedModelAssetFilesCache.get(asset);
+
+  if (cached?.signature === signature) {
+    return cached.files;
   }
 
   const fromMetadata = parseSerializedModelAssetFiles(asset.metadata[MODEL_ASSET_FILES_METADATA_KEY]);
@@ -56,7 +72,13 @@ export function resolveModelAssetFiles(asset: Asset | undefined): ModelAssetFile
     });
   }
 
-  return sortModelAssetFiles(Array.from(filesByLevel.values()));
+  const resolvedFiles = sortModelAssetFiles(Array.from(filesByLevel.values()));
+  resolvedModelAssetFilesCache.set(asset, {
+    files: resolvedFiles,
+    signature
+  });
+
+  return resolvedFiles;
 }
 
 export function resolveModelFormat(modelFormat: unknown, path: string): ModelFormat {
@@ -126,14 +148,21 @@ function parseSerializedModelAssetFiles(value: unknown): ModelAssetFile[] {
     return [];
   }
 
+  const normalizedValue = value.trim();
+  const cached = parsedModelAssetFilesCache.get(normalizedValue);
+
+  if (cached) {
+    return cached;
+  }
+
   try {
-    const parsed = JSON.parse(value) as unknown;
+    const parsed = JSON.parse(normalizedValue) as unknown;
 
     if (!Array.isArray(parsed)) {
       return [];
     }
 
-    return sortModelAssetFiles(
+    const resolvedFiles = sortModelAssetFiles(
       parsed.flatMap((entry) => {
         if (!entry || typeof entry !== "object") {
           return [];
@@ -156,6 +185,9 @@ function parseSerializedModelAssetFiles(value: unknown): ModelAssetFile[] {
         ];
       })
     );
+
+    parsedModelAssetFilesCache.set(normalizedValue, resolvedFiles);
+    return resolvedFiles;
   } catch {
     return [];
   }

@@ -35,7 +35,9 @@ type PointerRouterOptions = {
     extrudeState: unknown;
     instanceBrushDragging: boolean;
     materialPaintDragging: boolean;
+    materialPaintVisible: boolean;
     sculptDragging: boolean;
+    sculptVisible: boolean;
   };
   extrudeState: unknown;
   faceCutState: unknown;
@@ -238,7 +240,7 @@ export function useViewportPointerRouter({
       return;
     }
 
-    if (eventBlockers.materialPaintDragging || eventBlockers.sculptDragging || (!eventBlockers.materialPaintDragging && !eventBlockers.sculptDragging)) {
+    if (eventBlockers.materialPaintVisible || eventBlockers.sculptVisible) {
       setCameraControlsEnabled(false);
     }
   };

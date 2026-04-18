@@ -41,7 +41,7 @@ export function createEditableMeshFromPrimitiveData(data: PrimitiveNodeData, idP
   });
 }
 
-export function createEditableMeshFromPlane(size: Vec3, idPrefix = "plane", materialId = "material:blockout:orange") {
+export function createEditableMeshFromPlane(size: Vec3, idPrefix = "plane", materialId = "material:blockout:concrete") {
   return createEditableMeshFromPolygons(createPlanePolygons(idPrefix, size, materialId));
 }
 

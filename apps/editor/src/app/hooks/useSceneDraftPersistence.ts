@@ -1,6 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { loadStoredSceneEditorDraft, saveSceneEditorDraft, type StoredSceneEditorDraft } from "@/lib/draft-storage";
 
+type IdleDeadline = {
+  didTimeout: boolean;
+  timeRemaining: () => number;
+};
+
+type IdleWindow = Window & {
+  cancelIdleCallback?: (handle: number) => void;
+  requestIdleCallback?: (callback: (deadline: IdleDeadline) => void, options?: { timeout: number }) => number;
+};
+
+type PendingSaveHandle =
+  | { id: number; kind: "idle" }
+  | { id: number; kind: "timeout" };
+
 export function useSceneDraftPersistence({
   buildDraft,
   onRestoreDraft,
@@ -14,9 +28,38 @@ export function useSceneDraftPersistence({
   const buildDraftRef = useRef(buildDraft);
   const latestDraftRef = useRef<StoredSceneEditorDraft | null>(null);
   const onRestoreDraftRef = useRef(onRestoreDraft);
+  const pendingDraftRef = useRef(false);
+  const pendingSaveHandleRef = useRef<PendingSaveHandle | null>(null);
 
   buildDraftRef.current = buildDraft;
   onRestoreDraftRef.current = onRestoreDraft;
+
+  const clearPendingSave = () => {
+    const pendingSave = pendingSaveHandleRef.current;
+
+    if (!pendingSave) {
+      return;
+    }
+
+    if (pendingSave.kind === "idle") {
+      (window as IdleWindow).cancelIdleCallback?.(pendingSave.id);
+    } else {
+      window.clearTimeout(pendingSave.id);
+    }
+
+    pendingSaveHandleRef.current = null;
+  };
+
+  const persistDraft = () => {
+    const draft = buildDraftRef.current();
+
+    latestDraftRef.current = draft;
+    pendingDraftRef.current = false;
+
+    void saveSceneEditorDraft(draft).catch((error) => {
+      console.warn("Failed to save the Trident draft.", error);
+    });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -49,30 +92,41 @@ export function useSceneDraftPersistence({
       return;
     }
 
-    latestDraftRef.current = buildDraftRef.current();
+    pendingDraftRef.current = true;
+    clearPendingSave();
 
-    const timeoutId = window.setTimeout(() => {
-      void saveSceneEditorDraft(buildDraftRef.current()).catch((error) => {
-        console.warn("Failed to save the Trident draft.", error);
-      });
-    }, 500);
+    const idleWindow = window as IdleWindow;
+
+    if (typeof idleWindow.requestIdleCallback === "function") {
+      pendingSaveHandleRef.current = {
+        id: idleWindow.requestIdleCallback(() => {
+          pendingSaveHandleRef.current = null;
+          persistDraft();
+        }, { timeout: 2000 }),
+        kind: "idle"
+      };
+    } else {
+      pendingSaveHandleRef.current = {
+        id: window.setTimeout(() => {
+          pendingSaveHandleRef.current = null;
+          persistDraft();
+        }, 1200),
+        kind: "timeout"
+      };
+    }
 
     return () => {
-      window.clearTimeout(timeoutId);
+      clearPendingSave();
     };
   }, [draftHydrated, saveKey]);
 
   useEffect(() => {
     return () => {
-      const draft = latestDraftRef.current;
+      clearPendingSave();
 
-      if (!draft) {
-        return;
+      if (pendingDraftRef.current) {
+        persistDraft();
       }
-
-      void saveSceneEditorDraft(draft).catch((error) => {
-        console.warn("Failed to flush the Trident draft on unload.", error);
-      });
     };
   }, []);
 

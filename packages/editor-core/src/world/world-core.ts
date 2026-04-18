@@ -245,6 +245,7 @@ export type WorldEditorCore = {
   events: EventBus<WorldEvents>;
   execute: (command: WorldCommand) => void;
   exportBundle: () => WorldPersistenceBundle;
+  getBundleRef: () => WorldPersistenceBundle;
   getActiveDocument: () => AuthoringDocument | undefined;
   getDocument: (documentId: DocumentID) => AuthoringDocument | undefined;
   getDocumentSnapshot: (documentId: DocumentID) => AuthoringDocumentSnapshot | undefined;
@@ -588,6 +589,9 @@ export function createWorldEditorCore(
     },
     exportBundle() {
       return cloneWorldBundle(storageBundle);
+    },
+    getBundleRef() {
+      return storageBundle;
     },
     getActiveDocument() {
       return world.workingSet.activeDocumentId ? world.documents.get(world.workingSet.activeDocumentId) : undefined;
@@ -1264,13 +1268,34 @@ export function createSceneEditorAdapter(world: WorldEditorCore): SceneEditorAda
   const resolveNodeSnapshots = createSnapshotReuseResolver<GeometryNode, GeometryNode>(
     (node) => {
       const candidate = node as GeometryNode & {
+        data?: {
+          faces?: unknown;
+          materialBlend?: unknown;
+          materialLayers?: unknown;
+          planes?: unknown;
+          vertices?: unknown;
+        };
         hooks?: unknown;
         layerId?: string;
         metadata?: unknown;
         tags?: unknown;
       };
 
-      return [candidate.transform, candidate.data, candidate.hooks, candidate.metadata, candidate.tags];
+      return [
+        candidate.transform,
+        candidate.transform.position,
+        candidate.transform.rotation,
+        candidate.transform.scale,
+        candidate.data,
+        candidate.data?.faces,
+        candidate.data?.materialBlend,
+        candidate.data?.materialLayers,
+        candidate.data?.planes,
+        candidate.data?.vertices,
+        candidate.hooks,
+        candidate.metadata,
+        candidate.tags
+      ];
     },
     (node) => {
       const candidate = node as GeometryNode & { layerId?: string };
@@ -1285,7 +1310,16 @@ export function createSceneEditorAdapter(world: WorldEditorCore): SceneEditorAda
         tags?: unknown;
       };
 
-      return [candidate.transform, candidate.properties, candidate.hooks, candidate.metadata, candidate.tags];
+      return [
+        candidate.transform,
+        candidate.transform.position,
+        candidate.transform.rotation,
+        candidate.transform.scale,
+        candidate.properties,
+        candidate.hooks,
+        candidate.metadata,
+        candidate.tags
+      ];
     },
     (entity) => [entity.type, entity.name, entity.parentId ?? ""].join("|")
   );
@@ -1308,11 +1342,14 @@ export function createSceneEditorAdapter(world: WorldEditorCore): SceneEditorAda
   let cachedSettingsSourceRef: SceneDocument["settings"] | undefined;
   let cachedSettingsSnapshot: SceneDocumentSnapshot["settings"] | undefined;
 
-  const shouldCloneMaterials = (label: string) => label.includes("material");
-  const shouldCloneTextures = (label: string) => label.includes("texture");
-  const shouldCloneAssets = (label: string) => label.includes("asset");
+  const shouldCloneMaterials = (label: string) =>
+    label === "create material" || label === "update material" || label === "delete material";
+  const shouldCloneTextures = (label: string) =>
+    label === "create texture" || label === "update texture" || label === "delete texture";
+  const shouldCloneAssets = (label: string) =>
+    label === "add asset" || label === "update asset" || label === "delete asset";
   const shouldCloneLayers = (label: string) => label.includes("layer");
-  const shouldCloneSettings = (label: string) => label.includes("settings");
+  const shouldCloneSettings = (label: string) => label === "set scene settings";
 
   const captureCommittedSnapshot = (label: string): AuthoringDocumentSnapshot | undefined => {
     const activeDocumentId = world.world.workingSet.activeDocumentId;

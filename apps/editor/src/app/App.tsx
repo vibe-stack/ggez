@@ -13,6 +13,8 @@ import { createDerivedRenderSceneCache, deriveRenderSceneCached } from "@ggez/re
 import {
   isModelNode,
   isPrimitiveNode,
+  type Asset,
+  type GeometryNode,
   type TextureRecord,
 } from "@ggez/shared";
 import { createWorkerTaskManager, type WorkerJob } from "@ggez/workers";
@@ -47,12 +49,75 @@ const EMPTY_SCENE_SPATIAL_ANALYSIS: SceneSpatialAnalysis = {
   walkableSurfaces: []
 };
 
+const MODEL_ASSET_LIBRARY_NEUTRAL_REASONS = new Set([
+  "command:assign material",
+  "command:create material",
+  "command:create texture",
+  "command:delete material",
+  "command:delete texture",
+  "command:group selection",
+  "command:paint instances",
+  "command:set brush",
+  "command:set entity",
+  "command:set mesh",
+  "command:set mesh material layers",
+  "command:set scene settings",
+  "command:set transform",
+  "command:translate selection",
+  "command:update material",
+  "command:update texture"
+]);
+
+function isModelAssetLibraryNeutralChange(reason: string) {
+  if (MODEL_ASSET_LIBRARY_NEUTRAL_REASONS.has(reason)) {
+    return true;
+  }
+
+  if (reason.startsWith("command:clip ") || reason.startsWith("command:extrude ") || reason.startsWith("command:mirror ")) {
+    return true;
+  }
+
+  return reason.startsWith("command:place ") && reason !== "command:place asset";
+}
+
+function createModelAssetLibrarySignature(assets: Iterable<Asset>, nodes: Iterable<GeometryNode>) {
+  const parts: string[] = [];
+
+  for (const asset of assets) {
+    if (asset.type !== "model") {
+      continue;
+    }
+
+    parts.push(
+      asset.id,
+      asset.path,
+      typeof asset.metadata.modelFiles === "string" ? asset.metadata.modelFiles : "",
+      typeof asset.metadata.modelFormat === "string" ? asset.metadata.modelFormat : "",
+      typeof asset.metadata.name === "string" ? asset.metadata.name : "",
+      typeof asset.metadata.source === "string" ? asset.metadata.source : ""
+    );
+  }
+
+  parts.push("\u0000");
+
+  for (const node of nodes) {
+    if (!isModelNode(node)) {
+      continue;
+    }
+
+    parts.push(node.id, node.data.assetId);
+  }
+
+  return parts.join("\u0001");
+}
+
 export function App() {
   const [worldEditor] = useState(() => createWorldEditorCore(createSceneDocumentSnapshot(createSeedSceneDocument())));
   const [editor] = useState(() => createSceneEditorAdapter(worldEditor));
   const [workerManager] = useState(() => createWorkerTaskManager());
   const [workerJobs, setWorkerJobs] = useState<WorkerJob[]>([]);
   const [committedSceneRevision, setCommittedSceneRevision] = useState(0);
+  const [modelAssetRevision, setModelAssetRevision] = useState(0);
   const [sceneRevision, setSceneRevision] = useState(0);
   const [selectionRevision, setSelectionRevision] = useState(0);
   const [worldRevision, setWorldRevision] = useState(0);
@@ -61,6 +126,7 @@ export function App() {
   const glbImportInputRef = useRef<HTMLInputElement | null>(null);
   const modelLodInputRef = useRef<HTMLInputElement | null>(null);
   const renderSceneCacheRef = useRef(createDerivedRenderSceneCache());
+  const modelAssetSignatureRef = useRef("");
   const toolSessionSnapshot = useSnapshot(toolSessionStore);
   const projectSessionSnapshot = useSnapshot(projectSessionStore);
   const sceneSessionSnapshot = useSnapshot(sceneSessionStore);
@@ -115,7 +181,7 @@ export function App() {
   const sceneEntities = useMemo(() => Array.from(editor.scene.entities.values()), [editor, committedSceneRevision]);
   const modelAssets = useMemo(
     () => buildModelAssetLibrary(editor.scene.assets.values(), editor.scene.nodes.values()),
-    [editor, committedSceneRevision]
+    [editor, modelAssetRevision]
   );
   const sceneItemIdSet = useMemo(
     () => new Set<string>([...sceneNodes.map((node) => node.id), ...sceneEntities.map((entity) => entity.id)]),
@@ -137,7 +203,30 @@ export function App() {
   const resolvedProjectSlug = slugifyProjectName(projectSlug.trim() || resolvedProjectName);
   const texturesRef = useRef<TextureRecord[]>([]);
 
+  if (modelAssetSignatureRef.current.length === 0) {
+    modelAssetSignatureRef.current = createModelAssetLibrarySignature(editor.scene.assets.values(), editor.scene.nodes.values());
+  }
+
   useEditorSubscriptions(editor, setSceneRevision, setCommittedSceneRevision, setSelectionRevision);
+
+  useEffect(() => {
+    const unsubscribeScene = editor.events.on("scene:changed", ({ reason }) => {
+      if (isModelAssetLibraryNeutralChange(reason)) {
+        return;
+      }
+
+      const nextSignature = createModelAssetLibrarySignature(editor.scene.assets.values(), editor.scene.nodes.values());
+
+      if (nextSignature === modelAssetSignatureRef.current) {
+        return;
+      }
+
+      modelAssetSignatureRef.current = nextSignature;
+      setModelAssetRevision((revision) => revision + 1);
+    });
+
+    return unsubscribeScene;
+  }, [editor]);
 
   useEffect(() => workerManager.subscribe(setWorkerJobs), [workerManager]);
 
@@ -203,6 +292,13 @@ export function App() {
 
   const syncEditorFromWorld = (reason: string) => {
     editor.syncFromWorld(reason);
+    const nextModelAssetSignature = createModelAssetLibrarySignature(editor.scene.assets.values(), editor.scene.nodes.values());
+
+    if (nextModelAssetSignature !== modelAssetSignatureRef.current) {
+      modelAssetSignatureRef.current = nextModelAssetSignature;
+      setModelAssetRevision((revision) => revision + 1);
+    }
+
     setWorldRevision((revision) => revision + 1);
     setSceneRevision((revision) => revision + 1);
     setCommittedSceneRevision((revision) => revision + 1);
@@ -244,7 +340,7 @@ export function App() {
   });
 
   const buildWorldBundle = (): WorldPersistenceBundle => {
-    const bundle = worldEditor.exportBundle();
+    const bundle = worldEditor.getBundleRef();
 
     return {
       ...bundle,

@@ -529,7 +529,7 @@ export function buildBrushCreatePlacement(state: BrushCreateState): BrushCreateP
     }
 
     return buildMeshPlacementFromPolygons(
-      buildExtrudedPolygonPolygons(state.points, state.basis.normal, state.height, "material:blockout:orange"),
+      buildExtrudedPolygonPolygons(state.points, state.basis.normal, state.height, "material:blockout:concrete"),
       "Custom Polygon"
     );
   }
@@ -547,7 +547,7 @@ export function buildBrushCreatePlacement(state: BrushCreateState): BrushCreateP
         state.depth,
         state.height,
         state.stepCount,
-        "material:blockout:orange"
+        "material:blockout:concrete"
       ),
       "Blockout Stairs"
     );
@@ -566,7 +566,7 @@ export function buildBrushCreatePlacement(state: BrushCreateState): BrushCreateP
         state.depth,
         state.height,
         state.arcSegments,
-        "material:blockout:orange"
+        "material:blockout:concrete"
       ),
       "Blockout Ramp"
     );

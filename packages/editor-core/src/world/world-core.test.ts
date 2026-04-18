@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { createEditableMeshFromPolygons } from "@ggez/geometry-kernel";
 import { createSeedSceneDocument } from "../document/scene-document";
 import { createSceneDocumentSnapshot } from "../document/scene-document";
 import { makeTransform, vec3 } from "@ggez/shared";
+import { createAssignMaterialCommand } from "../commands/node-commands/material-commands";
 import { createMoveNodeToDocumentCommand } from "./world-commands";
 import { parseWorldPersistenceBundle, serializeWorldPersistenceBundle } from "./persistence";
 import {
@@ -229,6 +231,39 @@ describe("world authoring core", () => {
     expect(afterFlattened.nodes.find((node) => node.id === "document:main::node:a")).not.toBe(
       beforeFlattened.nodes.find((node) => node.id === "document:main::node:a")
     );
+  });
+
+  test("persists assigned mesh materials into committed document snapshots", () => {
+    const scene = createSeedSceneDocument();
+    scene.addNode({
+      data: createEditableMeshFromPolygons([
+        {
+          id: "face:mesh:test",
+          materialId: "material:blockout:concrete",
+          positions: [
+            vec3(-1, 0, -1),
+            vec3(1, 0, -1),
+            vec3(1, 0, 1),
+            vec3(-1, 0, 1)
+          ]
+        }
+      ]),
+      id: "node:mesh:test",
+      kind: "mesh",
+      name: "Test Mesh",
+      transform: makeTransform(vec3(0, 0, 0))
+    });
+
+    const world = createWorldEditorCore(createWorldBundleFromLegacyScene(createSceneDocumentSnapshot(scene)));
+    const adapter = createSceneEditorAdapter(world);
+
+    adapter.execute(createAssignMaterialCommand(adapter.scene, [{ nodeId: "node:mesh:test" }], "material:blockout:orange"));
+
+    const committedNode = world.getDocumentSnapshotRef("document:main")?.nodes.find((node) => node.id === "node:mesh:test");
+    const exportedNode = adapter.exportSnapshot().nodes.find((node) => node.id === "node:mesh:test");
+
+    expect(committedNode && "data" in committedNode ? committedNode.data.faces[0]?.materialId : undefined).toBe("material:blockout:orange");
+    expect(exportedNode && "data" in exportedNode ? exportedNode.data.faces[0]?.materialId : undefined).toBe("material:blockout:orange");
   });
 });
 

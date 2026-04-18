@@ -117,7 +117,7 @@ export function createPlaceBlockoutStairCommand(
 } {
   const direction = spec.direction ?? "north";
   const groupId = createDuplicateNodeId(scene, "group:blockout:stairs");
-  const materialId = spec.materialId ?? "material:blockout:orange";
+  const materialId = spec.materialId ?? "material:blockout:concrete";
   const landingDepth = Math.max(0.25, spec.landingDepth ?? spec.treadDepth * 1.25);
   const topLandingDepth = Math.max(0.25, spec.topLandingDepth ?? landingDepth);
   const totalRise = spec.stepCount * spec.stepHeight;

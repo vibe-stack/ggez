@@ -461,14 +461,12 @@ export function useAssetMaterialActions({
       return;
     }
 
-    uiStore.selectedMaterialId = materialId;
     const targets =
       scope === "faces" && faceIds.length > 0
         ? editor.selection.ids.slice(0, 1).map((nodeId) => ({ faceIds, nodeId }))
         : editor.selection.ids.map((nodeId) => ({ nodeId }));
 
     editor.execute(createAssignMaterialCommand(editor.scene, targets, materialId));
-    enqueueWorkerJob("Material preview rebuild", { task: "triangulation", worker: "geometryWorker" }, 600);
   };
 
   const handleSetMaterialUvScale = (scope: "faces" | "object", faceIds: string[], uvScale: Vec2) => {

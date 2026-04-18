@@ -131,8 +131,7 @@ export function resolveModelAssetName(asset: Asset) {
 }
 
 export function resolveModelAssetFormat(asset: Asset): ModelFormat {
-  const primaryFile = resolveModelAssetFile(asset, "high");
-  return resolveModelFormat(primaryFile?.format ?? asset.metadata.modelFormat, primaryFile?.path ?? asset.path);
+  return resolveModelAssetFormatFromFiles(asset, resolveModelAssetFiles(asset));
 }
 
 export function resolveModelAssetSource(asset: Asset): ModelAssetSource {
@@ -141,11 +140,15 @@ export function resolveModelAssetSource(asset: Asset): ModelAssetSource {
   return source === "ai" || source === "import" || source === "placeholder" ? source : "unknown";
 }
 
-export function collectModelAssetUsage(nodes: Iterable<GeometryNode>) {
+export function collectModelAssetUsage(nodes: Iterable<GeometryNode>, includedAssetIds?: ReadonlySet<string>) {
   const usage = new Map<string, string[]>();
 
   for (const node of nodes) {
     if (!isModelNode(node)) {
+      continue;
+    }
+
+    if (includedAssetIds && !includedAssetIds.has(node.data.assetId)) {
       continue;
     }
 
@@ -163,10 +166,18 @@ export function collectModelAssetUsage(nodes: Iterable<GeometryNode>) {
 }
 
 export function buildModelAssetLibrary(assets: Iterable<Asset>, nodes: Iterable<GeometryNode>): ModelAssetLibraryItem[] {
-  const usage = collectModelAssetUsage(nodes);
+  const modelAssets = Array.from(assets).filter((asset): asset is Asset => asset.type === "model");
 
-  return Array.from(assets)
-    .filter((asset): asset is Asset => asset.type === "model")
+  if (modelAssets.length === 0) {
+    return [];
+  }
+
+  const usage = collectModelAssetUsage(
+    nodes,
+    new Set(modelAssets.map((asset) => asset.id))
+  );
+
+  return modelAssets
     .map((asset) => {
       const nodeIds = usage.get(asset.id) ?? [];
       const files = resolveModelAssetFiles(asset);
@@ -174,7 +185,7 @@ export function buildModelAssetLibrary(assets: Iterable<Asset>, nodes: Iterable<
       return {
         asset,
         files,
-        format: resolveModelAssetFormat(asset),
+        format: resolveModelAssetFormatFromFiles(asset, files),
         label: resolveModelAssetName(asset),
         nodeIds,
         source: resolveModelAssetSource(asset),
@@ -188,6 +199,11 @@ export function buildModelAssetLibrary(assets: Iterable<Asset>, nodes: Iterable<
 
       return left.label.localeCompare(right.label);
     });
+}
+
+function resolveModelAssetFormatFromFiles(asset: Asset, files: ModelAssetFile[]): ModelFormat {
+  const primaryFile = files.find((file) => normalizeModelLodLevelId(file.level) === HIGH_MODEL_LOD_LEVEL) ?? files[0];
+  return resolveModelFormat(primaryFile?.format ?? asset.metadata.modelFormat, primaryFile?.path ?? asset.path);
 }
 
 export function inferModelLodLevelFromFileName(fileName: string): ModelLodLevel {

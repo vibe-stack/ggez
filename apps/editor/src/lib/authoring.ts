@@ -54,7 +54,7 @@ export function createPrimitiveNodeData(
   size = createDefaultPrimitiveSize(shape)
 ): PrimitiveNodeData {
   return {
-    materialId: role === "brush" ? "material:blockout:orange" : "material:flat:steel",
+    materialId: role === "brush" ? "material:blockout:concrete" : "material:flat:steel",
     physics: role === "prop" ? createDefaultPropPhysics(shape) : undefined,
     radialSegments: shape === "cube" ? undefined : 24,
     role,

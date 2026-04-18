@@ -1175,7 +1175,9 @@ export function ViewportCanvas({
       extrudeState,
       instanceBrushDragging: Boolean(instanceBrushState?.dragging),
       materialPaintDragging: Boolean(materialPaintState?.dragging),
-      sculptDragging: Boolean(sculptState?.dragging)
+      materialPaintVisible: Boolean(materialPaintState),
+      sculptDragging: Boolean(sculptState?.dragging),
+      sculptVisible: Boolean(sculptState)
     },
     extrudeState,
     faceCutState,
