@@ -220,6 +220,25 @@ export function createSetUvOffsetCommand(
   return createFaceMutationCommand("set uv offset", snapshots);
 }
 
+export function createSetUvRotationCommand(
+  scene: SceneDocument,
+  targets: MaterialTarget[],
+  uvRotation: number
+): Command {
+  const snapshots = targets
+    .map((target) =>
+      buildFaceMutationSnapshot(scene, target, (face) =>
+        clearExplicitUvs({
+          ...face,
+          uvRotation
+        })
+      )
+    )
+    .filter((snapshot): snapshot is FaceMutationSnapshot => Boolean(snapshot));
+
+  return createFaceMutationCommand("set uv rotation", snapshots);
+}
+
 function clearExplicitUvs(face: Face | EditableMesh["faces"][number]) {
   if ("halfEdge" in face) {
     return {
@@ -319,6 +338,7 @@ function resolveBrushFaces(existingFaces: Face[], planes: Brush["planes"], nodeI
     materialId: existingFaces[index]?.materialId,
     plane,
     uvOffset: existingFaces[index]?.uvOffset,
+    uvRotation: existingFaces[index]?.uvRotation,
     uvScale: existingFaces[index]?.uvScale,
     vertexIds: existingFaces[index]?.vertexIds ?? []
   }));

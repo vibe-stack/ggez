@@ -64,6 +64,7 @@ export function reconstructBrushFaces(brush: Brush, epsilon = 0.0001): BrushRebu
       plane,
       materialId: seedFace?.materialId,
       uvOffset: seedFace?.uvOffset,
+      uvRotation: seedFace?.uvRotation,
       uvScale: seedFace?.uvScale,
       vertexIds: vertices.map((vertex) => vertex.id),
       vertices,

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createEditableMeshFromPolygons } from "@ggez/geometry-kernel";
 import type { SceneDocumentSnapshot, WorldPersistenceBundle } from "@ggez/editor-core";
 import { makeTransform, vec3 } from "@ggez/shared";
 import { CURRENT_RUNTIME_SCENE_VERSION, type RuntimeScene } from "@ggez/runtime-format";
@@ -440,5 +441,57 @@ describe("runtime-build", () => {
 
     const chunkManifest = JSON.parse(new TextDecoder().decode(chunkManifestFile!.bytes)) as RuntimeScene;
     expect(chunkManifest.materials[0]?.baseColorTexture).toBe("assets/textures/document-main-material-wall-color.png");
+  });
+
+  test("bakes rotated UVs into runtime geometry", async () => {
+    const mesh = createEditableMeshFromPolygons([
+      {
+        id: "face:quad",
+        positions: [
+          vec3(0, 0, 0),
+          vec3(1, 0, 0),
+          vec3(1, 1, 0),
+          vec3(0, 1, 0)
+        ]
+      }
+    ]);
+
+    mesh.faces[0] = {
+      ...mesh.faces[0]!,
+      uvRotation: Math.PI / 2
+    };
+
+    const snapshot: SceneDocumentSnapshot = {
+      assets: [],
+      entities: [],
+      layers: [],
+      materials: [],
+      metadata: {},
+      nodes: [
+        {
+          data: mesh,
+          id: "node:mesh",
+          kind: "mesh",
+          name: "Rotated UV Mesh",
+          transform: makeTransform(vec3(0, 0, 0))
+        }
+      ],
+      settings: structuredClone(runtimeScene.settings),
+      textures: []
+    };
+
+    const scene = await buildRuntimeSceneFromSnapshot(snapshot);
+    const meshNode = scene.nodes[0];
+    const uvs = meshNode?.kind === "mesh" ? meshNode.geometry.primitives[0]?.uvs : undefined;
+
+    expect(uvs).toHaveLength(8);
+    expect(uvs?.[0]).toBeCloseTo(0, 5);
+    expect(uvs?.[1]).toBeCloseTo(0, 5);
+    expect(uvs?.[2]).toBeCloseTo(0, 5);
+    expect(uvs?.[3]).toBeCloseTo(1, 5);
+    expect(uvs?.[4]).toBeCloseTo(-1, 5);
+    expect(uvs?.[5]).toBeCloseTo(1, 5);
+    expect(uvs?.[6]).toBeCloseTo(-1, 5);
+    expect(uvs?.[7]).toBeCloseTo(0, 5);
   });
 });

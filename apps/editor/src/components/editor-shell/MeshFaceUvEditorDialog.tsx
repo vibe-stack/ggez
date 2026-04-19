@@ -56,7 +56,8 @@ export function MeshFaceUvEditorDialog({
       vertices.map((vertex) => vertex.position),
       computePolygonNormal(vertices.map((vertex) => vertex.position)),
       face.uvScale,
-      face.uvOffset
+      face.uvOffset,
+      face.uvRotation
     ).map(([x, y]) => vec2(x, y));
   }, [face, vertices]);
   const [draftUvs, setDraftUvs] = useState<Vec2[]>(projectedUvs);
@@ -245,7 +246,7 @@ export function MeshFaceUvEditorDialog({
                 Notes
               </div>
               <p>Manual UVs are face-specific and work with irregular atlases.</p>
-              <p className="mt-2">Using the old UV scale/offset controls afterward will switch that face back to planar mapping.</p>
+              <p className="mt-2">Using the UV scale/offset/rotation controls afterward will switch that face back to planar mapping.</p>
             </div>
           </div>
         </div>
@@ -274,17 +275,31 @@ export function MeshFaceUvEditorDialog({
   );
 }
 
-function projectPlanarUvs(vertices: Vec3[], normal: Vec3, uvScale?: Vec2, uvOffset?: Vec2): Array<[number, number]> {
+function projectPlanarUvs(
+  vertices: Vec3[],
+  normal: Vec3,
+  uvScale?: Vec2,
+  uvOffset?: Vec2,
+  uvRotation?: number
+): Array<[number, number]> {
   const basis = createFacePlaneBasis(normal);
   const origin = vertices[0] ?? vec3(0, 0, 0);
   const scaleX = Math.abs(uvScale?.x ?? 1) <= 0.0001 ? 1 : uvScale?.x ?? 1;
   const scaleY = Math.abs(uvScale?.y ?? 1) <= 0.0001 ? 1 : uvScale?.y ?? 1;
   const offsetX = uvOffset?.x ?? 0;
   const offsetY = uvOffset?.y ?? 0;
+  const rotation = uvRotation ?? 0;
+  const cosRotation = Math.cos(rotation);
+  const sinRotation = Math.sin(rotation);
 
   return vertices.map((vertex) => {
     const offset = subVec3(vertex, origin);
-    return [dotVec3(offset, basis.u) * scaleX + offsetX, dotVec3(offset, basis.v) * scaleY + offsetY];
+    const localU = dotVec3(offset, basis.u);
+    const localV = dotVec3(offset, basis.v);
+    const rotatedU = localU * cosRotation - localV * sinRotation;
+    const rotatedV = localU * sinRotation + localV * cosRotation;
+
+    return [rotatedU * scaleX + offsetX, rotatedV * scaleY + offsetY];
   });
 }
 

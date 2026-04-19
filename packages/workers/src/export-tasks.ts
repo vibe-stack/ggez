@@ -686,6 +686,7 @@ async function buildExportGeometry(
     normal: Vec3;
     triangleIndices: number[];
     uvOffset?: Vec2;
+    uvRotation?: number;
     uvScale?: Vec2;
     uvs?: Vec2[];
     vertices: Vec3[];
@@ -701,7 +702,7 @@ async function buildExportGeometry(
     const vertexOffset = primitive.positions.length / 3;
     const uvs = params.uvs && params.uvs.length === params.vertices.length
       ? params.uvs.flatMap((uv) => [uv.x, uv.y])
-      : projectPlanarUvs(params.vertices, params.normal, params.uvScale, params.uvOffset);
+      : projectPlanarUvs(params.vertices, params.normal, params.uvScale, params.uvOffset, params.uvRotation);
 
     params.vertices.forEach((vertex) => {
       primitive.positions.push(vertex.x, vertex.y, vertex.z);
@@ -727,6 +728,7 @@ async function buildExportGeometry(
         normal: face.normal,
         triangleIndices: face.triangleIndices,
         uvOffset: face.uvOffset,
+        uvRotation: face.uvRotation,
         uvScale: face.uvScale,
         vertices: face.vertices.map((vertex) => vertex.position)
       });
@@ -746,6 +748,7 @@ async function buildExportGeometry(
         normal: triangulated.normal,
         triangleIndices: triangulated.indices,
         uvOffset: face.uvOffset,
+        uvRotation: face.uvRotation,
         uvScale: face.uvScale,
         uvs: face.uvs,
         vertices: getFaceVertices(node.data, face.id).map((vertex) => vertex.position)
@@ -1614,17 +1617,25 @@ function ensureGltfTexture(
   return textureIndex;
 }
 
-function projectPlanarUvs(vertices: Vec3[], normal: Vec3, uvScale?: Vec2, uvOffset?: Vec2) {
+function projectPlanarUvs(vertices: Vec3[], normal: Vec3, uvScale?: Vec2, uvOffset?: Vec2, uvRotation?: number) {
   const basis = createFacePlaneBasis(normal);
   const origin = vertices[0] ?? vec3(0, 0, 0);
   const scaleX = Math.abs(uvScale?.x ?? 1) <= 0.0001 ? 1 : uvScale?.x ?? 1;
   const scaleY = Math.abs(uvScale?.y ?? 1) <= 0.0001 ? 1 : uvScale?.y ?? 1;
   const offsetX = uvOffset?.x ?? 0;
   const offsetY = uvOffset?.y ?? 0;
+  const rotation = uvRotation ?? 0;
+  const cosRotation = Math.cos(rotation);
+  const sinRotation = Math.sin(rotation);
 
   return vertices.flatMap((vertex) => {
     const offset = subVec3(vertex, origin);
-    return [dotVec3(offset, basis.u) * scaleX + offsetX, dotVec3(offset, basis.v) * scaleY + offsetY];
+    const localU = dotVec3(offset, basis.u);
+    const localV = dotVec3(offset, basis.v);
+    const rotatedU = localU * cosRotation - localV * sinRotation;
+    const rotatedV = localU * sinRotation + localV * cosRotation;
+
+    return [rotatedU * scaleX + offsetX, rotatedV * scaleY + offsetY];
   });
 }
 

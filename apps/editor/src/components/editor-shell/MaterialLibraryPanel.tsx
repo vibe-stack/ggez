@@ -64,6 +64,11 @@ type MaterialLibraryPanelProps = {
     faceIds: string[],
     uvOffset: Vec2,
   ) => void;
+  onSetUvRotation: (
+    scope: "faces" | "object",
+    faceIds: string[],
+    uvRotation: number,
+  ) => void;
   onSetUvScale: (
     scope: "faces" | "object",
     faceIds: string[],
@@ -110,6 +115,7 @@ export function MaterialLibraryPanel({
   onDeleteTexture,
   onSelectMaterial,
   onSetUvOffset,
+  onSetUvRotation,
   onSetUvScale,
   onUpdateMeshData,
   onUpsertMaterial,
@@ -155,6 +161,7 @@ export function MaterialLibraryPanel({
   const [scope, setScope] = useState<"faces" | "object">("object");
   const [uvDraft, setUvDraft] = useState<Vec2>(() => vec2(1, 1));
   const [uvOffsetDraft, setUvOffsetDraft] = useState<Vec2>(() => vec2(0, 0));
+  const [uvRotationDraft, setUvRotationDraft] = useState(0);
   const [uvLocked, setUvLocked] = useState(true);
   const [meshUvEditorOpen, setMeshUvEditorOpen] = useState(false);
   const [textureBrowserState, setTextureBrowserState] = useState<{
@@ -189,6 +196,10 @@ export function MaterialLibraryPanel({
     (canApplyToFaces
       ? selectedFaces[0]?.uvOffset
       : materialFaces[0]?.uvOffset) ?? vec2(0, 0);
+  const targetUvRotation =
+    (canApplyToFaces
+      ? selectedFaces[0]?.uvRotation
+      : materialFaces[0]?.uvRotation) ?? 0;
 
   useEffect(() => {
     setActiveMaterialId(selectedMaterialId);
@@ -228,6 +239,10 @@ export function MaterialLibraryPanel({
     selectedFaceIds.join("|"),
   ]);
 
+  useEffect(() => {
+    setUvRotationDraft(radiansToDegrees(targetUvRotation));
+  }, [targetUvRotation, selectedNode?.id, selectedFaceIds.join("|")]);
+
   const applyUvAxis = (axis: "x" | "y", value: number) => {
     setUvDraft((current) => {
       if (uvLocked) {
@@ -242,6 +257,10 @@ export function MaterialLibraryPanel({
     setUvOffsetDraft((current) =>
       axis === "x" ? vec2(value, current.y) : vec2(current.x, value),
     );
+  };
+
+  const applyUvRotation = (value: number) => {
+    setUvRotationDraft(value);
   };
 
   const selectMaterial = (materialId: string) => {
@@ -331,6 +350,7 @@ export function MaterialLibraryPanel({
     onApplyMaterial(activeMaterialId, resolvedScope, resolvedFaceIds);
     onSetUvScale(resolvedScope, resolvedFaceIds, uvDraft);
     onSetUvOffset(resolvedScope, resolvedFaceIds, uvOffsetDraft);
+    onSetUvRotation(resolvedScope, resolvedFaceIds, degreesToRadians(uvRotationDraft));
   };
 
   const beginNewMaterial = () => {
@@ -675,6 +695,19 @@ export function MaterialLibraryPanel({
                   />
                 </div>
               </div>
+              <div className="space-y-2">
+                <div className="px-0.5 text-[10px] font-medium tracking-[0.16em] text-foreground/34 uppercase">
+                  Rotation
+                </div>
+                <DragInput
+                  compact
+                  label="Deg"
+                  onChange={applyUvRotation}
+                  precision={1}
+                  step={1}
+                  value={uvRotationDraft}
+                />
+              </div>
               {selectedNode?.kind === "mesh" ? (
                 <div className="space-y-2 rounded-xl bg-white/4 p-3">
                   <div className="flex items-center justify-between gap-3">
@@ -702,7 +735,7 @@ export function MaterialLibraryPanel({
                     </div>
                   ) : selectedMeshFace?.uvs?.length ? (
                     <div className="text-[11px] text-emerald-300/80">
-                      Custom face UVs are active. Scale/offset will reset this face back to planar mapping.
+                      Custom face UVs are active. Scale/offset/rotation will reset this face back to planar mapping.
                     </div>
                   ) : null}
                 </div>
@@ -1127,4 +1160,12 @@ function createCustomMaterialId(name: string) {
       .replace(/(^-|-$)/g, "") || "material";
 
   return `material:custom:${slug}:${Date.now().toString(36)}`;
+}
+
+function radiansToDegrees(value: number) {
+  return (value * 180) / Math.PI;
+}
+
+function degreesToRadians(value: number) {
+  return (value * Math.PI) / 180;
 }

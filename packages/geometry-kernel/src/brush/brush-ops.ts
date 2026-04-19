@@ -204,6 +204,7 @@ function preserveAxisAlignedBrushFaceMetadata(source: Brush, next: Brush): Brush
         materialId: preserved?.materialId,
         plane,
         uvOffset: preserved?.uvOffset,
+        uvRotation: preserved?.uvRotation,
         uvScale: preserved?.uvScale,
         vertexIds: preserved?.vertexIds ?? []
       };

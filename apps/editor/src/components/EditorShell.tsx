@@ -104,6 +104,7 @@ export function EditorShell({
     selectAsset: onSelectAsset,
     selectMaterial: onSelectMaterial,
     setUvOffset: onSetUvOffset,
+    setUvRotation: onSetUvRotation,
     setUvScale: onSetUvScale,
     upsertMaterial: onUpsertMaterial,
     upsertTexture: onUpsertTexture
@@ -333,6 +334,7 @@ export function EditorShell({
     onSelectMaterial,
     onSelectNodes,
     onSetUvOffset,
+    onSetUvRotation,
     onSetUvScale,
     onToggleSceneItemLock,
     onToggleSceneItemVisibility,

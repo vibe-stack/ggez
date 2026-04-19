@@ -68,6 +68,7 @@ type InspectorSidebarProps = {
   onToggleSceneItemLock: (itemId: string) => void;
   onToggleSceneItemVisibility: (itemId: string) => void;
   onSetUvOffset: (scope: "faces" | "object", faceIds: string[], uvOffset: { x: number; y: number }) => void;
+  onSetUvRotation: (scope: "faces" | "object", faceIds: string[], uvRotation: number) => void;
   onSetUvScale: (scope: "faces" | "object", faceIds: string[], uvScale: { x: number; y: number }) => void;
   onUpdateMeshData: (nodeId: string, mesh: EditableMesh, beforeMesh?: EditableMesh) => void;
   onTranslateSelection: (axis: "x" | "y" | "z", direction: -1 | 1) => void;
@@ -134,6 +135,7 @@ export function InspectorSidebar({
   onToggleSceneItemLock,
   onToggleSceneItemVisibility,
   onSetUvOffset,
+  onSetUvRotation,
   onSetUvScale,
   onTranslateSelection,
   onUpsertMaterial,
@@ -386,6 +388,7 @@ export function InspectorSidebar({
               onDeleteTexture={onDeleteTexture}
               onSelectMaterial={onSelectMaterial}
               onSetUvOffset={onSetUvOffset}
+              onSetUvRotation={onSetUvRotation}
               onSetUvScale={onSetUvScale}
               onUpdateMeshData={onUpdateMeshData}
               onUpsertMaterial={onUpsertMaterial}

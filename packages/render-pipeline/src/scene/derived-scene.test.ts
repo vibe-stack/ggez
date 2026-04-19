@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createEditableMeshFromPolygons } from "@ggez/geometry-kernel";
 import { createDerivedRenderSceneCache, deriveRenderScene, deriveRenderSceneCached } from "./derived-scene";
 import { makeTransform, vec3, type Entity, type GeometryNode, type Material } from "@ggez/shared";
 
@@ -213,5 +214,45 @@ describe("deriveRenderScene", () => {
 
     expect(movedScene.meshes[0]?.primitive).toBe(firstScene.meshes[0]?.primitive);
     expect(movedScene.meshes[0]?.position).toEqual(vec3(4, 2, -1));
+  });
+
+  test("projects rotated planar UVs for mesh faces", () => {
+    const mesh = createEditableMeshFromPolygons([
+      {
+        id: "face:quad",
+        positions: [
+          vec3(0, 0, 0),
+          vec3(1, 0, 0),
+          vec3(1, 1, 0),
+          vec3(0, 1, 0)
+        ]
+      }
+    ]);
+
+    mesh.faces[0] = {
+      ...mesh.faces[0]!,
+      uvRotation: Math.PI / 2
+    };
+
+    const scene = deriveRenderScene([
+      {
+        data: mesh,
+        id: "node:mesh",
+        kind: "mesh",
+        name: "Rotated UV Mesh",
+        transform: makeTransform(vec3(0, 0, 0))
+      }
+    ]);
+    const uvs = scene.meshes[0]?.surface?.uvs;
+
+    expect(uvs).toHaveLength(8);
+    expect(uvs?.[0]).toBeCloseTo(0, 5);
+    expect(uvs?.[1]).toBeCloseTo(0, 5);
+    expect(uvs?.[2]).toBeCloseTo(0, 5);
+    expect(uvs?.[3]).toBeCloseTo(1, 5);
+    expect(uvs?.[4]).toBeCloseTo(-1, 5);
+    expect(uvs?.[5]).toBeCloseTo(1, 5);
+    expect(uvs?.[6]).toBeCloseTo(-1, 5);
+    expect(uvs?.[7]).toBeCloseTo(0, 5);
   });
 });

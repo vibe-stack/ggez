@@ -461,6 +461,7 @@ function createEditableMeshSurface(
       normal: triangulated.normal,
       triangleIndices: triangulated.indices,
       uvOffset: face.uvOffset,
+      uvRotation: face.uvRotation,
       uvScale: face.uvScale,
       uvs: face.uvs,
       vertices: faceVertices.map((vertex) => vertex.position)
@@ -472,6 +473,7 @@ function createEditableMeshSurface(
     normal: Vec3;
     triangleIndices: number[];
     uvOffset?: Vec2;
+    uvRotation?: number;
     uvScale?: Vec2;
     uvs?: Vec2[];
     vertices: Vec3[];
@@ -481,6 +483,7 @@ function createEditableMeshSurface(
     normal: Vec3;
     triangleIndices: number[];
     uvOffset?: Vec2;
+    uvRotation?: number;
     uvScale?: Vec2;
     uvs?: Vec2[];
     vertices: Vec3[];
@@ -511,6 +514,7 @@ function buildDerivedSurface(
     normal: Vec3;
     triangleIndices: number[];
     uvOffset?: Vec2;
+    uvRotation?: number;
     uvScale?: Vec2;
     uvs?: Vec2[];
     vertices: Vec3[];
@@ -548,7 +552,7 @@ function buildDerivedSurface(
 
     const faceUvs = face.uvs && face.uvs.length === face.vertices.length
       ? face.uvs.flatMap((uv) => [uv.x, uv.y])
-      : projectPlanarUvs(face.vertices, face.normal, face.uvScale, face.uvOffset);
+      : projectPlanarUvs(face.vertices, face.normal, face.uvScale, face.uvOffset, face.uvRotation);
     uvs.push(...faceUvs);
     if (materialLayers?.length) {
       materialLayers.forEach((_, layerIndex) => {
@@ -614,17 +618,25 @@ function resolveRenderMaterial(
   };
 }
 
-function projectPlanarUvs(vertices: Vec3[], normal: Vec3, uvScale?: Vec2, uvOffset?: Vec2) {
+function projectPlanarUvs(vertices: Vec3[], normal: Vec3, uvScale?: Vec2, uvOffset?: Vec2, uvRotation?: number) {
   const basis = createFacePlaneBasis(normal);
   const origin = vertices[0] ?? vec3(0, 0, 0);
   const scaleX = Math.abs(uvScale?.x ?? 1) <= 0.0001 ? 1 : uvScale?.x ?? 1;
   const scaleY = Math.abs(uvScale?.y ?? 1) <= 0.0001 ? 1 : uvScale?.y ?? 1;
   const offsetX = uvOffset?.x ?? 0;
   const offsetY = uvOffset?.y ?? 0;
+  const rotation = uvRotation ?? 0;
+  const cosRotation = Math.cos(rotation);
+  const sinRotation = Math.sin(rotation);
 
   return vertices.flatMap((vertex) => {
     const offset = subVec3(vertex, origin);
-    return [dotVec3(offset, basis.u) * scaleX + offsetX, dotVec3(offset, basis.v) * scaleY + offsetY];
+    const localU = dotVec3(offset, basis.u);
+    const localV = dotVec3(offset, basis.v);
+    const rotatedU = localU * cosRotation - localV * sinRotation;
+    const rotatedV = localU * sinRotation + localV * cosRotation;
+
+    return [rotatedU * scaleX + offsetX, rotatedV * scaleY + offsetY];
   });
 }
 

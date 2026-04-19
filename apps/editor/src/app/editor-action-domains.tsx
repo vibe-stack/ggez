@@ -49,6 +49,7 @@ export type EditorActionDomains = {
     selectAsset: (assetId: string) => void;
     selectMaterial: (materialId: string) => void;
     setUvOffset: (scope: "faces" | "object", faceIds: string[], uvOffset: Vec2) => void;
+    setUvRotation: (scope: "faces" | "object", faceIds: string[], uvRotation: number) => void;
     setUvScale: (scope: "faces" | "object", faceIds: string[], uvScale: Vec2) => void;
     upsertMaterial: (material: Material) => void;
     upsertTexture: (texture: TextureRecord) => void;
