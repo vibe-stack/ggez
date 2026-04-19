@@ -5,6 +5,7 @@ import {
   Texture,
   TextureLoader
 } from "three";
+import { applyMaterialLayersToNodeMaterial } from "../material-blend-node";
 import { applyMaterialLayersToStandardMaterial } from "../material-blend";
 import { applyTextureVariationToStandardMaterial } from "../material-texture-variation";
 import { applyTextureVariationToNodeMaterial } from "../material-texture-variation-node";
@@ -40,7 +41,7 @@ export async function createThreeMaterial(
     transparent: materialSpec.transparent ?? false
   };
 
-  const useNodeMaterial = !blendLayersSpec?.length && options.useNodeMaterials && materialSpec.textureVariation?.enabled;
+  const useNodeMaterial = Boolean(options.useNodeMaterials && (blendLayersSpec?.length || materialSpec.textureVariation?.enabled));
   let material: MeshStandardMaterial;
 
   if (useNodeMaterial) {
@@ -149,11 +150,11 @@ export async function createThreeMaterial(
       }))
     : undefined;
 
-  applyMaterialLayersToStandardMaterial(material, resolvedBlendLayers);
-
   if (useNodeMaterial) {
     applyTextureVariationToNodeMaterial(material as any, materialSpec.textureVariation);
+    applyMaterialLayersToNodeMaterial(material as any, resolvedBlendLayers);
   } else {
+    applyMaterialLayersToStandardMaterial(material, resolvedBlendLayers);
     applyTextureVariationToStandardMaterial(material, materialSpec.textureVariation);
   }
 

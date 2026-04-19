@@ -13,7 +13,7 @@ import {
   type Transform,
   type Vec3
 } from "@ggez/shared";
-import { Matrix4, Object3D, Raycaster, Vector2, Vector3, type Camera } from "three";
+import { DoubleSide, Matrix4, Object3D, Raycaster, Vector2, Vector3, type Camera, type Material } from "three";
 import type { DerivedRenderMesh } from "@ggez/render-pipeline";
 import { projectWorldPointToClient, buildInstanceBrushSampleOffsets, buildSculptVertexRenderMap, composeInstanceBrushRotation, createInstanceBrushTransformKey, patchSculptScenePositions, resolvePaintMaterialColor, resolveViewportConstructionPlane, snapPointToViewportPlane } from "@/viewport/utils/viewport-canvas-helpers";
 import { resolveBrushCreateSurfaceHit } from "@/viewport/utils/brush-create";
@@ -181,7 +181,7 @@ export function useViewportBrushInteractions({
     );
 
     raycasterRef.current.setFromCamera(ndc, sceneCamera);
-    const hit = raycasterRef.current.intersectObject(selectedObject, true)[0];
+    const hit = intersectObjectDoubleSided(raycasterRef.current, selectedObject)[0];
 
     if (!hit) {
       return undefined;
@@ -190,6 +190,11 @@ export function useViewportBrushInteractions({
     const localPoint = selectedObject.worldToLocal(hit.point.clone());
     const faceNormal = hit.face?.normal?.clone() ?? new Vector3(0, 1, 0);
     const worldNormal = faceNormal.transformDirection(hit.object.matrixWorld);
+
+    if (worldNormal.dot(raycasterRef.current.ray.direction) > 0) {
+      worldNormal.multiplyScalar(-1);
+    }
+
     const localNormal = worldNormal.transformDirection(new Matrix4().copy(selectedObject.matrixWorld).invert());
     const normal = vec3(localNormal.x, localNormal.y, localNormal.z);
 
@@ -360,8 +365,9 @@ export function useViewportBrushInteractions({
     }
 
     const currentState = materialPaintStateRef.current;
+    const currentSculptState = sculptStateRef.current;
 
-    if (currentState?.dragging) {
+    if (currentState?.dragging || currentSculptState?.dragging) {
       return;
     }
 
@@ -392,6 +398,11 @@ export function useViewportBrushInteractions({
       radius: sculptBrushRadius,
       strength: sculptBrushStrength
     };
+
+    if (currentSculptState) {
+      sculptStateRef.current = null;
+      setSculptState(null);
+    }
 
     materialPaintStateRef.current = nextState;
     setMaterialPaintState(nextState);
@@ -566,8 +577,9 @@ export function useViewportBrushInteractions({
     }
 
     const currentState = sculptStateRef.current;
+    const currentMaterialPaintState = materialPaintStateRef.current;
 
-    if (currentState?.dragging) {
+    if (currentState?.dragging || currentMaterialPaintState?.dragging) {
       return;
     }
 
@@ -586,6 +598,11 @@ export function useViewportBrushInteractions({
       radius: sculptBrushRadius,
       strength: sculptBrushStrength
     };
+
+    if (currentMaterialPaintState) {
+      materialPaintStateRef.current = null;
+      setMaterialPaintState(null);
+    }
 
     sculptStateRef.current = nextState;
     setSculptState(nextState);
@@ -1146,6 +1163,33 @@ export function useViewportBrushInteractions({
     updateMaterialPaintStroke,
     updateSculptStroke
   };
+}
+
+function intersectObjectDoubleSided(raycaster: Raycaster, object: Object3D) {
+  const overrides: Array<{ material: Material; side: number }> = [];
+
+  object.traverse((child) => {
+    const material = (child as Object3D & { material?: Material | Material[] }).material;
+
+    if (!material) {
+      return;
+    }
+
+    const materials = Array.isArray(material) ? material : [material];
+
+    materials.forEach((entry) => {
+      overrides.push({ material: entry, side: entry.side });
+      entry.side = DoubleSide;
+    });
+  });
+
+  try {
+    return raycaster.intersectObject(object, true);
+  } finally {
+    overrides.forEach(({ material, side }) => {
+      material.side = side;
+    });
+  }
 }
 
 function createBrushRingBasis(normal: Vec3) {

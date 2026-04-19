@@ -300,13 +300,27 @@ export function useViewportPointerRouter({
       return;
     }
 
-    if (activeToolId === "mesh-edit" && !eventBlockers.materialPaintDragging && selectedMeshNode && event.button === 0 && !event.shiftKey) {
+    if (
+      activeToolId === "mesh-edit" &&
+      eventBlockers.materialPaintVisible &&
+      !eventBlockers.materialPaintDragging &&
+      selectedMeshNode &&
+      event.button === 0 &&
+      !event.shiftKey
+    ) {
       if (beginMaterialPaintStroke(bounds, event.clientX, event.clientY)) {
         return;
       }
     }
 
-    if (activeToolId === "mesh-edit" && !eventBlockers.sculptDragging && selectedMeshNode && event.button === 0 && !event.shiftKey) {
+    if (
+      activeToolId === "mesh-edit" &&
+      eventBlockers.sculptVisible &&
+      !eventBlockers.sculptDragging &&
+      selectedMeshNode &&
+      event.button === 0 &&
+      !event.shiftKey
+    ) {
       if (beginSculptStroke(bounds, event.clientX, event.clientY)) {
         return;
       }
@@ -344,12 +358,11 @@ export function useViewportPointerRouter({
       return;
     }
 
-    if (activeToolId === "mesh-edit" && selectedMeshNode) {
+    if (activeToolId === "mesh-edit" && selectedMeshNode && (eventBlockers.materialPaintVisible || eventBlockers.sculptVisible)) {
       if (resolveSelectedMeshSurfaceHit(bounds, event.clientX, event.clientY)) {
-        if (!eventBlockers.materialPaintDragging) {
+        if (eventBlockers.materialPaintVisible && !eventBlockers.materialPaintDragging) {
           queuePreviewUpdate("material-paint", event.clientX, event.clientY, bounds);
-        }
-        if (!eventBlockers.sculptDragging) {
+        } else if (eventBlockers.sculptVisible && !eventBlockers.sculptDragging) {
           queuePreviewUpdate("sculpt", event.clientX, event.clientY, bounds);
         }
       }
