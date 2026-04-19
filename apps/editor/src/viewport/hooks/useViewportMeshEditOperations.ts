@@ -468,12 +468,27 @@ export function useViewportMeshEditOperations({
         raycasterRef.current,
         dragPlane
       ) ?? new Vector3(anchor.x, anchor.y, anchor.z);
-    const averagedFaceDirection = rejectVec3FromAxis(averageVec3(faceDirections), vec3(cameraDirection.x, cameraDirection.y, cameraDirection.z));
-    const fallbackDirection = crossVec3(vec3(cameraDirection.x, cameraDirection.y, cameraDirection.z), vec3LengthSquared(averageAxis) > 0.000001 ? averageAxis : vec3(0, 1, 0));
+    const cameraDirectionVec = vec3(cameraDirection.x, cameraDirection.y, cameraDirection.z);
+    const averagedFaceDirection = normalizeDragDirectionCandidate(
+      rejectVec3FromAxis(averageVec3(faceDirections), cameraDirectionVec)
+    );
+    const projectedAverageAxis = normalizeDragDirectionCandidate(
+      rejectVec3FromAxis(averageAxis, cameraDirectionVec)
+    );
+    const fallbackDirection = projectedAverageAxis
+      ? normalizeDragDirectionCandidate(crossVec3(cameraDirectionVec, projectedAverageAxis))
+      : undefined;
+    const worldUpFallback = normalizeDragDirectionCandidate(rejectVec3FromAxis(vec3(0, 1, 0), cameraDirectionVec));
+    const worldRightFallback = normalizeDragDirectionCandidate(rejectVec3FromAxis(vec3(1, 0, 0), cameraDirectionVec));
+    const dragDirection = averagedFaceDirection ?? fallbackDirection ?? worldUpFallback ?? worldRightFallback;
+
+    if (!dragDirection) {
+      return;
+    }
 
     setBevelState({
       baseMesh: structuredClone(editableMeshSource),
-      dragDirection: vec3LengthSquared(averagedFaceDirection) > 0.000001 ? averagedFaceDirection : fallbackDirection,
+      dragDirection,
       dragPlane,
       edges: selectedEdges,
       profile: "flat",
@@ -1145,6 +1160,22 @@ export function useViewportMeshEditOperations({
     setTransformDragging(false);
     commitMeshTopology(bevelState.previewMesh);
   };
+
+  function normalizeDragDirectionCandidate(direction: Vec3 | undefined, epsilon = 0.000001) {
+    if (!direction) {
+      return undefined;
+    }
+
+    const lengthSquared = vec3LengthSquared(direction);
+
+    if (lengthSquared <= epsilon) {
+      return undefined;
+    }
+
+    const length = Math.sqrt(lengthSquared);
+
+    return vec3(direction.x / length, direction.y / length, direction.z / length);
+  }
 
   function buildExtrudePreviewState(state: ExtrudeGestureState, amount: number): ExtrudeGestureState {
     const appliedAmount = amount * state.amountSign;

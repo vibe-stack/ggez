@@ -146,6 +146,20 @@ describe("bevelEditableMeshEdge", () => {
 });
 
 describe("bevelEditableMeshEdges", () => {
+  test("bevels single edges on inside-out room meshes with flipped face normals", () => {
+    const result = bevelEditableMeshEdges(createInsideOutCube(), [["e", "f"]], 0.2, 2, "flat");
+
+    expect(result).toBeDefined();
+    expect(validateEditableMesh(result!).valid).toBe(true);
+  });
+
+  test("bevels edge loops on inside-out room meshes with flipped face normals", () => {
+    const result = bevelEditableMeshEdges(createInsideOutCube(), [["e", "f"], ["f", "g"], ["g", "h"], ["h", "e"]], 0.2, 2, "flat");
+
+    expect(result).toBeDefined();
+    expect(validateEditableMesh(result!).valid).toBe(true);
+  });
+
   test("keeps inward multi-edge bevel normals pointing outward", () => {
     for (const width of [0.2, -0.2]) {
       const result = bevelEditableMeshEdges(createCube(), [["e", "f"], ["f", "g"], ["g", "h"], ["h", "e"]], width, 2, "flat");
@@ -248,6 +262,41 @@ function createCube() {
       id: "top",
       positions: [vec3(0, 1, 0), vec3(0, 1, 1), vec3(1, 1, 1), vec3(1, 1, 0)],
       vertexIds: ["d", "h", "g", "c"]
+    }
+  ]);
+}
+
+function createInsideOutCube() {
+  return createEditableMeshFromPolygons([
+    {
+      id: "back",
+      positions: [vec3(0, 0, 0), vec3(1, 0, 0), vec3(1, 1, 0), vec3(0, 1, 0)],
+      vertexIds: ["a", "b", "c", "d"]
+    },
+    {
+      id: "front",
+      positions: [vec3(0, 0, 1), vec3(0, 1, 1), vec3(1, 1, 1), vec3(1, 0, 1)],
+      vertexIds: ["e", "h", "g", "f"]
+    },
+    {
+      id: "left",
+      positions: [vec3(0, 0, 0), vec3(0, 1, 0), vec3(0, 1, 1), vec3(0, 0, 1)],
+      vertexIds: ["a", "d", "h", "e"]
+    },
+    {
+      id: "right",
+      positions: [vec3(1, 0, 0), vec3(1, 0, 1), vec3(1, 1, 1), vec3(1, 1, 0)],
+      vertexIds: ["b", "f", "g", "c"]
+    },
+    {
+      id: "bottom",
+      positions: [vec3(0, 0, 0), vec3(0, 0, 1), vec3(1, 0, 1), vec3(1, 0, 0)],
+      vertexIds: ["a", "e", "f", "b"]
+    },
+    {
+      id: "top",
+      positions: [vec3(0, 1, 0), vec3(1, 1, 0), vec3(1, 1, 1), vec3(0, 1, 1)],
+      vertexIds: ["d", "c", "g", "h"]
     }
   ]);
 }
