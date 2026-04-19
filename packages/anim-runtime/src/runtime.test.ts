@@ -180,6 +180,46 @@ const weaponAimSparseClip: AnimationClipAsset = {
   ]
 };
 
+const additiveRotationRig = createRigDefinition({
+  boneNames: ["root", "arm"],
+  parentIndices: [-1, 0],
+  rootBoneIndex: 0,
+  bindTranslations: [0, 0, 0, 0, 1, 0],
+  bindRotations: [0, 0, 0, 1, 0, 0, 0, 1],
+  bindScales: [1, 1, 1, 1, 1, 1]
+});
+
+const aimPoseClip: AnimationClipAsset = {
+  id: "aim-pose",
+  name: "Aim Pose",
+  duration: 1,
+  tracks: [
+    {
+      boneIndex: 0,
+      rotationTimes: new Float32Array([0]),
+      rotationValues: new Float32Array([0, 0, Math.sin(Math.PI / 24), Math.cos(Math.PI / 24)])
+    },
+    {
+      boneIndex: 1,
+      rotationTimes: new Float32Array([0]),
+      rotationValues: new Float32Array([0, 0, Math.sin(Math.PI / 8), Math.cos(Math.PI / 8)])
+    }
+  ]
+};
+
+const rifleFireClip: AnimationClipAsset = {
+  id: "rifle-fire",
+  name: "Rifle Fire",
+  duration: 1,
+  tracks: [
+    {
+      boneIndex: 1,
+      rotationTimes: new Float32Array([0]),
+      rotationValues: new Float32Array([0, 0, Math.sin(Math.PI / 6), Math.cos(Math.PI / 6)])
+    }
+  ]
+};
+
 const orientationWarpRig = createRigDefinition({
   boneNames: ["root", "hips", "spine", "leftUpperLeg", "leftLowerLeg", "leftFoot", "rightUpperLeg", "rightLowerLeg", "rightFoot"],
   parentIndices: [-1, 0, 1, 1, 3, 4, 1, 6, 7],
@@ -1877,6 +1917,63 @@ describe("@ggez/anim-runtime", () => {
     expect(result.pose.translations[6]).toBeCloseTo(0);
     expect(result.pose.translations[7]).toBeCloseTo(2.5);
     expect(result.pose.translations[8]).toBeCloseTo(0);
+  });
+
+  it("evaluates additive layers relative to the current pose instead of bind pose", () => {
+    const graph: CompiledAnimatorGraph = {
+      version: 1,
+      name: "Additive Rifle Fire",
+      parameters: [],
+      clipSlots: [
+        { id: "aim-pose", name: "Aim Pose", duration: 1 },
+        { id: "rifle-fire", name: "Rifle Fire", duration: 1 }
+      ],
+      masks: [],
+      graphs: [
+        {
+          name: "Base",
+          rootNodeIndex: 0,
+          nodes: [{ type: "clip", clipIndex: 0, speed: 1, loop: true, inPlace: false }]
+        },
+        {
+          name: "Upper Additive",
+          rootNodeIndex: 0,
+          nodes: [{ type: "clip", clipIndex: 1, speed: 1, loop: true, inPlace: false }]
+        }
+      ],
+      layers: [
+        {
+          name: "Base",
+          graphIndex: 0,
+          weight: 1,
+          blendMode: "override",
+          rootMotionMode: "none",
+          enabled: true
+        },
+        {
+          name: "Fire",
+          graphIndex: 1,
+          weight: 1,
+          blendMode: "additive",
+          rootMotionMode: "none",
+          enabled: true
+        }
+      ],
+      entryGraphIndex: 0
+    };
+
+    const animator = createAnimatorInstance({
+      rig: additiveRotationRig,
+      graph,
+      clips: [aimPoseClip, rifleFireClip]
+    });
+
+    const result = animator.update(0);
+
+    expect(result.pose.rotations[2]).toBeCloseTo(aimPoseClip.tracks[0]!.rotationValues![2]!);
+    expect(result.pose.rotations[3]).toBeCloseTo(aimPoseClip.tracks[0]!.rotationValues![3]!);
+    expect(result.pose.rotations[6]).toBeCloseTo(rifleFireClip.tracks[0]!.rotationValues![2]!);
+    expect(result.pose.rotations[7]).toBeCloseTo(rifleFireClip.tracks[0]!.rotationValues![3]!);
   });
 
   it("allows an upper-body state machine state to passthrough the lower layer", () => {

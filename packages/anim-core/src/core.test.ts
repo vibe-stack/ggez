@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import { addPoseAdditive, blendPosesMasked, createBoneMask, createPoseBuffer, createRigDefinition, extractRootMotionDelta, sampleClipPose, setBoneRotation, setBoneScale, setBoneTranslation } from "./index";
 
+function quaternionFromZRotation(radians: number): [number, number, number, number] {
+  const halfAngle = radians * 0.5;
+  return [0, 0, Math.sin(halfAngle), Math.cos(halfAngle)];
+}
+
 describe("@ggez/anim-core", () => {
   const rig = createRigDefinition({
     boneNames: ["root", "hand"],
@@ -54,6 +59,33 @@ describe("@ggez/anim-core", () => {
 
     expect(out.translations[0]).toBeCloseTo(2.5);
     expect(out.scales[0]).toBeCloseTo(1.5);
+  });
+
+  it("applies additive poses relative to an explicit reference pose", () => {
+    const base = createPoseBuffer(rig.boneNames.length);
+    const reference = createPoseBuffer(rig.boneNames.length);
+    const additive = createPoseBuffer(rig.boneNames.length);
+    const out = createPoseBuffer(rig.boneNames.length);
+    const referenceRotation = quaternionFromZRotation(Math.PI / 4);
+    const additiveRotation = quaternionFromZRotation(Math.PI / 3);
+
+    setBoneTranslation(base, 0, 10, 0, 0);
+    setBoneTranslation(reference, 0, 10, 0, 0);
+    setBoneTranslation(additive, 0, 12, 0, 0);
+    setBoneRotation(base, 0, ...referenceRotation);
+    setBoneRotation(reference, 0, ...referenceRotation);
+    setBoneRotation(additive, 0, ...additiveRotation);
+    setBoneScale(base, 0, 1, 1, 1);
+    setBoneScale(reference, 0, 1, 1, 1);
+    setBoneScale(additive, 0, 1, 1, 1);
+
+    addPoseAdditive(base, additive, rig, 1, undefined, out, reference);
+
+    expect(out.translations[0]).toBeCloseTo(12);
+    expect(out.rotations[0]).toBeCloseTo(additiveRotation[0]);
+    expect(out.rotations[1]).toBeCloseTo(additiveRotation[1]);
+    expect(out.rotations[2]).toBeCloseTo(additiveRotation[2]);
+    expect(out.rotations[3]).toBeCloseTo(additiveRotation[3]);
   });
 
   it("extracts root motion deltas with xz mode", () => {

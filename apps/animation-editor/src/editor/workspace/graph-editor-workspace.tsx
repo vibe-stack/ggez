@@ -185,7 +185,7 @@ export function GraphEditorWorkspace(props: GraphEditorWorkspaceProps) {
         </div>
 
         <div
-          className="pointer-events-auto absolute top-12 right-4 z-20 h-[min(72vh,760px)] w-72 max-w-[calc(100vw-2rem)]"
+          className="pointer-events-auto absolute top-12 right-4 z-20 h-[min(72vh,760px)] w-lg max-w-lg"
           style={copilotOpen ? { right: "calc(22rem + 2rem)" } : undefined}
         >
           <RightSidebar store={store} />

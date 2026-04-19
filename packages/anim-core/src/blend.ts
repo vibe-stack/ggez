@@ -177,7 +177,8 @@ export function addPoseAdditive(
   rig: RigDefinition,
   globalWeight: number,
   mask: BoneMask | undefined,
-  out: PoseBuffer
+  out: PoseBuffer,
+  referencePose?: PoseBuffer
 ): PoseBuffer {
   copyPose(base, out);
 
@@ -189,22 +190,34 @@ export function addPoseAdditive(
 
     const vecOffset = boneIndex * 3;
     const quatOffset = boneIndex * 4;
+    const referenceTranslations = referencePose?.translations;
+    const referenceRotations = referencePose?.rotations;
+    const referenceScales = referencePose?.scales;
 
-    out.translations[vecOffset] += (additive.translations[vecOffset] - rig.bindTranslations[vecOffset]) * weight;
-    out.translations[vecOffset + 1] +=
-      (additive.translations[vecOffset + 1] - rig.bindTranslations[vecOffset + 1]) * weight;
-    out.translations[vecOffset + 2] +=
-      (additive.translations[vecOffset + 2] - rig.bindTranslations[vecOffset + 2]) * weight;
+    const referenceTranslationX = referenceTranslations ? referenceTranslations[vecOffset]! : rig.bindTranslations[vecOffset]!;
+    const referenceTranslationY = referenceTranslations
+      ? referenceTranslations[vecOffset + 1]!
+      : rig.bindTranslations[vecOffset + 1]!;
+    const referenceTranslationZ = referenceTranslations
+      ? referenceTranslations[vecOffset + 2]!
+      : rig.bindTranslations[vecOffset + 2]!;
+    const referenceScaleX = referenceScales ? referenceScales[vecOffset]! : rig.bindScales[vecOffset]!;
+    const referenceScaleY = referenceScales ? referenceScales[vecOffset + 1]! : rig.bindScales[vecOffset + 1]!;
+    const referenceScaleZ = referenceScales ? referenceScales[vecOffset + 2]! : rig.bindScales[vecOffset + 2]!;
 
-    out.scales[vecOffset] += (additive.scales[vecOffset] - rig.bindScales[vecOffset]) * weight;
-    out.scales[vecOffset + 1] += (additive.scales[vecOffset + 1] - rig.bindScales[vecOffset + 1]) * weight;
-    out.scales[vecOffset + 2] += (additive.scales[vecOffset + 2] - rig.bindScales[vecOffset + 2]) * weight;
+    out.translations[vecOffset] += (additive.translations[vecOffset] - referenceTranslationX) * weight;
+    out.translations[vecOffset + 1] += (additive.translations[vecOffset + 1] - referenceTranslationY) * weight;
+    out.translations[vecOffset + 2] += (additive.translations[vecOffset + 2] - referenceTranslationZ) * weight;
+
+    out.scales[vecOffset] += (additive.scales[vecOffset] - referenceScaleX) * weight;
+    out.scales[vecOffset + 1] += (additive.scales[vecOffset + 1] - referenceScaleY) * weight;
+    out.scales[vecOffset + 2] += (additive.scales[vecOffset + 2] - referenceScaleZ) * weight;
 
     const bindInverse = invertQuaternion(
-      rig.bindRotations[quatOffset],
-      rig.bindRotations[quatOffset + 1],
-      rig.bindRotations[quatOffset + 2],
-      rig.bindRotations[quatOffset + 3]
+      referenceRotations ? referenceRotations[quatOffset]! : rig.bindRotations[quatOffset]!,
+      referenceRotations ? referenceRotations[quatOffset + 1]! : rig.bindRotations[quatOffset + 1]!,
+      referenceRotations ? referenceRotations[quatOffset + 2]! : rig.bindRotations[quatOffset + 2]!,
+      referenceRotations ? referenceRotations[quatOffset + 3]! : rig.bindRotations[quatOffset + 3]!
     );
     const delta = multiplyQuaternion(
       additive.rotations[quatOffset],

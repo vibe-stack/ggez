@@ -89,7 +89,10 @@ export function createAnimatorInstance(input: {
       const graph = input.graph.graphs[layer.graphIndex]!;
       const layerPose = ensureScratchPose(context);
       const layerMotion = ensureScratchMotion(context);
-      const fallbackPose = layer.blendMode === "override" && layer.maskIndex !== undefined ? outputPose : undefined;
+      const fallbackPose =
+        layer.blendMode === "additive" || (layer.blendMode === "override" && layer.maskIndex !== undefined)
+          ? outputPose
+          : undefined;
 
       evaluateNode(context, graph, layer.graphIndex, graph.rootNodeIndex, layerState.time, previousTime, deltaTime, layerPose, layerMotion, fallbackPose);
 
@@ -98,7 +101,7 @@ export function createAnimatorInstance(input: {
         copyPose(layerPose, outputPose);
         hasBaseLayer = true;
       } else if (layer.blendMode === "additive") {
-        addPoseAdditive(outputPose, layerPose, input.rig, layer.weight, mask, outputPose);
+        addPoseAdditive(outputPose, layerPose, input.rig, layer.weight, mask, outputPose, outputPose);
       } else {
         blendPosesMasked(outputPose, layerPose, layer.weight, mask, outputPose);
       }
